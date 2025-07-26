@@ -19,7 +19,7 @@ builds:
   - id: linux-arm
     env:
       - CGO_ENABLED=1
-      #- CC=arm-linux-gnueabihf-gcc
+      - CC=arm-linux-gnueabihf-gcc
     goos:
       - linux
     goarch:
@@ -27,7 +27,7 @@ builds:
   - id: linux-arm64
     env:
       - CGO_ENABLED=1
-      #- CC=aarch64-linux-gnu-gcc
+      - CC=aarch64-linux-gnu-gcc
     goos:
       - linux
     goarch:
