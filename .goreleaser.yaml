@@ -9,11 +9,15 @@ before:
 
 builds:
   - env:
-      - CGO_ENABLED=1
+      - CGO_ENABLED=0
     goos:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm
+      - arm64
 
 archives:
   - formats: [tar.gz]
@@ -36,9 +40,3 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
-# release:
-#   footer: >-
-#
-#     ---
-#
-#     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
