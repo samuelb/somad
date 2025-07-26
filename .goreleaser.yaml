@@ -8,15 +8,32 @@ before:
     - go mod tidy
 
 builds:
-  - env:
+  - id: linux-amd64
+    env:
       - CGO_ENABLED=1
+      - CC=x86_64-linux-gnu-gcc
     goos:
       - linux
     goarch:
       - amd64
+  - id: linux-arm
+    env:
+      - CGO_ENABLED=1
+      - CC=arm-linux-gnueabihf-gcc
+    goos:
+      - linux
+    goarch:
       - arm
+  - id: linux-arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-gnu-gcc
+    goos:
+      - linux
+    goarch:
       - arm64
-  - env:
+  - id: others
+    env:
       - CGO_ENABLED=0
     goos:
       - windows
@@ -28,21 +45,6 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64
-
-archives:
-  - formats: [tar.gz]
-    # this name template makes the OS and Arch compatible with the results of `uname`.
-    name_template: >-
-      {{ .ProjectName }}_
-      {{- title .Os }}_
-      {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "386" }}i386
-      {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
-    # use zip for windows archives
-    format_overrides:
-      - goos: windows
-        formats: [zip]
 
 changelog:
   sort: asc
