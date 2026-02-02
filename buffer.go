@@ -65,10 +65,11 @@ func DefaultReconnectConfig() ReconnectConfig {
 // Buffer size constants
 const (
 	DefaultBufferCapacity   = 256 * 1024 // 256 KB (~15 seconds at 128kbps)
-	DefaultHighWatermark    = 64 * 1024  // Start playback after this much
+	DefaultHighWatermark    = 32 * 1024  // Start playback after ~2 seconds at 128kbps
 	DefaultLowWatermark     = 16 * 1024  // Recover from underrun threshold
 	DefaultReadChunkSize    = 8 * 1024   // Read from HTTP in 8KB chunks
-	DefaultStatsChannelSize = 16         // Buffer for stats channel
+	DefaultStatsChannelSize = 32         // Buffer for stats channel
+	DefaultStatsInterval    = 8          // Emit stats every N writes
 )
 
 // BufferedStream wraps an HTTP stream with a ring buffer for smooth playback.
@@ -102,6 +103,7 @@ type BufferedStream struct {
 	lastError   error
 	statsChan   chan BufferStats
 	initialFill bool // True until we've reached high watermark once
+	writeCount  int  // Counter for periodic stats emission
 }
 
 // NewBufferedStream creates a new buffered stream for the given URL.
@@ -278,6 +280,13 @@ func (bs *BufferedStream) writeToBuffer(data []byte) {
 			bs.emitStats()
 		} else if !bs.initialFill && bs.state == BufferStateUnderrun && bs.filled >= bs.lowWatermark {
 			bs.state = BufferStateHealthy
+			bs.emitStats()
+		}
+
+		// Emit periodic stats during normal playback
+		bs.writeCount++
+		if bs.writeCount >= DefaultStatsInterval {
+			bs.writeCount = 0
 			bs.emitStats()
 		}
 
