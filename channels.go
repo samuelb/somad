@@ -93,18 +93,8 @@ func writeChannelsToCache(channels *Channels) error {
 	return nil
 }
 
-// getChannels fetches SomaFM channel data, prioritizing the local cache.
-// If the cache is unavailable or outdated, it fetches from the network.
-func getChannels() (*Channels, error) {
-	// Try to read from cache first
-	channels, err := readChannelsFromCache()
-	if err == nil {
-		fmt.Println("Channels loaded from cache.")
-		return channels, nil
-	}
-
-	// If cache read fails, fetch from network
-	fmt.Println("Fetching channels from network...")
+// fetchChannelsFromNetwork fetches channel data from the SomaFM API.
+func fetchChannelsFromNetwork() (*Channels, error) {
 	resp, err := http.Get(somafmChannelsURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch channels from network: %w", err)
@@ -122,8 +112,22 @@ func getChannels() (*Channels, error) {
 
 	// Write to cache for future use
 	if err := writeChannelsToCache(&fetchedChannels); err != nil {
-		fmt.Printf("Warning: Failed to write channels to cache: %v\n", err)
+		// Log error but don't fail
+		fmt.Fprintf(os.Stderr, "Warning: Failed to write channels to cache: %v\n", err)
 	}
 
 	return &fetchedChannels, nil
+}
+
+// getChannels fetches SomaFM channel data, prioritizing the local cache.
+// If the cache is unavailable, it fetches from the network.
+func getChannels() (*Channels, error) {
+	// Try to read from cache first
+	channels, err := readChannelsFromCache()
+	if err == nil {
+		return channels, nil
+	}
+
+	// If cache read fails, fetch from network
+	return fetchChannelsFromNetwork()
 }

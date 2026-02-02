@@ -219,6 +219,12 @@ type model struct {
 
 // channelsLoadedMsg is a message sent when channels are successfully loaded.
 type channelsLoadedMsg struct {
+	channels  *Channels
+	fromCache bool
+}
+
+// channelsRefreshedMsg is a message sent when channels are refreshed from network.
+type channelsRefreshedMsg struct {
 	channels *Channels
 }
 
@@ -241,6 +247,9 @@ type bufferUpdateMsg struct {
 type streamErrorMsg struct {
 	err error
 }
+
+// tickMsg is a message sent to keep the UI refreshing.
+type tickMsg struct{}
 
 // Init initializes the application, loading channels asynchronously.
 func (m *model) Init() tea.Cmd {
@@ -359,6 +368,24 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
+		// If loaded from cache, refresh from network in background
+		if msg.fromCache {
+			return m, refreshChannels
+		}
+	case channelsRefreshedMsg:
+		// Channels have been refreshed from network, update the list
+		selectedIndex := m.list.Index()
+		items := make([]list.Item, len(msg.channels.Channels))
+		for i, ch := range msg.channels.Channels {
+			items[i] = item{channel: ch}
+		}
+		m.list.SetItems(items)
+
+		// Restore selection position
+		if selectedIndex < len(items) {
+			m.list.Select(selectedIndex)
+		}
 	case errorMsg:
 		// An error occurred during channel loading
 		m.err = msg.err
@@ -392,6 +419,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Continue polling for buffer updates
 		return m, m.pollBufferUpdates()
+	case tickMsg:
+		// Continue polling to keep UI refreshing
+		if m.playing >= 0 {
+			return m, m.pollBufferUpdates()
+		}
 	case streamErrorMsg:
 		// Stream error occurred
 		m.status = fmt.Sprintf("Stream error: %v", msg.err)
@@ -522,11 +554,28 @@ func (m *model) View() string {
 
 // loadChannels is a Tea command that fetches SomaFM channels asynchronously.
 func loadChannels() tea.Msg {
-	channels, err := getChannels()
+	// Try cache first
+	channels, err := readChannelsFromCache()
+	if err == nil {
+		return channelsLoadedMsg{channels: channels, fromCache: true}
+	}
+
+	// Fall back to network
+	channels, err = fetchChannelsFromNetwork()
 	if err != nil {
 		return errorMsg{err}
 	}
-	return channelsLoadedMsg{channels}
+	return channelsLoadedMsg{channels: channels, fromCache: false}
+}
+
+// refreshChannels fetches channels from network in the background.
+func refreshChannels() tea.Msg {
+	channels, err := fetchChannelsFromNetwork()
+	if err != nil {
+		// Silently ignore background refresh errors
+		return nil
+	}
+	return channelsRefreshedMsg{channels: channels}
 }
 
 // pollTrackUpdates is a Tea command that polls for track information updates.
@@ -549,18 +598,18 @@ func (m *model) pollTrackUpdates() tea.Cmd {
 func (m *model) pollBufferUpdates() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		if m.bufferStateChan == nil {
-			return nil
+			return tickMsg{} // Keep UI refreshing
 		}
 
 		select {
 		case stats, ok := <-m.bufferStateChan:
 			if !ok {
 				// Channel closed
-				return nil
+				return tickMsg{}
 			}
 			return bufferUpdateMsg{stats: stats}
 		default:
-			return nil
+			return tickMsg{} // Keep UI refreshing even without new stats
 		}
 	})
 }
