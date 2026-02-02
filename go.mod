@@ -1,4 +1,4 @@
-module somacli
+module somatui
 
 go 1.24.5
 

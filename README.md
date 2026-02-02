@@ -50,7 +50,7 @@ Simply run:
 
 ## Configuration & Cache
 
-- Config and cache files are stored under your XDG-compliant config/cache directory, e.g. `~/.config/somacli` and `~/.cache/somacli`.
+- Config and cache files are stored under your XDG-compliant config/cache directory, e.g. `~/.config/somatui` and `~/.cache/somatui`.
 - The client remembers your last selected channel across sessions.
 
 ## Dependencies

@@ -13,8 +13,8 @@ type Config struct {
 }
 
 const (
-	configFileName    = "somacli_config.json"
-	appConfigDirName  = "somacli"
+	configFileName   = "somatui_config.json"
+	appConfigDirName = "somatui"
 )
 
 // getConfigFilePath returns the absolute path to the configuration file.

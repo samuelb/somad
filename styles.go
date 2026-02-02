@@ -1,0 +1,58 @@
+package main
+
+import "github.com/charmbracelet/lipgloss"
+
+// Color palette - SomaFM inspired
+var (
+	titleColor     = lipgloss.Color("#ff0709") // Red for title
+	primaryColor   = lipgloss.Color("#D8A24D") // Golden accent
+	playingColor   = lipgloss.Color("#1a9096") // Teal for playing
+	bufferingColor = lipgloss.Color("#D8A24D") // Golden for buffering
+	errorColor     = lipgloss.Color("#FF3333") // Red for errors
+	subtleColor    = lipgloss.Color("#666666") // Gray for secondary text
+	dimColor       = lipgloss.Color("#444444") // Dim gray for backgrounds
+)
+
+// Styles
+var (
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(titleColor).
+			MarginLeft(2)
+
+	statusBarStyle = lipgloss.NewStyle().
+			Padding(0, 1).
+			MarginTop(1)
+
+	statusPlayingStyle = lipgloss.NewStyle().
+				Foreground(playingColor).
+				Bold(true)
+
+	statusBufferingStyle = lipgloss.NewStyle().
+				Foreground(bufferingColor).
+				Bold(true)
+
+	statusStoppedStyle = lipgloss.NewStyle().
+				Foreground(subtleColor)
+
+	statusErrorStyle = lipgloss.NewStyle().
+				Foreground(errorColor).
+				Bold(true)
+
+	trackInfoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#CCCCCC")).
+			Italic(true)
+
+	loadingStyle = lipgloss.NewStyle().
+			Foreground(primaryColor).
+			Bold(true).
+			Padding(2, 4)
+
+	errorBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(errorColor).
+			Foreground(errorColor).
+			Padding(1, 2).
+			MarginTop(2).
+			MarginLeft(2)
+)

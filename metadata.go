@@ -74,7 +74,7 @@ func (mr *MetadataReader) getMetadata() (TrackInfo, error) {
 		return TrackInfo{}, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("User-Agent", "SomaCLI/1.0")
+	req.Header.Set("User-Agent", "SomaTUI/1.0")
 	req.Header.Set("Icy-MetaData", "1") // Request metadata
 
 	resp, err := mr.client.Do(req)

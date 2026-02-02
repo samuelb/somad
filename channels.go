@@ -37,7 +37,7 @@ type Channels struct {
 
 const (
 	cacheFileName = "somafm_channels.json"
-	appCacheDirName = "somacli"
+	appCacheDirName = "somatui"
 	somafmChannelsURL = "https://somafm.com/channels.json"
 )
 
