@@ -9,8 +9,10 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 - Browse and filter the full list of SomaFM radio channels
 - Play high-quality MP3 streams directly in your terminal
 - View real-time track information (artist/title) from ICY metadata
+- Buffered streaming with automatic reconnection on network issues
+- Styled UI with color-coded playback states and visual indicators
 - Select and remember your last-played channel
-- Caches fetched channels for faster launches
+- Fast startup with cached channels and background refresh
 - Smooth, keyboard-driven navigation and playback controls
 
 ## Installation
@@ -36,9 +38,10 @@ Simply run:
 ```
 
 ### Keyboard Controls
-- <kbd>Up/Down</kbd>: Navigate channels
-- <kbd>Enter/Space</kbd>: Play selected channel
+- <kbd>Up/Down</kbd> or <kbd>j/k</kbd>: Navigate channels
+- <kbd>Enter</kbd> or <kbd>Space</kbd>: Play selected channel
 - <kbd>s</kbd>: Stop playback
+- <kbd>/</kbd>: Filter channels
 - <kbd>q</kbd> or <kbd>Ctrl+C</kbd>: Quit
 
 ## Configuration & Cache
@@ -48,10 +51,11 @@ Simply run:
 
 ## Dependencies
 
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea) (TUI)
-- [Bubbles](https://github.com/charmbracelet/bubbles) (widgets)
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea) (TUI framework)
+- [Bubbles](https://github.com/charmbracelet/bubbles) (TUI components)
+- [Lip Gloss](https://github.com/charmbracelet/lipgloss) (styling)
 - [oto](https://github.com/ebitengine/oto) (audio output)
-- [ebiten/mp3](https://github.com/hajimehoshi/ebiten) (MP3 decoding)
+- [go-mp3](https://github.com/hajimehoshi/go-mp3) (MP3 decoding)
 
 See `go.mod` for the full dependency list.
 
