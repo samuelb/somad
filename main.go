@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -252,7 +253,6 @@ func (m *model) View() string {
 	}
 	view += "\n" + statusLine
 
-	view += "\nPress 's' to stop, 'q' to quit."
 	return view
 }
 
@@ -319,6 +319,11 @@ func main() {
 	// Initialize the Bubble Tea list component
 	l := list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)
 	l.Title = "SomaFM Stations"
+	l.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+		}
+	}
 
 	// Create the main application model
 	m := &model{
