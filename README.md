@@ -1,5 +1,9 @@
 # SomaTUI
 
+[![CI](https://github.com/samuelb/somatui/actions/workflows/ci.yml/badge.svg)](https://github.com/samuelb/somatui/actions/workflows/ci.yml)
+[![Go Version](https://img.shields.io/badge/go-1.24-blue.svg)](https://golang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **✨ This project was entirely vibe-coded. ✨**
 
 A modern, TUI (Terminal User Interface) client for streaming and exploring SomaFM radio channels.
@@ -73,11 +77,14 @@ To check the version:
 
 ### Keyboard Controls
 
-- <kbd>Up/Down</kbd> or <kbd>j/k</kbd>: Navigate channels
-- <kbd>Enter</kbd> or <kbd>Space</kbd>: Play selected channel
-- <kbd>s</kbd>: Stop playback
-- <kbd>/</kbd>: Filter channels
-- <kbd>q</kbd> or <kbd>Ctrl+C</kbd>: Quit
+| Key                       | Action                |
+| ------------------------- | --------------------- |
+| <kbd>↑</kbd> / <kbd>k</kbd> | Navigate channels up  |
+| <kbd>↓</kbd> / <kbd>j</kbd> | Navigate channels down|
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel |
+| <kbd>s</kbd>               | Stop playback         |
+| <kbd>/</kbd>               | Filter channels       |
+| <kbd>q</kbd> / <kbd>Ctrl+C</kbd>  | Quit                  |
 
 ## Data Storage
 
