@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // item implements the list.Item interface for displaying channels.
@@ -109,10 +110,13 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	var titleStr, descStr, listenerStr string
 	listeners := i.Listeners() + " ♪"
 
+	// Truncate description to prevent wrapping (content area is leftColWidth - 2 for padding)
+	desc := ansi.Truncate(i.Description(), leftColWidth-2, "…")
+
 	if isSelected {
 		// Subtract 1 from width to account for left border character
 		titleStr = d.Styles.SelectedTitle.Width(leftColWidth - 1).Render(title)
-		descStr = d.Styles.SelectedDesc.Width(leftColWidth - 1).Render(i.Description())
+		descStr = d.Styles.SelectedDesc.Width(leftColWidth - 1).Render(desc)
 		listenerStr = listenerSelectedStyle.Render(listeners)
 	} else if isPlaying {
 		// Playing but not selected - show green indicator
@@ -125,11 +129,11 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 			Padding(0, 0, 0, 2).
 			Width(leftColWidth)
 		titleStr = playingTitleStyle.Render(title)
-		descStr = playingDescStyle.Render(i.Description())
+		descStr = playingDescStyle.Render(desc)
 		listenerStr = listenerPlayingStyle.Render(listeners)
 	} else {
 		titleStr = d.Styles.NormalTitle.Width(leftColWidth).Render(title)
-		descStr = d.Styles.NormalDesc.Width(leftColWidth).Render(i.Description())
+		descStr = d.Styles.NormalDesc.Width(leftColWidth).Render(desc)
 		listenerStr = listenerStyle.Render(listeners)
 	}
 
