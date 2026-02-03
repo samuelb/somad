@@ -40,13 +40,10 @@ func main() {
 
 	// Create the main application model (need playing index for delegate)
 	m := &model{
-		player:          player,
-		playing:         -1,
-		loading:         true,
-		state:           state,
-		trackInfo:       nil,
-		metadataReader:  nil,
-		trackUpdateChan: nil,
+		player:  player,
+		playing: -1,
+		loading: true,
+		state:   state,
 	}
 
 	// Initialize the Bubble Tea list component with styled delegate

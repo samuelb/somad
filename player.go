@@ -10,10 +10,12 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
 )
 
-const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
-
-const fadeInDuration = 500 * time.Millisecond
-const fadeOutDuration = 500 * time.Millisecond
+const (
+	userAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+	fadeInDuration  = 500 * time.Millisecond
+	fadeOutDuration = 500 * time.Millisecond
+	fadeSteps       = 20
+)
 
 // Player manages the audio playback for SomaFM streams.
 type Player struct {
@@ -51,14 +53,7 @@ func (p *Player) Play(url string) error {
 	p.fadeOut()
 	p.cancelFade = make(chan struct{})
 
-	// Close any existing player and stream to prevent resource leaks
-	if p.player != nil {
-		p.player = nil
-	}
-	if p.stream != nil {
-		_ = p.stream.Close()
-		p.stream = nil
-	}
+	p.cleanup()
 
 	// Create a pipe to connect the HTTP stream to the MP3 decoder
 	pr, pw := io.Pipe()
@@ -117,16 +112,14 @@ func (p *Player) Play(url string) error {
 
 // fadeIn gradually increases the volume from 0 to 1.
 func (p *Player) fadeIn() {
-	steps := 20
-	stepDuration := fadeInDuration / time.Duration(steps)
-
-	for i := 1; i <= steps; i++ {
+	stepDuration := fadeInDuration / fadeSteps
+	for i := 1; i <= fadeSteps; i++ {
 		select {
 		case <-p.cancelFade:
 			return
 		case <-time.After(stepDuration):
 			if p.player != nil {
-				p.player.SetVolume(float64(i) / float64(steps))
+				p.player.SetVolume(float64(i) / fadeSteps)
 			}
 		}
 	}
@@ -137,15 +130,12 @@ func (p *Player) fadeOut() {
 	if p.player == nil {
 		return
 	}
-
-	steps := 20
-	stepDuration := fadeOutDuration / time.Duration(steps)
+	stepDuration := fadeOutDuration / fadeSteps
 	startVolume := p.player.Volume()
-
-	for i := steps - 1; i >= 0; i-- {
+	for i := fadeSteps - 1; i >= 0; i-- {
 		time.Sleep(stepDuration)
 		if p.player != nil {
-			p.player.SetVolume(startVolume * float64(i) / float64(steps))
+			p.player.SetVolume(startVolume * float64(i) / fadeSteps)
 		}
 	}
 }
@@ -158,7 +148,11 @@ func (p *Player) Stop() {
 		p.cancelFade = nil
 	}
 	p.fadeOut()
+	p.cleanup()
+}
 
+// cleanup releases player and stream resources.
+func (p *Player) cleanup() {
 	if p.player != nil {
 		p.player = nil
 	}

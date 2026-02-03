@@ -82,13 +82,7 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	}
 
 	// Calculate column widths
-	listWidth := m.Width()
-	listenerColWidth := 12                           // Space for "XXX listeners"
-	leftColWidth := listWidth - listenerColWidth - 4 // 4 for padding/margins
-
-	if leftColWidth < 20 {
-		leftColWidth = 20
-	}
+	leftColWidth, listenerColWidth := calculateColumnWidths(m.Width())
 
 	// Listener count styles
 	listenerStyle := lipgloss.NewStyle().

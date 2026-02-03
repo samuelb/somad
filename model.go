@@ -10,18 +10,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const (
+	listenerColumnWidth = 12
+	minLeftColumnWidth  = 20
+)
+
 // model represents the application's state.
 type model struct {
-	list            list.Model
-	player          *Player
-	playing         int // Index of the playing channel, -1 if not playing
-	status          string
-	loading         bool
-	err             error
-	state           *State
-	trackInfo       *TrackInfo
-	metadataReader  *MetadataReader
-	trackUpdateChan chan TrackInfo
+	list           list.Model
+	player         *Player
+	playing        int // Index of the playing channel, -1 if not playing
+	status         string
+	loading        bool
+	err            error
+	state          *State
+	trackInfo      *TrackInfo
+	metadataReader *MetadataReader
 }
 
 // channelsLoadedMsg is a message sent when channels are successfully loaded.
@@ -58,87 +62,83 @@ func (m *model) Init() tea.Cmd {
 	return tea.Batch(loadChannels, tea.EnterAltScreen, tickChannelRefresh())
 }
 
+// stopMetadataReader stops any active metadata reader.
+func (m *model) stopMetadataReader() {
+	if m.metadataReader != nil {
+		m.metadataReader.Stop()
+		m.metadataReader = nil
+	}
+}
+
+// selectMP3PlaylistURL finds the first MP3 playlist URL from a channel's playlists.
+func selectMP3PlaylistURL(playlists []Playlist) string {
+	for _, playlist := range playlists {
+		if playlist.Format == "mp3" {
+			return playlist.URL
+		}
+	}
+	return ""
+}
+
+// playChannel starts playing the given channel.
+func (m *model) playChannel(i item) tea.Cmd {
+	m.playing = m.list.Index()
+
+	// Save the last selected channel
+	if m.state != nil {
+		m.state.LastSelectedChannelID = i.channel.ID
+		if err := SaveState(m.state); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
+		}
+	}
+
+	playlistURL := selectMP3PlaylistURL(i.channel.Playlists)
+	if playlistURL == "" {
+		m.status = "No MP3 stream found for this channel."
+		return nil
+	}
+
+	streamURL, err := getStreamURLFromPlaylist(playlistURL)
+	if err != nil {
+		m.status = fmt.Sprintf("Error getting stream URL: %v", err)
+		return nil
+	}
+
+	if err := m.player.Play(streamURL); err != nil {
+		m.status = fmt.Sprintf("Error playing: %v", err)
+		return nil
+	}
+
+	m.status = fmt.Sprintf("Playing: %s...", i.channel.Title)
+	m.stopMetadataReader()
+	m.metadataReader = NewMetadataReader(streamURL)
+	m.metadataReader.Start()
+	m.trackInfo = nil
+
+	return m.pollTrackUpdates()
+}
+
 // Update handles incoming messages and updates the model's state.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
-			// Stop playback and quit the application
 			if m.player != nil {
 				m.player.Stop()
 			}
-			// Stop metadata reading
-			if m.metadataReader != nil {
-				m.metadataReader.Stop()
-			}
+			m.stopMetadataReader()
 			return m, tea.Quit
 		case "enter", " ":
-			// Play the selected channel
 			if i, ok := m.list.SelectedItem().(item); ok {
-				m.playing = m.list.Index()
-
-				// Save the ID of the last selected channel to state
-				if m.state != nil {
-					m.state.LastSelectedChannelID = i.channel.ID
-					if err := SaveState(m.state); err != nil {
-						// Log the error but don't interrupt the user experience
-						fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-					}
-				}
-
-				// Find the highest quality MP3 playlist URL
-				var playlistURL string
-				for _, playlist := range i.channel.Playlists {
-					if playlist.Format == "mp3" {
-						playlistURL = playlist.URL // This is a basic selection, could be improved
-					}
-				}
-
-				if playlistURL != "" {
-					// Get the actual stream URL from the playlist file
-					streamURL, err := getStreamURLFromPlaylist(playlistURL)
-					if err != nil {
-						m.status = fmt.Sprintf("Error getting stream URL: %v", err)
-					} else {
-						// Start playing the audio stream
-						err := m.player.Play(streamURL)
-						if err != nil {
-							m.status = fmt.Sprintf("Error playing: %v", err)
-						} else {
-							m.status = fmt.Sprintf("Playing: %s...", i.channel.Title)
-
-							// Stop any existing metadata reader and start a new one
-							if m.metadataReader != nil {
-								m.metadataReader.Stop()
-							}
-							m.metadataReader = NewMetadataReader(streamURL)
-							m.trackUpdateChan = make(chan TrackInfo, 1)
-							m.metadataReader.Start()
-
-							// Clear any existing track info to prevent showing outdated data
-							m.trackInfo = nil
-
-							// Start polling for track updates
-							return m, m.pollTrackUpdates()
-						}
-					}
-				} else {
-					m.status = "No MP3 stream found for this channel."
-				}
+				return m, m.playChannel(i)
 			}
 		case "s":
-			// Stop current playback
 			if m.player != nil {
 				m.player.Stop()
 				m.playing = -1
 				m.status = "Stopped"
-
-				// Stop metadata reading
-				if m.metadataReader != nil {
-					m.metadataReader.Stop()
-					m.metadataReader = nil
-				}
+				m.stopMetadataReader()
 				m.trackInfo = nil
 			}
 		}
@@ -219,20 +219,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // renderHeader renders the list header with column titles.
 func (m *model) renderHeader() string {
-	listWidth := m.list.Width()
-	listenerColWidth := 12
-	leftColWidth := listWidth - listenerColWidth - 4
+	leftColWidth, listenerColWidth := calculateColumnWidths(m.list.Width())
 
-	if leftColWidth < 20 {
-		leftColWidth = 20
-	}
-
-	// Title on the left
-	title := titleStyle.
-		Width(leftColWidth).
-		Render("SomaFM Stations")
-
-	// "Listeners" column header on the right
+	title := titleStyle.Width(leftColWidth).Render("SomaFM Stations")
 	listenerHeader := lipgloss.NewStyle().
 		Foreground(subtleColor).
 		Width(listenerColWidth).
@@ -240,6 +229,16 @@ func (m *model) renderHeader() string {
 		Render("Listeners")
 
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, title, listenerHeader)
+}
+
+// calculateColumnWidths returns the left and listener column widths for a given total width.
+func calculateColumnWidths(totalWidth int) (leftCol, listenerCol int) {
+	listenerCol = listenerColumnWidth
+	leftCol = totalWidth - listenerCol - 4
+	if leftCol < minLeftColumnWidth {
+		leftCol = minLeftColumnWidth
+	}
+	return
 }
 
 // renderStatusBar renders the styled status bar.

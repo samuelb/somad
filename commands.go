@@ -6,6 +6,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+	channelRefreshInterval = 10 * time.Minute
+	trackUpdateInterval    = 2 * time.Second
+)
+
 // loadChannels is a Tea command that fetches SomaFM channels asynchronously.
 func loadChannels() tea.Msg {
 	// Try cache first
@@ -32,16 +37,16 @@ func refreshChannels() tea.Msg {
 	return channelsRefreshedMsg{channels: channels}
 }
 
-// tickChannelRefresh returns a command that triggers a channel refresh after 10 minutes.
+// tickChannelRefresh returns a command that triggers a channel refresh periodically.
 func tickChannelRefresh() tea.Cmd {
-	return tea.Tick(10*time.Minute, func(t time.Time) tea.Msg {
+	return tea.Tick(channelRefreshInterval, func(t time.Time) tea.Msg {
 		return channelRefreshTickMsg{}
 	})
 }
 
 // pollTrackUpdates is a Tea command that polls for track information updates.
 func (m *model) pollTrackUpdates() tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+	return tea.Tick(trackUpdateInterval, func(t time.Time) tea.Msg {
 		if m.metadataReader == nil {
 			return nil
 		}

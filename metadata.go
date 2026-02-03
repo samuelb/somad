@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const metadataCheckInterval = 10 * time.Second
+
 // TrackInfo represents the current track information from ICY metadata.
 type TrackInfo struct {
 	Title string
@@ -36,7 +38,7 @@ func NewMetadataReader(url string) *MetadataReader {
 // Start begins monitoring the stream for metadata updates.
 func (mr *MetadataReader) Start() {
 	go func() {
-		ticker := time.NewTicker(10 * time.Second) // Check every 10 seconds
+		ticker := time.NewTicker(metadataCheckInterval)
 		defer ticker.Stop()
 
 		// Get initial metadata
