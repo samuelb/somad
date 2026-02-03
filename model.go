@@ -50,9 +50,12 @@ type streamErrorMsg struct {
 	err error
 }
 
+// channelRefreshTickMsg is a message sent when it's time to refresh channels.
+type channelRefreshTickMsg struct{}
+
 // Init initializes the application, loading channels asynchronously.
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(loadChannels, tea.EnterAltScreen)
+	return tea.Batch(loadChannels, tea.EnterAltScreen, tickChannelRefresh())
 }
 
 // Update handles incoming messages and updates the model's state.
@@ -192,6 +195,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if selectedIndex < len(items) {
 			m.list.Select(selectedIndex)
 		}
+	case channelRefreshTickMsg:
+		// Time to refresh channels, fetch from network and schedule next tick
+		return m, tea.Batch(refreshChannels, tickChannelRefresh())
 	case errorMsg:
 		// An error occurred during channel loading
 		m.err = msg.err
