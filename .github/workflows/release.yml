@@ -9,7 +9,42 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install ALSA
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Run tests
+        run: go test -v -race ./...
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install ALSA
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
   build:
+    needs: [test, lint]
     strategy:
       matrix:
         include:
@@ -35,13 +70,12 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
-          go build -ldflags "-s -w -X main.version=$VERSION -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o somatui
-          tar -czvf somatui_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz somatui
+          go build -ldflags "-s -w -X main.version=$VERSION -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o somatui_${{ matrix.goos }}_${{ matrix.goarch }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: somatui-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: somatui_*.tar.gz
+          path: somatui_${{ matrix.goos }}_${{ matrix.goarch }}
 
   release:
     needs: build
@@ -54,7 +88,7 @@ jobs:
           merge-multiple: true
 
       - name: Generate checksums
-        run: cd dist && sha256sum *.tar.gz > checksums.txt
+        run: cd dist && sha256sum somatui_* > checksums.txt
 
       - uses: softprops/action-gh-release@v2
         with:
