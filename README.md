@@ -96,8 +96,9 @@ To check the version:
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) (TUI framework)
 - [Bubbles](https://github.com/charmbracelet/bubbles) (TUI components)
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss) (styling)
-- [oto](https://github.com/ebitengine/oto) (audio output)
-- [go-mp3](https://github.com/hajimehoshi/go-mp3) (MP3 decoding)
+- [ansi](https://github.com/charmbracelet/x/ansi) (ANSI parsing)
+- [oto/v3](https://github.com/ebitengine/oto) (audio output)
+- [ebiten/v2](https://github.com/hajimehoshi/ebiten/v2) (game engine)
 
 See `go.mod` for the full dependency list.
 
