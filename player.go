@@ -41,7 +41,6 @@ func NewPlayer() (*Player, error) {
 func (p *Player) Play(url string) error {
 	// Close any existing player and stream to prevent resource leaks
 	if p.player != nil {
-		_ = p.player.Close()
 		p.player = nil
 	}
 	if p.stream != nil {
@@ -103,7 +102,6 @@ func (p *Player) Play(url string) error {
 // Stop halts the current audio playback and closes the associated stream.
 func (p *Player) Stop() {
 	if p.player != nil {
-		_ = p.player.Close()
 		p.player = nil
 	}
 	if p.stream != nil {
@@ -111,3 +109,4 @@ func (p *Player) Stop() {
 		p.stream = nil
 	}
 }
+
