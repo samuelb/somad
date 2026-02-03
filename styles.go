@@ -7,7 +7,6 @@ var (
 	titleColor     = lipgloss.Color("#ff0709") // Red for title
 	primaryColor   = lipgloss.Color("#D8A24D") // Golden accent
 	playingColor   = lipgloss.Color("#1a9096") // Teal for playing
-	bufferingColor = lipgloss.Color("#D8A24D") // Golden for buffering
 	errorColor     = lipgloss.Color("#FF3333") // Red for errors
 	subtleColor    = lipgloss.Color("#666666") // Gray for secondary text
 )
@@ -25,10 +24,6 @@ var (
 
 	statusPlayingStyle = lipgloss.NewStyle().
 				Foreground(playingColor).
-				Bold(true)
-
-	statusBufferingStyle = lipgloss.NewStyle().
-				Foreground(bufferingColor).
 				Bold(true)
 
 	statusStoppedStyle = lipgloss.NewStyle().

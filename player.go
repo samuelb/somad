@@ -54,7 +54,7 @@ func (p *Player) Play(url string) error {
 
 	// Start a goroutine to fetch the stream and write it to the pipe
 	go func() {
-		defer pw.Close()
+		defer func() { _ = pw.Close() }()
 
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
@@ -69,7 +69,7 @@ func (p *Player) Play(url string) error {
 			pw.CloseWithError(fmt.Errorf("failed to fetch stream: %w", err))
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
 			pw.CloseWithError(fmt.Errorf("unexpected status code: %d", resp.StatusCode))

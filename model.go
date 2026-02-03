@@ -50,9 +50,6 @@ type streamErrorMsg struct {
 	err error
 }
 
-// tickMsg is a message sent to keep the UI refreshing.
-type tickMsg struct{}
-
 // Init initializes the application, loading channels asynchronously.
 func (m *model) Init() tea.Cmd {
 	return tea.Batch(loadChannels, tea.EnterAltScreen)
