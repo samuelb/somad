@@ -85,6 +85,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "Changes since $PREVIOUS_TAG:"
+            COMMITS=$(git log --pretty=format:"- %s (%h)" "$PREVIOUS_TAG"..HEAD)
+          else
+            echo "Initial release"
+            COMMITS=$(git log --pretty=format:"- %s (%h)")
+          fi
+          {
+            echo "body<<EOF"
+            echo "## Changes"
+            echo ""
+            if [ -n "$PREVIOUS_TAG" ]; then
+              echo "Changes since $PREVIOUS_TAG:"
+            fi
+            echo ""
+            echo "$COMMITS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create tag
         run: |
@@ -105,5 +130,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
+          body: ${{ steps.changelog.outputs.body }}
           files: dist/*
-          generate_release_notes: true
