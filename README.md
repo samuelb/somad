@@ -19,15 +19,16 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 
 ## Installation
 
-### Prerequisites
+### Pre-built Binaries
 
-- Go 1.20 or newer
-- Linux (audio may require features specific to your system) or MacOS
+Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somatui/releases).
 
 ### Build from Source
 
+Prerequisites: Go 1.24 or newer
+
 ```sh
-git clone https://github.com/yourusername/somatui.git
+git clone https://github.com/samuelb/somatui.git
 cd somatui
 go build -o somatui
 ```
@@ -38,6 +39,12 @@ Simply run:
 
 ```sh
 ./somatui
+```
+
+To check the version:
+
+```sh
+./somatui --version
 ```
 
 ### Keyboard Controls
