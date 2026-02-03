@@ -347,6 +347,9 @@ License:  MIT
 Author:   Samuel Barabas
 GitHub:   https://github.com/samuelb/somatui
 
+This project is not affiliated with SomaFM.
+All content and station streams are provided by somafm.com.
+
 Press any key to close`, m.about.Version, m.about.Commit, m.about.Date)
 
 	return aboutBoxStyle.Render(content)
