@@ -21,7 +21,31 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 
 ### Pre-built Binaries
 
-Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somatui/releases).
+1.  Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somatui/releases).
+2.  Extract the archive.
+3.  Run the `somatui` executable.
+
+#### macOS
+
+After downloading, you may need to grant permission to run the application since it is not signed.
+
+To do this, open a terminal and run:
+
+```sh
+xattr -d com.apple.quarantine /path/to/somatui
+```
+
+Alternatively, you can go to `System Preferences > Security & Privacy > General` and click `Open Anyway`.
+
+#### Linux
+
+After downloading, make the binary executable:
+
+```sh
+chmod +x /path/to/somatui
+```
+
+Then, you can run it from your terminal.
 
 ### Build from Source
 
@@ -59,7 +83,6 @@ To check the version:
 
 - **State**: `~/.local/state/somatui/` (Linux) or `~/Library/Application Support/somatui/` (macOS)
 - **Cache**: `~/.cache/somatui/` (Linux) or `~/Library/Caches/somatui/` (macOS)
-- The client remembers your last selected channel across sessions.
 
 ## Dependencies
 
