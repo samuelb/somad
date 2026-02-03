@@ -44,6 +44,11 @@ func main() {
 		playing: -1,
 		loading: true,
 		state:   state,
+		about: aboutInfo{
+			Version: version,
+			Commit:  commit,
+			Date:    date,
+		},
 	}
 
 	// Initialize the Bubble Tea list component with styled delegate
@@ -56,11 +61,13 @@ func main() {
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 		}
 	}
 	l.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 		}
 	}
 	m.list = l

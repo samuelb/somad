@@ -45,4 +45,10 @@ var (
 			Padding(1, 2).
 			MarginTop(2).
 			MarginLeft(2)
+
+	aboutBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(primaryColor).
+			Background(lipgloss.Color("#1a1a1a")).
+			Padding(1, 3)
 )

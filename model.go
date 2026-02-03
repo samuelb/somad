@@ -8,12 +8,20 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
 	listenerColumnWidth = 12
 	minLeftColumnWidth  = 20
 )
+
+// aboutInfo holds version and metadata for the about screen.
+type aboutInfo struct {
+	Version string
+	Commit  string
+	Date    string
+}
 
 // model represents the application's state.
 type model struct {
@@ -25,6 +33,10 @@ type model struct {
 	state          *State
 	trackInfo      *TrackInfo
 	metadataReader *MetadataReader
+	showAbout      bool
+	about          aboutInfo
+	width          int
+	height         int
 }
 
 // channelsLoadedMsg is a message sent when channels are successfully loaded.
@@ -114,6 +126,17 @@ func (m *model) playChannel(i item) tea.Cmd {
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle about screen dismissal
+		if m.showAbout {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			default:
+				m.showAbout = false
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.player != nil {
@@ -132,8 +155,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stopMetadataReader()
 				m.trackInfo = nil
 			}
+		case "a":
+			m.showAbout = true
+			return m, nil
 		}
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
 		// Dynamically calculate the height needed for the header and status bar
 		headerHeight := lipgloss.Height(m.renderHeader())
 		statusBarHeight := lipgloss.Height(m.renderStatusBar())
@@ -268,6 +297,61 @@ func (m *model) renderStatusBar() string {
 	return statusBarStyle.Render(strings.Join(parts, "  │  "))
 }
 
+// placeOverlay places the foreground string on top of the background string
+// at the specified x, y position.
+func placeOverlay(x, y int, fg, bg string) string {
+	bgLines := strings.Split(bg, "\n")
+	fgLines := strings.Split(fg, "\n")
+
+	for i, fgLine := range fgLines {
+		bgLineIdx := y + i
+		if bgLineIdx < 0 || bgLineIdx >= len(bgLines) {
+			continue
+		}
+
+		bgLine := bgLines[bgLineIdx]
+		bgLineWidth := ansi.StringWidth(bgLine)
+
+		// Pad background line if needed
+		if bgLineWidth < x {
+			bgLine += strings.Repeat(" ", x-bgLineWidth)
+			bgLineWidth = x
+		}
+
+		// Build the new line: left part + foreground + right part
+		fgWidth := ansi.StringWidth(fgLine)
+		leftPart := ansi.Truncate(bgLine, x, "")
+		rightStart := x + fgWidth
+		var rightPart string
+		if rightStart < bgLineWidth {
+			rightPart = ansi.TruncateLeft(bgLine, bgLineWidth-rightStart, "")
+		}
+
+		bgLines[bgLineIdx] = leftPart + fgLine + rightPart
+	}
+
+	return strings.Join(bgLines, "\n")
+}
+
+// renderAboutScreen renders the about dialog.
+func (m *model) renderAboutScreen() string {
+	content := fmt.Sprintf(`SomaUI
+
+A terminal UI for SomaFM internet radio.
+
+Version:  %s
+Commit:   %s
+Built:    %s
+
+License:  MIT
+Author:   Samuel Barabas
+GitHub:   https://github.com/samuelb/somatui
+
+Press any key to close`, m.about.Version, m.about.Commit, m.about.Date)
+
+	return aboutBoxStyle.Render(content)
+}
+
 // View renders the application's UI.
 func (m *model) View() string {
 	// Display loading message if channels are still being fetched
@@ -281,12 +365,31 @@ func (m *model) View() string {
 		return errorBoxStyle.Render(errorContent)
 	}
 
-	// Build the view using lipgloss layout
-	return lipgloss.JoinVertical(
+	// Build the main view using lipgloss layout
+	mainView := lipgloss.JoinVertical(
 		lipgloss.Left,
 		"", // Top margin
 		m.renderHeader(),
 		m.list.View(),
 		m.renderStatusBar(),
 	)
+
+	// Overlay about screen if requested
+	if m.showAbout {
+		aboutBox := m.renderAboutScreen()
+		// Calculate position to center the about box
+		aboutWidth := lipgloss.Width(aboutBox)
+		aboutHeight := lipgloss.Height(aboutBox)
+		x := (m.width - aboutWidth) / 2
+		y := (m.height - aboutHeight) / 2
+		if x < 0 {
+			x = 0
+		}
+		if y < 0 {
+			y = 0
+		}
+		return placeOverlay(x, y, aboutBox, mainView)
+	}
+
+	return mainView
 }
