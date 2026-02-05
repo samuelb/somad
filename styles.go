@@ -4,11 +4,12 @@ import "github.com/charmbracelet/lipgloss"
 
 // Color palette - SomaFM inspired
 var (
-	titleColor     = lipgloss.Color("#ff0709") // Red for title
-	primaryColor   = lipgloss.Color("#D8A24D") // Golden accent
-	playingColor   = lipgloss.Color("#1a9096") // Teal for playing
-	errorColor     = lipgloss.Color("#FF3333") // Red for errors
-	subtleColor    = lipgloss.Color("#666666") // Gray for secondary text
+	titleColor       = lipgloss.Color("#ff0709") // Red for title
+	primaryColor     = lipgloss.Color("#D8A24D") // Golden accent
+	playingColor     = lipgloss.Color("#1a9096") // Teal for playing
+	errorColor       = lipgloss.Color("#FF3333") // Red for errors
+	subtleColor      = lipgloss.Color("#666666") // Gray for secondary text
+	searchMatchColor = lipgloss.Color("#E6DB74") // Yellow for search matches
 )
 
 // Styles
@@ -51,4 +52,8 @@ var (
 			BorderForeground(primaryColor).
 			Background(lipgloss.Color("#1a1a1a")).
 			Padding(1, 3)
+
+	searchBarStyle = lipgloss.NewStyle().
+			Foreground(searchMatchColor).
+			MarginLeft(2)
 )

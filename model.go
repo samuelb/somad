@@ -27,7 +27,7 @@ type aboutInfo struct {
 type model struct {
 	list           list.Model
 	player         *Player
-	playing        int // Index of the playing channel, -1 if not playing
+	playingID      string // ID of the playing channel, empty if not playing
 	loading        bool
 	err            error
 	state          *State
@@ -37,6 +37,11 @@ type model struct {
 	about          aboutInfo
 	width          int
 	height         int
+	// Search state
+	searching     bool     // Whether search input is active
+	searchQuery   string   // Current search query
+	searchMatches []int    // Indices of matching items
+	currentMatch  int      // Current position in searchMatches (-1 if none)
 }
 
 // channelsLoadedMsg is a message sent when channels are successfully loaded.
@@ -89,9 +94,89 @@ func selectMP3PlaylistURL(playlists []Playlist) string {
 	return ""
 }
 
+// updateSearchMatches finds all items matching the search query.
+func (m *model) updateSearchMatches() {
+	m.searchMatches = nil
+	m.currentMatch = -1
+	if m.searchQuery == "" {
+		return
+	}
+	query := strings.ToLower(m.searchQuery)
+	for idx, listItem := range m.list.Items() {
+		if i, ok := listItem.(item); ok {
+			title := strings.ToLower(i.channel.Title)
+			desc := strings.ToLower(i.channel.Description)
+			if strings.Contains(title, query) || strings.Contains(desc, query) {
+				m.searchMatches = append(m.searchMatches, idx)
+			}
+		}
+	}
+	// Jump to first match if any
+	if len(m.searchMatches) > 0 {
+		m.currentMatch = 0
+		m.list.Select(m.searchMatches[0])
+	}
+}
+
+// nextMatch jumps to the next search match.
+func (m *model) nextMatch() {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+	m.currentMatch = (m.currentMatch + 1) % len(m.searchMatches)
+	m.list.Select(m.searchMatches[m.currentMatch])
+}
+
+// prevMatch jumps to the previous search match.
+func (m *model) prevMatch() {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+	m.currentMatch--
+	if m.currentMatch < 0 {
+		m.currentMatch = len(m.searchMatches) - 1
+	}
+	m.list.Select(m.searchMatches[m.currentMatch])
+}
+
+// clearSearch clears the search state.
+func (m *model) clearSearch() {
+	m.searching = false
+	m.searchQuery = ""
+	m.searchMatches = nil
+	m.currentMatch = -1
+}
+
+// updateListSize recalculates and sets the list size based on current UI state.
+func (m *model) updateListSize() {
+	// Dynamically calculate the height needed for the header and status bar
+	headerHeight := lipgloss.Height(m.renderHeader())
+	statusBarHeight := lipgloss.Height(m.renderStatusBar())
+	searchBarHeight := 0
+	if searchBar := m.renderSearchBar(); searchBar != "" {
+		searchBarHeight = lipgloss.Height(searchBar)
+	}
+
+	// Total height occupied by elements other than the list itself
+	totalFixedUIHeight := 1 + headerHeight + searchBarHeight + statusBarHeight + 1
+
+	// Update the list's dimensions
+	m.list.SetSize(m.width, m.height-totalFixedUIHeight)
+}
+
+// isMatch returns true if the given index is a search match.
+func (m *model) isMatch(idx int) bool {
+	for _, matchIdx := range m.searchMatches {
+		if matchIdx == idx {
+			return true
+		}
+	}
+	return false
+}
+
 // playChannel starts playing the given channel.
 func (m *model) playChannel(i item) tea.Cmd {
-	m.playing = m.list.Index()
+	m.playingID = i.channel.ID
 
 	// Save the last selected channel
 	if m.state != nil {
@@ -137,6 +222,41 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Handle search input mode
+		if m.searching {
+			switch msg.String() {
+			case "ctrl+c":
+				if m.player != nil {
+					m.player.Stop()
+				}
+				m.stopMetadataReader()
+				return m, tea.Quit
+			case "enter":
+				// Exit search mode, keep at current match
+				m.searching = false
+				m.updateListSize()
+				return m, nil
+			case "esc":
+				// Cancel search, clear query
+				m.clearSearch()
+				m.updateListSize()
+				return m, nil
+			case "backspace":
+				if len(m.searchQuery) > 0 {
+					m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+					m.updateSearchMatches()
+				}
+				return m, nil
+			default:
+				// Add printable characters to search query
+				if len(msg.String()) == 1 && msg.String()[0] >= 32 {
+					m.searchQuery += msg.String()
+					m.updateSearchMatches()
+				}
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.player != nil {
@@ -151,32 +271,45 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			if m.player != nil {
 				m.player.Stop()
-				m.playing = -1
+				m.playingID = ""
 				m.stopMetadataReader()
 				m.trackInfo = nil
 			}
 		case "a":
 			m.showAbout = true
 			return m, nil
+		case "/":
+			// Enter search mode
+			m.searching = true
+			m.searchQuery = ""
+			m.searchMatches = nil
+			m.currentMatch = -1
+			m.updateListSize()
+			return m, nil
+		case "n":
+			// Next match
+			if len(m.searchMatches) > 0 {
+				m.nextMatch()
+				return m, nil
+			}
+		case "N":
+			// Previous match
+			if len(m.searchMatches) > 0 {
+				m.prevMatch()
+				return m, nil
+			}
+		case "c":
+			// Clear search
+			if m.searchQuery != "" {
+				m.clearSearch()
+				m.updateListSize()
+				return m, nil
+			}
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-
-		// Dynamically calculate the height needed for the header and status bar
-		headerHeight := lipgloss.Height(m.renderHeader())
-		statusBarHeight := lipgloss.Height(m.renderStatusBar())
-
-		// Total height occupied by elements other than the list itself
-		// Includes:
-		// - 1 line for the top margin (the empty string in m.View())
-		// - The calculated headerHeight
-		// - The calculated statusBarHeight
-		// - Plus 1 for safety/extra margin (adjust as needed)
-		totalFixedUIHeight := 1 + headerHeight + statusBarHeight + 1
-
-		// Update the list's dimensions when the window size changes
-		m.list.SetSize(msg.Width, msg.Height-totalFixedUIHeight)
+		m.updateListSize()
 		return m, nil
 
 	case channelsLoadedMsg:
@@ -226,7 +359,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Track information has been updated
 		m.trackInfo = &msg.trackInfo
 	case streamErrorMsg:
-		m.playing = -1
+		m.playingID = ""
 	}
 
 	// Update the list component and return its command
@@ -249,6 +382,27 @@ func (m *model) renderHeader() string {
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, title, listenerHeader)
 }
 
+// renderSearchBar renders the search input bar.
+func (m *model) renderSearchBar() string {
+	if m.searching {
+		matchInfo := ""
+		if len(m.searchMatches) > 0 {
+			matchInfo = fmt.Sprintf(" [%d/%d]", m.currentMatch+1, len(m.searchMatches))
+		} else if m.searchQuery != "" {
+			matchInfo = " [no matches]"
+		}
+		return searchBarStyle.Render(fmt.Sprintf("/%s%s", m.searchQuery, matchInfo))
+	}
+	if m.searchQuery != "" {
+		matchInfo := ""
+		if len(m.searchMatches) > 0 {
+			matchInfo = fmt.Sprintf(" [%d/%d] (n/N navigate, c clear)", m.currentMatch+1, len(m.searchMatches))
+		}
+		return searchBarStyle.Render(fmt.Sprintf("Search: %s%s", m.searchQuery, matchInfo))
+	}
+	return ""
+}
+
 // calculateColumnWidths returns the left and listener column widths for a given total width.
 func calculateColumnWidths(totalWidth int) (leftCol, listenerCol int) {
 	listenerCol = listenerColumnWidth
@@ -265,7 +419,7 @@ func (m *model) renderStatusBar() string {
 	var stateStyle lipgloss.Style
 
 	// Determine state and styling
-	if m.playing < 0 {
+	if m.playingID == "" {
 		icon = "■"
 		stateText = "Stopped"
 		stateStyle = statusStoppedStyle
@@ -279,11 +433,12 @@ func (m *model) renderStatusBar() string {
 	parts := []string{stateStyle.Render(icon + " " + stateText)}
 
 	// Add channel name if playing
-	if m.playing >= 0 {
-		if items := m.list.Items(); m.playing < len(items) {
-			if i, ok := items[m.playing].(item); ok {
+	if m.playingID != "" {
+		for _, listItem := range m.list.Items() {
+			if i, ok := listItem.(item); ok && i.channel.ID == m.playingID {
 				channelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
 				parts = append(parts, channelStyle.Render(i.channel.Title))
+				break
 			}
 		}
 	}
@@ -369,13 +524,15 @@ func (m *model) View() string {
 	}
 
 	// Build the main view using lipgloss layout
-	mainView := lipgloss.JoinVertical(
-		lipgloss.Left,
+	components := []string{
 		"", // Top margin
 		m.renderHeader(),
-		m.list.View(),
-		m.renderStatusBar(),
-	)
+	}
+	if searchBar := m.renderSearchBar(); searchBar != "" {
+		components = append(components, searchBar)
+	}
+	components = append(components, m.list.View(), m.renderStatusBar())
+	mainView := lipgloss.JoinVertical(lipgloss.Left, components...)
 
 	// Overlay about screen if requested
 	if m.showAbout {

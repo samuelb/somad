@@ -31,11 +31,12 @@ func (i item) Listeners() string { return i.channel.Listeners }
 // styledDelegate is a custom delegate for styling list items.
 type styledDelegate struct {
 	list.DefaultDelegate
-	playingIndex *int
+	playingID    *string
+	matchChecker func(int) bool // Function to check if index is a search match
 }
 
 // newStyledDelegate creates a styled delegate for the list.
-func newStyledDelegate(playingIndex *int) styledDelegate {
+func newStyledDelegate(playingID *string, matchChecker func(int) bool) styledDelegate {
 	d := list.NewDefaultDelegate()
 
 	// Normal item styles
@@ -61,7 +62,7 @@ func newStyledDelegate(playingIndex *int) styledDelegate {
 		Foreground(lipgloss.Color("#CCCCCC")).
 		Padding(0, 0, 0, 1)
 
-	return styledDelegate{DefaultDelegate: d, playingIndex: playingIndex}
+	return styledDelegate{DefaultDelegate: d, playingID: playingID, matchChecker: matchChecker}
 }
 
 // Render renders a list item with custom styling, including a playing indicator.
@@ -72,8 +73,9 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	}
 
 	// Check if this item is currently playing
-	isPlaying := d.playingIndex != nil && *d.playingIndex == index
+	isPlaying := d.playingID != nil && *d.playingID == i.channel.ID
 	isSelected := index == m.Index()
+	isMatch := d.matchChecker != nil && d.matchChecker(index)
 
 	// Build title with playing indicator
 	title := i.Title()
@@ -97,6 +99,11 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 
 	listenerPlayingStyle := lipgloss.NewStyle().
 		Foreground(playingColor).
+		Width(listenerColWidth).
+		Align(lipgloss.Right)
+
+	listenerMatchStyle := lipgloss.NewStyle().
+		Foreground(searchMatchColor).
 		Width(listenerColWidth).
 		Align(lipgloss.Right)
 
@@ -125,6 +132,19 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		titleStr = playingTitleStyle.Render(title)
 		descStr = playingDescStyle.Render(desc)
 		listenerStr = listenerPlayingStyle.Render(listeners)
+	} else if isMatch {
+		// Search match - highlight with match color
+		matchTitleStyle := lipgloss.NewStyle().
+			Foreground(searchMatchColor).
+			Padding(0, 0, 0, 2).
+			Width(leftColWidth)
+		matchDescStyle := lipgloss.NewStyle().
+			Foreground(subtleColor).
+			Padding(0, 0, 0, 2).
+			Width(leftColWidth)
+		titleStr = matchTitleStyle.Render(title)
+		descStr = matchDescStyle.Render(desc)
+		listenerStr = listenerMatchStyle.Render(listeners)
 	} else {
 		titleStr = d.Styles.NormalTitle.Width(leftColWidth).Render(title)
 		descStr = d.Styles.NormalDesc.Width(leftColWidth).Render(desc)

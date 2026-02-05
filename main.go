@@ -38,10 +38,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create the main application model (need playing index for delegate)
+	// Create the main application model (need playing ID for delegate)
 	m := &model{
 		player:  player,
-		playing: -1,
 		loading: true,
 		state:   state,
 		about: aboutInfo{
@@ -52,21 +51,25 @@ func main() {
 	}
 
 	// Initialize the Bubble Tea list component with styled delegate
-	delegate := newStyledDelegate(&m.playing)
+	delegate := newStyledDelegate(&m.playingID, m.isMatch)
 	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.SetShowTitle(false) // We render our own header with column titles
+	l.SetShowTitle(false)            // We render our own header with column titles
+	l.SetFilteringEnabled(false)     // Disable filtering, we use search instead
 	l.SetStatusBarItemName("channel", "channels")
 	l.Styles.PaginationStyle = lipgloss.NewStyle().Foreground(subtleColor)
 	l.Styles.HelpStyle = lipgloss.NewStyle().Foreground(subtleColor).Padding(0, 0, 0, 2)
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+			key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+			key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 		}
 	}
 	l.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+			key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 		}
 	}

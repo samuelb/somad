@@ -4,8 +4,6 @@ This is a list of features and improvements I'm considering for future versions 
 
 ## Bugs
 
-- [ ] When using the filter, the wrong channel is being played
-
 ## Features
 
 - [ ] Implement desktop notifications for song changes.
