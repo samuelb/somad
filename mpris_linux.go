@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	mprisPath      = "/org/mpris/MediaPlayer2"
-	mprisInterface = "org.mpris.MediaPlayer2"
+	mprisPath       = "/org/mpris/MediaPlayer2"
+	mprisInterface  = "org.mpris.MediaPlayer2"
 	playerInterface = "org.mpris.MediaPlayer2.Player"
-	busName        = "org.mpris.MediaPlayer2.somatui"
+	busName         = "org.mpris.MediaPlayer2.somatui"
 )
 
 // MPRISCmdSender is an interface for sending commands to the application.
@@ -290,8 +290,7 @@ func (p *mprisPlayer) Pause() *dbus.Error {
 
 func (p *mprisPlayer) PlayPause() *dbus.Error {
 	if p.mpris.sender != nil {
-		// Toggle: if playing, stop; if stopped, play
-		p.mpris.sender.Send(mprisPlayMsg{})
+		p.mpris.sender.Send(mprisPlayPauseMsg{})
 	}
 	return nil
 }

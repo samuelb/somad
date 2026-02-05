@@ -76,6 +76,7 @@ type channelRefreshTickMsg struct{}
 // MPRIS control messages
 type mprisPlayMsg struct{}
 type mprisStopMsg struct{}
+type mprisPlayPauseMsg struct{}
 type mprisNextMsg struct{}
 type mprisPrevMsg struct{}
 
@@ -421,6 +422,19 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stopMetadataReader()
 			m.trackInfo = nil
 			m.updateMPRIS()
+		}
+	case mprisPlayPauseMsg:
+		// Toggle: if playing, stop; if stopped, play
+		if m.playingID != "" {
+			m.player.Stop()
+			m.playingID = ""
+			m.stopMetadataReader()
+			m.trackInfo = nil
+			m.updateMPRIS()
+		} else {
+			if i, ok := m.list.SelectedItem().(item); ok {
+				return m, m.playChannel(i)
+			}
 		}
 	case mprisNextMsg:
 		// Move to next channel and play
