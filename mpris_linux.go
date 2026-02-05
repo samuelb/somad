@@ -57,11 +57,11 @@ func NewMPRIS() (*MPRIS, error) {
 	// Request bus name
 	reply, err := conn.RequestName(busName, dbus.NameFlagDoNotQueue)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("failed to request bus name: %w", err)
 	}
 	if reply != dbus.RequestNameReplyPrimaryOwner {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("bus name already taken")
 	}
 
@@ -69,8 +69,14 @@ func NewMPRIS() (*MPRIS, error) {
 	root := &mprisRoot{mpris: m}
 	player := &mprisPlayer{mpris: m}
 
-	conn.Export(root, mprisPath, mprisInterface)
-	conn.Export(player, mprisPath, playerInterface)
+	if err := conn.Export(root, mprisPath, mprisInterface); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to export root interface: %w", err)
+	}
+	if err := conn.Export(player, mprisPath, playerInterface); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to export player interface: %w", err)
+	}
 
 	// Set up properties
 	propsSpec := map[string]map[string]*prop.Prop{
@@ -104,7 +110,7 @@ func NewMPRIS() (*MPRIS, error) {
 
 	props, err := prop.Export(conn, mprisPath, propsSpec)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("failed to export properties: %w", err)
 	}
 	m.props = props
@@ -170,7 +176,10 @@ func NewMPRIS() (*MPRIS, error) {
 			},
 		},
 	}
-	conn.Export(introspect.NewIntrospectable(introNode), mprisPath, "org.freedesktop.DBus.Introspectable")
+	if err := conn.Export(introspect.NewIntrospectable(introNode), mprisPath, "org.freedesktop.DBus.Introspectable"); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to export introspectable: %w", err)
+	}
 
 	return m, nil
 }
@@ -235,8 +244,8 @@ func (m *MPRIS) SetMetadata(station, track, artist string) {
 // Close releases D-Bus resources.
 func (m *MPRIS) Close() {
 	if m.conn != nil {
-		m.conn.ReleaseName(busName)
-		m.conn.Close()
+		_, _ = m.conn.ReleaseName(busName)
+		_ = m.conn.Close()
 	}
 }
 
@@ -309,14 +318,14 @@ func (p *mprisPlayer) Play() *dbus.Error {
 	return nil
 }
 
-func (p *mprisPlayer) Seek(offset int64) *dbus.Error {
+func (p *mprisPlayer) Seek(_ int64) *dbus.Error { //nolint:govet // D-Bus method signature, not io.Seeker
 	return nil
 }
 
-func (p *mprisPlayer) SetPosition(trackId dbus.ObjectPath, position int64) *dbus.Error {
+func (p *mprisPlayer) SetPosition(_ dbus.ObjectPath, _ int64) *dbus.Error {
 	return nil
 }
 
-func (p *mprisPlayer) OpenUri(uri string) *dbus.Error {
+func (p *mprisPlayer) OpenUri(_ string) *dbus.Error {
 	return nil
 }
