@@ -20,6 +20,7 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 - Select and remember your last-played channel
 - Fast startup with cached channels and background refresh
 - Smooth, keyboard-driven navigation and playback controls
+- MPRIS desktop integration (Linux)
 
 ## Installation
 
@@ -77,14 +78,14 @@ To check the version:
 
 ### Keyboard Controls
 
-| Key                       | Action                |
-| ------------------------- | --------------------- |
-| <kbd>↑</kbd> / <kbd>k</kbd> | Navigate channels up  |
-| <kbd>↓</kbd> / <kbd>j</kbd> | Navigate channels down|
-| <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel |
-| <kbd>s</kbd>               | Stop playback         |
-| <kbd>/</kbd>               | Filter channels       |
-| <kbd>q</kbd> / <kbd>Ctrl+C</kbd>  | Quit                  |
+| Key                                 | Action                 |
+| ----------------------------------- | ---------------------- |
+| <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up   |
+| <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel  |
+| <kbd>s</kbd>                        | Stop playback          |
+| <kbd>/</kbd>                        | Filter channels        |
+| <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit                   |
 
 ## Data Storage
 
