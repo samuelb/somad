@@ -61,8 +61,8 @@ func main() {
 	// Initialize the Bubble Tea list component with styled delegate
 	delegate := newStyledDelegate(&m.playingID, m.isMatch)
 	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.SetShowTitle(false)            // We render our own header with column titles
-	l.SetFilteringEnabled(false)     // Disable filtering, we use search instead
+	l.SetShowTitle(false)        // We render our own header with column titles
+	l.SetFilteringEnabled(false) // Disable filtering, we use search instead
 	l.SetStatusBarItemName("channel", "channels")
 	l.Styles.PaginationStyle = lipgloss.NewStyle().Foreground(subtleColor)
 	l.Styles.HelpStyle = lipgloss.NewStyle().Foreground(subtleColor).Padding(0, 0, 0, 2)

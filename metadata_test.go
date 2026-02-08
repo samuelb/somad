@@ -8,10 +8,10 @@ func TestParseICYMetadata(t *testing.T) {
 	mr := NewMetadataReader("http://example.com/stream")
 
 	tests := []struct {
-		name     string
-		input    string
-		want     string
-		wantErr  bool
+		name    string
+		input   string
+		want    string
+		wantErr bool
 	}{
 		{
 			name:    "standard format",

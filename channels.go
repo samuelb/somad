@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Playlist represents a single playlist entry for a SomaFM channel.
@@ -36,8 +37,8 @@ type Channels struct {
 }
 
 const (
-	cacheFileName = "somafm_channels.json"
-	appCacheDirName = "somatui"
+	cacheFileName     = "somafm_channels.json"
+	appCacheDirName   = "somatui"
 	somafmChannelsURL = "https://somafm.com/channels.json"
 )
 
@@ -95,7 +96,8 @@ func writeChannelsToCache(channels *Channels) error {
 
 // fetchChannelsFromNetwork fetches channel data from the SomaFM API.
 func fetchChannelsFromNetwork() (*Channels, error) {
-	resp, err := http.Get(somafmChannelsURL)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(somafmChannelsURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch channels from network: %w", err)
 	}
@@ -118,4 +120,3 @@ func fetchChannelsFromNetwork() (*Channels, error) {
 
 	return &fetchedChannels, nil
 }
-

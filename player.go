@@ -69,7 +69,7 @@ func (p *Player) Play(url string) error {
 		}
 		req.Header.Set("User-Agent", userAgent)
 
-		client := &http.Client{}
+		client := &http.Client{Timeout: 30 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
 			pw.CloseWithError(fmt.Errorf("failed to fetch stream: %w", err))

@@ -31,7 +31,7 @@ type MetadataReader struct {
 func NewMetadataReader(url string) *MetadataReader {
 	return &MetadataReader{
 		url:        url,
-		client:     &http.Client{Timeout: 30 * time.Second},
+		client:     &http.Client{Timeout: 15 * time.Second},
 		stopChan:   make(chan struct{}),
 		updateChan: make(chan TrackInfo, 1),
 	}

@@ -38,10 +38,10 @@ type model struct {
 	width          int
 	height         int
 	// Search state
-	searching     bool     // Whether search input is active
-	searchQuery   string   // Current search query
-	searchMatches []int    // Indices of matching items
-	currentMatch  int      // Current position in searchMatches (-1 if none)
+	searching     bool   // Whether search input is active
+	searchQuery   string // Current search query
+	searchMatches []int  // Indices of matching items
+	currentMatch  int    // Current position in searchMatches (-1 if none)
 	// MPRIS integration
 	mpris *MPRIS
 }

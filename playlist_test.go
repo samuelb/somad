@@ -8,11 +8,11 @@ import (
 
 func TestGetStreamURLFromPlaylist(t *testing.T) {
 	tests := []struct {
-		name        string
-		content     string
-		statusCode  int
-		wantURL     string
-		wantErr     bool
+		name       string
+		content    string
+		statusCode int
+		wantURL    string
+		wantErr    bool
 	}{
 		{
 			name: "valid pls file",
