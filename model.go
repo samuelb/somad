@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -79,6 +80,17 @@ type mprisStopMsg struct{}
 type mprisPlayPauseMsg struct{}
 type mprisNextMsg struct{}
 type mprisPrevMsg struct{}
+
+// isValidSearchChar returns true if the character is safe for search input.
+func isValidSearchChar(c byte) bool {
+	// Allow printable ASCII characters except control characters
+	// Exclude potentially problematic characters like null, backspace, etc.
+	if c < 32 || c > 126 {
+		return false
+	}
+	// Allow letters, numbers, spaces, and common punctuation
+	return unicode.IsPrint(rune(c))
+}
 
 // Init initializes the application, loading channels asynchronously.
 func (m *model) Init() tea.Cmd {
@@ -291,8 +303,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			default:
-				// Add printable characters to search query
-				if len(msg.String()) == 1 && msg.String()[0] >= 32 {
+				// Add valid printable characters to search query
+				if len(msg.String()) == 1 && isValidSearchChar(msg.String()[0]) {
 					m.searchQuery += msg.String()
 					m.updateSearchMatches()
 				}
