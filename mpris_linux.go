@@ -318,8 +318,9 @@ func (p *mprisPlayer) Play() *dbus.Error {
 	return nil
 }
 
-func (p *mprisPlayer) Seek(_ int64) *dbus.Error { //nolint:govet // D-Bus method signature, not io.Seeker
-	return nil
+func (p *mprisPlayer) Seek(offset int64, whence int) (int64, error) {
+	// D-Bus doesn't support seeking, return appropriate values
+	return 0, nil
 }
 
 func (p *mprisPlayer) SetPosition(_ dbus.ObjectPath, _ int64) *dbus.Error {
