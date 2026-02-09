@@ -109,8 +109,36 @@ Contributions are welcome! Feel free to open issues or pull requests.
 
 1. Fork the repo
 2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+3. Install git hooks: `lefthook install`
+4. Make your changes
+5. Submit a pull request
+
+### Git Hooks
+
+This project uses [lefthook](https://github.com/evilmartians/lefthook) to run linting and tests automatically before commits and pushes.
+
+After cloning, install the hooks:
+
+```sh
+lefthook install
+```
+
+This sets up:
+
+- **pre-commit**: runs `golangci-lint` and `go test -race` when `.go` files are staged
+- **pre-push**: runs `golangci-lint` and `go test -race` on every push
+
+If you need to bypass hooks for a work-in-progress commit, use `--no-verify`:
+
+```sh
+git commit --no-verify -m "WIP"
+```
+
+To install lefthook itself, see [installation instructions](https://github.com/evilmartians/lefthook/blob/master/docs/install.md) or run:
+
+```sh
+go install github.com/evilmartians/lefthook@latest
+```
 
 ## License
 
