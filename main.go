@@ -59,7 +59,7 @@ func main() {
 	}
 
 	// Initialize the Bubble Tea list component with styled delegate
-	delegate := newStyledDelegate(&m.playingID, m.isMatch)
+	delegate := newStyledDelegate(&m.playingID, m.isMatch, m.isFavorite)
 	l := list.New([]list.Item{}, delegate, 0, 0)
 	l.SetShowTitle(false)        // We render our own header with column titles
 	l.SetFilteringEnabled(false) // Disable filtering, we use search instead
@@ -69,6 +69,7 @@ func main() {
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+			key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
 			key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 			key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
@@ -77,6 +78,7 @@ func main() {
 	l.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+			key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
 			key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 			key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 		}

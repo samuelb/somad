@@ -31,12 +31,13 @@ func (i item) Listeners() string { return i.channel.Listeners }
 // styledDelegate is a custom delegate for styling list items.
 type styledDelegate struct {
 	list.DefaultDelegate
-	playingID    *string
-	matchChecker func(int) bool // Function to check if index is a search match
+	playingID       *string
+	matchChecker    func(int) bool // Function to check if index is a search match
+	favoriteChecker func(int) bool // Function to check if index is a favorite
 }
 
 // newStyledDelegate creates a styled delegate for the list.
-func newStyledDelegate(playingID *string, matchChecker func(int) bool) styledDelegate {
+func newStyledDelegate(playingID *string, matchChecker func(int) bool, favoriteChecker func(int) bool) styledDelegate {
 	d := list.NewDefaultDelegate()
 
 	// Normal item styles
@@ -62,7 +63,7 @@ func newStyledDelegate(playingID *string, matchChecker func(int) bool) styledDel
 		Foreground(lipgloss.Color("#CCCCCC")).
 		Padding(0, 0, 0, 1)
 
-	return styledDelegate{DefaultDelegate: d, playingID: playingID, matchChecker: matchChecker}
+	return styledDelegate{DefaultDelegate: d, playingID: playingID, matchChecker: matchChecker, favoriteChecker: favoriteChecker}
 }
 
 // Render renders a list item with custom styling, including a playing indicator.
@@ -76,9 +77,13 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	isPlaying := d.playingID != nil && *d.playingID == i.channel.ID
 	isSelected := index == m.Index()
 	isMatch := d.matchChecker != nil && d.matchChecker(index)
+	isFavorite := d.favoriteChecker != nil && d.favoriteChecker(index)
 
-	// Build title with playing indicator
+	// Build title with playing/favorite indicator
 	title := i.Title()
+	if isFavorite {
+		title = "★ " + title
+	}
 	if isPlaying {
 		title = "▶ " + title
 	}
@@ -104,6 +109,11 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 
 	listenerMatchStyle := lipgloss.NewStyle().
 		Foreground(searchMatchColor).
+		Width(listenerColWidth).
+		Align(lipgloss.Right)
+
+	listenerFavoriteStyle := lipgloss.NewStyle().
+		Foreground(favoriteColor).
 		Width(listenerColWidth).
 		Align(lipgloss.Right)
 
@@ -145,6 +155,19 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		titleStr = matchTitleStyle.Render(title)
 		descStr = matchDescStyle.Render(desc)
 		listenerStr = listenerMatchStyle.Render(listeners)
+	} else if isFavorite {
+		// Favorite - highlight with favorite color
+		favoriteTitleStyle := lipgloss.NewStyle().
+			Foreground(favoriteColor).
+			Padding(0, 0, 0, 2).
+			Width(leftColWidth)
+		favoriteDescStyle := lipgloss.NewStyle().
+			Foreground(subtleColor).
+			Padding(0, 0, 0, 2).
+			Width(leftColWidth)
+		titleStr = favoriteTitleStyle.Render(title)
+		descStr = favoriteDescStyle.Render(desc)
+		listenerStr = listenerFavoriteStyle.Render(listeners)
 	} else {
 		titleStr = d.Styles.NormalTitle.Width(leftColWidth).Render(title)
 		descStr = d.Styles.NormalDesc.Width(leftColWidth).Render(desc)

@@ -1136,6 +1136,125 @@ func TestUpdateMPRIS_NilMPRIS(t *testing.T) {
 	m.updateMPRIS()
 }
 
+// --- Favorite tests ---
+
+func TestUpdate_ToggleFavoriteWithF(t *testing.T) {
+	setStateDir(t)
+	m := newTestModel(testChannels())
+	m.list.Select(0) // Select Groove Salad
+
+	result, _ := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'f'}}))
+	updated := result.(*model)
+
+	assert.True(t, updated.state.IsFavorite("groovesalad"))
+}
+
+func TestUpdate_ToggleFavoriteWithStar(t *testing.T) {
+	setStateDir(t)
+	m := newTestModel(testChannels())
+	m.list.Select(1) // Select Drone Zone
+
+	result, _ := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'*'}}))
+	updated := result.(*model)
+
+	assert.True(t, updated.state.IsFavorite("dronezone"))
+}
+
+func TestUpdate_FavoritesAppearAtTop(t *testing.T) {
+	setStateDir(t)
+	m := newTestModel(testChannels())
+	m.list.Select(2) // Select Secret Agent (last item)
+
+	// Toggle favorite on Secret Agent
+	result, _ := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'f'}}))
+	updated := result.(*model)
+
+	// Secret Agent should now be the first item
+	first := updated.list.Items()[0].(item)
+	assert.Equal(t, "secretagent", first.channel.ID)
+
+	// Cursor should follow the channel
+	sel := updated.list.SelectedItem().(item)
+	assert.Equal(t, "secretagent", sel.channel.ID)
+}
+
+func TestUpdate_UnfavoriteRemovesFavoriteStatus(t *testing.T) {
+	setStateDir(t)
+	m := newTestModel(testChannels())
+	m.list.Select(2) // Select Secret Agent
+
+	// Favorite it
+	result, _ := m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'f'}}))
+	updated := result.(*model)
+	assert.True(t, updated.state.IsFavorite("secretagent"))
+
+	// Unfavorite it
+	result, _ = updated.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{'f'}}))
+	updated = result.(*model)
+	assert.False(t, updated.state.IsFavorite("secretagent"))
+
+	// Cursor should still track the channel
+	sel := updated.list.SelectedItem().(item)
+	assert.Equal(t, "secretagent", sel.channel.ID)
+}
+
+func TestIsFavoriteMethod(t *testing.T) {
+	m := newTestModel(testChannels())
+	m.state.FavoriteChannelIDs = []string{"dronezone"}
+
+	assert.False(t, m.isFavorite(0)) // groovesalad
+	assert.True(t, m.isFavorite(1))  // dronezone
+	assert.False(t, m.isFavorite(2)) // secretagent
+	assert.False(t, m.isFavorite(-1))
+	assert.False(t, m.isFavorite(99))
+}
+
+func TestSortItemsWithFavorites(t *testing.T) {
+	m := newTestModel(testChannels())
+	m.state.FavoriteChannelIDs = []string{"secretagent"}
+
+	items := m.sortItemsWithFavorites(m.list.Items())
+
+	first := items[0].(item)
+	assert.Equal(t, "secretagent", first.channel.ID)
+
+	// Non-favorites preserve relative order
+	second := items[1].(item)
+	third := items[2].(item)
+	assert.Equal(t, "groovesalad", second.channel.ID)
+	assert.Equal(t, "dronezone", third.channel.ID)
+}
+
+func TestSortItemsWithFavorites_NoFavorites(t *testing.T) {
+	m := newTestModel(testChannels())
+
+	items := m.sortItemsWithFavorites(m.list.Items())
+
+	// Order unchanged
+	assert.Equal(t, "groovesalad", items[0].(item).channel.ID)
+	assert.Equal(t, "dronezone", items[1].(item).channel.ID)
+	assert.Equal(t, "secretagent", items[2].(item).channel.ID)
+}
+
+func TestFavoritePersistsAcrossRefresh(t *testing.T) {
+	setStateDir(t)
+	m := newTestModel(testChannels())
+	m.state.FavoriteChannelIDs = []string{"secretagent"}
+
+	// Simulate channel refresh
+	newChannels := []Channel{
+		{ID: "groovesalad", Title: "Groove Salad", Listeners: "1000"},
+		{ID: "dronezone", Title: "Drone Zone", Listeners: "500"},
+		{ID: "secretagent", Title: "Secret Agent", Listeners: "750"},
+	}
+	result, _ := m.Update(channelsRefreshedMsg{channels: &Channels{Channels: newChannels}})
+	updated := result.(*model)
+
+	// Secret Agent should still be first after refresh
+	first := updated.list.Items()[0].(item)
+	assert.Equal(t, "secretagent", first.channel.ID)
+}
+
 // --- View with about overlay ---
 
 func TestView_WithAbout(t *testing.T) {

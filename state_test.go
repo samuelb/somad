@@ -98,6 +98,80 @@ func TestSaveState_CreatesDirectory(t *testing.T) {
 	assert.Equal(t, "test", state.LastSelectedChannelID)
 }
 
+func TestIsFavorite(t *testing.T) {
+	state := &State{FavoriteChannelIDs: []string{"groovesalad", "dronezone"}}
+
+	assert.True(t, state.IsFavorite("groovesalad"))
+	assert.True(t, state.IsFavorite("dronezone"))
+	assert.False(t, state.IsFavorite("secretagent"))
+	assert.False(t, state.IsFavorite(""))
+}
+
+func TestIsFavorite_Empty(t *testing.T) {
+	state := &State{}
+	assert.False(t, state.IsFavorite("groovesalad"))
+}
+
+func TestToggleFavorite_Add(t *testing.T) {
+	state := &State{}
+
+	state.ToggleFavorite("groovesalad")
+	assert.True(t, state.IsFavorite("groovesalad"))
+	assert.Equal(t, []string{"groovesalad"}, state.FavoriteChannelIDs)
+}
+
+func TestToggleFavorite_Remove(t *testing.T) {
+	state := &State{FavoriteChannelIDs: []string{"groovesalad", "dronezone"}}
+
+	state.ToggleFavorite("groovesalad")
+	assert.False(t, state.IsFavorite("groovesalad"))
+	assert.True(t, state.IsFavorite("dronezone"))
+	assert.Equal(t, []string{"dronezone"}, state.FavoriteChannelIDs)
+}
+
+func TestToggleFavorite_AddAndRemove(t *testing.T) {
+	state := &State{}
+
+	state.ToggleFavorite("groovesalad")
+	assert.True(t, state.IsFavorite("groovesalad"))
+
+	state.ToggleFavorite("groovesalad")
+	assert.False(t, state.IsFavorite("groovesalad"))
+	assert.Empty(t, state.FavoriteChannelIDs)
+}
+
+func TestSaveAndLoadState_WithFavorites(t *testing.T) {
+	setStateDir(t)
+
+	original := &State{
+		LastSelectedChannelID: "groovesalad",
+		FavoriteChannelIDs:    []string{"dronezone", "secretagent"},
+	}
+	err := SaveState(original)
+	require.NoError(t, err)
+
+	loaded, err := LoadState()
+	require.NoError(t, err)
+	assert.Equal(t, original.LastSelectedChannelID, loaded.LastSelectedChannelID)
+	assert.Equal(t, original.FavoriteChannelIDs, loaded.FavoriteChannelIDs)
+}
+
+func TestLoadState_BackwardCompatibility(t *testing.T) {
+	dir := setStateDir(t)
+
+	// Write state JSON without favorites field (simulates old version)
+	stateDir := filepath.Join(dir, appDirName)
+	require.NoError(t, os.MkdirAll(stateDir, 0755))
+	oldJSON := `{"last_selected_channel_id": "groovesalad"}`
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFileName), []byte(oldJSON), 0644))
+
+	state, err := LoadState()
+	require.NoError(t, err)
+	assert.Equal(t, "groovesalad", state.LastSelectedChannelID)
+	assert.Empty(t, state.FavoriteChannelIDs)
+	assert.False(t, state.IsFavorite("groovesalad"))
+}
+
 func TestGetStateDir_XDGOverride(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/tmp/custom-state")
 

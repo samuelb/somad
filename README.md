@@ -12,6 +12,7 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 
 ## Features
 
+- Mark channels as favorites for quick access
 - Browse and filter the full list of SomaFM radio channels
 - Play high-quality MP3 streams directly in your terminal
 - View real-time track information (artist/title) from ICY metadata
@@ -99,6 +100,7 @@ To check the version:
 | <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel  |
 | <kbd>s</kbd>                        | Stop playback          |
+| <kbd>f</kbd> / <kbd>*</kbd>         | Toggle favorite        |
 | <kbd>/</kbd>                        | Filter channels        |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit                   |
 

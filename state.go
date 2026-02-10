@@ -6,11 +6,29 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 )
 
 // State holds application state that persists between sessions.
 type State struct {
-	LastSelectedChannelID string `json:"last_selected_channel_id"`
+	LastSelectedChannelID string   `json:"last_selected_channel_id"`
+	FavoriteChannelIDs    []string `json:"favorite_channel_ids,omitempty"`
+}
+
+// IsFavorite returns true if the given channel ID is in the favorites list.
+func (s *State) IsFavorite(id string) bool {
+	return slices.Contains(s.FavoriteChannelIDs, id)
+}
+
+// ToggleFavorite adds or removes a channel ID from the favorites list.
+func (s *State) ToggleFavorite(id string) {
+	for i, fav := range s.FavoriteChannelIDs {
+		if fav == id {
+			s.FavoriteChannelIDs = append(s.FavoriteChannelIDs[:i], s.FavoriteChannelIDs[i+1:]...)
+			return
+		}
+	}
+	s.FavoriteChannelIDs = append(s.FavoriteChannelIDs, id)
 }
 
 const (

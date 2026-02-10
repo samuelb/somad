@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -195,6 +196,75 @@ func (m *model) isMatch(idx int) bool {
 	return false
 }
 
+// isFavorite returns true if the item at the given index is a favorite.
+func (m *model) isFavorite(idx int) bool {
+	if m.state == nil {
+		return false
+	}
+	items := m.list.Items()
+	if idx < 0 || idx >= len(items) {
+		return false
+	}
+	if i, ok := items[idx].(item); ok {
+		return m.state.IsFavorite(i.channel.ID)
+	}
+	return false
+}
+
+// toggleFavorite toggles the favorite status of the currently selected channel.
+func (m *model) toggleFavorite() {
+	if m.state == nil {
+		return
+	}
+	sel, ok := m.list.SelectedItem().(item)
+	if !ok {
+		return
+	}
+	selectedID := sel.channel.ID
+	m.state.ToggleFavorite(selectedID)
+	if err := SaveState(m.state); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
+	}
+
+	// Re-sort items with favorites on top
+	items := m.sortItemsWithFavorites(m.list.Items())
+	m.list.SetItems(items)
+
+	// Restore cursor to the same channel by ID
+	for i, li := range items {
+		if it, ok := li.(item); ok && it.channel.ID == selectedID {
+			m.list.Select(i)
+			break
+		}
+	}
+
+	// Update search matches since indices changed
+	if m.searchQuery != "" {
+		m.updateSearchMatches()
+	}
+}
+
+// sortItemsWithFavorites returns items sorted with favorites first,
+// preserving relative order within each group.
+func (m *model) sortItemsWithFavorites(items []list.Item) []list.Item {
+	if m.state == nil {
+		return items
+	}
+	sorted := make([]list.Item, len(items))
+	copy(sorted, items)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		iItem, iOK := sorted[i].(item)
+		jItem, jOK := sorted[j].(item)
+		if !iOK || !jOK {
+			return false
+		}
+		iFav := m.state.IsFavorite(iItem.channel.ID)
+		jFav := m.state.IsFavorite(jItem.channel.ID)
+		return iFav && !jFav
+	})
+	return sorted
+}
+
 // getPlayingChannel returns the currently playing channel, or nil if not playing.
 func (m *model) getPlayingChannel() *Channel {
 	if m.playingID == "" {
@@ -354,6 +424,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prevMatch()
 				return m, nil
 			}
+		case "f", "*":
+			// Toggle favorite on selected channel
+			m.toggleFavorite()
+			return m, nil
 		case "c":
 			// Clear search
 			if m.searchQuery != "" {
@@ -374,13 +448,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i, ch := range msg.channels.Channels {
 			items[i] = item{channel: ch}
 		}
+		items = m.sortItemsWithFavorites(items)
 		m.list.SetItems(items)
 		m.loading = false
 
 		// Set the cursor to the last selected channel if available
 		if m.state != nil && m.state.LastSelectedChannelID != "" {
-			for i, ch := range msg.channels.Channels {
-				if ch.ID == m.state.LastSelectedChannelID {
+			for i, li := range items {
+				if it, ok := li.(item); ok && it.channel.ID == m.state.LastSelectedChannelID {
 					m.list.Select(i)
 					break
 				}
@@ -393,16 +468,24 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case channelsRefreshedMsg:
 		// Channels have been refreshed from network, update the list
-		selectedIndex := m.list.Index()
+		// Remember selected channel by ID for stable restoration after sort
+		var selectedChannelID string
+		if sel, ok := m.list.SelectedItem().(item); ok {
+			selectedChannelID = sel.channel.ID
+		}
 		items := make([]list.Item, len(msg.channels.Channels))
 		for i, ch := range msg.channels.Channels {
 			items[i] = item{channel: ch}
 		}
+		items = m.sortItemsWithFavorites(items)
 		m.list.SetItems(items)
 
-		// Restore selection position
-		if selectedIndex < len(items) {
-			m.list.Select(selectedIndex)
+		// Restore selection by channel ID
+		for i, li := range items {
+			if it, ok := li.(item); ok && it.channel.ID == selectedChannelID {
+				m.list.Select(i)
+				break
+			}
 		}
 	case channelRefreshTickMsg:
 		// Time to refresh channels, fetch from network and schedule next tick

@@ -9,11 +9,15 @@ import (
 )
 
 func newTestList(channels []Channel, playingID *string, matchChecker func(int) bool) (list.Model, styledDelegate) {
+	return newTestListWithFavorites(channels, playingID, matchChecker, func(int) bool { return false })
+}
+
+func newTestListWithFavorites(channels []Channel, playingID *string, matchChecker func(int) bool, favoriteChecker func(int) bool) (list.Model, styledDelegate) {
 	items := make([]list.Item, len(channels))
 	for i, ch := range channels {
 		items[i] = item{channel: ch}
 	}
-	delegate := newStyledDelegate(playingID, matchChecker)
+	delegate := newStyledDelegate(playingID, matchChecker, favoriteChecker)
 	l := list.New(items, delegate, 80, 24)
 	l.SetShowTitle(false)
 	l.SetFilteringEnabled(false)
@@ -65,6 +69,19 @@ func TestDelegateRender_SearchMatch(t *testing.T) {
 
 	output := buf.String()
 	assert.Contains(t, output, "Secret Agent")
+}
+
+func TestDelegateRender_Favorite(t *testing.T) {
+	playingID := ""
+	favoriteChecker := func(idx int) bool { return idx == 1 }
+	l, delegate := newTestListWithFavorites(testChannels(), &playingID, func(int) bool { return false }, favoriteChecker)
+
+	var buf bytes.Buffer
+	delegate.Render(&buf, l, 1, l.Items()[1]) // Drone Zone is favorite but not selected
+
+	output := buf.String()
+	assert.Contains(t, output, "Drone Zone")
+	assert.Contains(t, output, "★") // favorite indicator
 }
 
 func TestDelegateRender_InvalidItem(t *testing.T) {
