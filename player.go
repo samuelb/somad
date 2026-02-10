@@ -11,11 +11,15 @@ import (
 )
 
 const (
-	userAgent       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
 	fadeInDuration  = 500 * time.Millisecond
 	fadeOutDuration = 250 * time.Millisecond
 	fadeSteps       = 20
 )
+
+// userAgent returns the User-Agent string using the software name and version.
+func userAgent() string {
+	return "SomaTUI/" + version
+}
 
 // AudioPlayer is the interface for audio playback operations.
 // This allows mocking the player in tests.
@@ -74,7 +78,7 @@ func (p *Player) Play(url string) error {
 			pw.CloseWithError(fmt.Errorf("failed to create request: %w", err))
 			return
 		}
-		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("User-Agent", userAgent())
 
 		client := &http.Client{}
 		resp, err := client.Do(req)

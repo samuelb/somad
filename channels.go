@@ -108,6 +108,8 @@ func fetchChannelsFromNetwork() (*Channels, error) {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	req.Header.Set("User-Agent", userAgent())
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch channels from network: %w", err)

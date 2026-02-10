@@ -87,7 +87,7 @@ func NewMPRIS() (*MPRIS, error) {
 			"DesktopEntry":        {Value: "somatui", Writable: false, Emit: prop.EmitTrue, Callback: nil},
 			"Fullscreen":          {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
 			"HasTrackList":        {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"Identity":            {Value: "SomaUI", Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"Identity":            {Value: "SomaTUI", Writable: false, Emit: prop.EmitTrue, Callback: nil},
 			"SupportedMimeTypes":  {Value: []string{"audio/mpeg"}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
 			"SupportedUriSchemes": {Value: []string{"http", "https"}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
 		},

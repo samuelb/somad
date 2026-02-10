@@ -603,7 +603,7 @@ func placeOverlay(x, y int, fg, bg string) string {
 
 // renderAboutScreen renders the about dialog.
 func (m *model) renderAboutScreen() string {
-	content := fmt.Sprintf(`SomaUI
+	content := fmt.Sprintf(`SomaTUI
 
 A terminal UI for SomaFM internet radio.
 

@@ -636,7 +636,7 @@ func TestSmoke_FullLifecycle(t *testing.T) {
 	assert.True(t, m.showAbout)
 
 	view := m.View()
-	assert.Contains(t, view, "SomaUI")
+	assert.Contains(t, view, "SomaTUI")
 
 	// Dismiss
 	result, _ = m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Runes: []rune{' '}}))
@@ -1146,6 +1146,6 @@ func TestView_WithAbout(t *testing.T) {
 	m.about = aboutInfo{Version: "1.0.0", Commit: "abc123", Date: "2025-01-01"}
 
 	view := m.View()
-	assert.Contains(t, view, "SomaUI")
+	assert.Contains(t, view, "SomaTUI")
 	assert.Contains(t, view, "1.0.0")
 }

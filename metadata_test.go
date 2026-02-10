@@ -251,7 +251,7 @@ func TestGetMetadata_VerifiesHeaders(t *testing.T) {
 	_, err := mr.getMetadata()
 	require.NoError(t, err)
 
-	assert.Equal(t, "SomaTUI/1.0", gotUserAgent)
+	assert.Equal(t, userAgent(), gotUserAgent)
 	assert.Equal(t, "1", gotIcyMetaData)
 }
 

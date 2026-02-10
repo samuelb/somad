@@ -25,6 +25,8 @@ func getStreamURLFromPlaylist(playlistURL string) (string, error) {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
+	req.Header.Set("User-Agent", userAgent())
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to get playlist from %s: %w", playlistURL, err)
