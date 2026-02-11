@@ -82,7 +82,7 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	// Build title with playing/favorite indicator
 	title := i.Title()
 	if isFavorite {
-		title = "★ " + title
+		title = "♥ " + title
 	}
 	if isPlaying {
 		title = "▶ " + title
@@ -109,11 +109,6 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 
 	listenerMatchStyle := lipgloss.NewStyle().
 		Foreground(searchMatchColor).
-		Width(listenerColWidth).
-		Align(lipgloss.Right)
-
-	listenerFavoriteStyle := lipgloss.NewStyle().
-		Foreground(favoriteColor).
 		Width(listenerColWidth).
 		Align(lipgloss.Right)
 
@@ -155,19 +150,6 @@ func (d styledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		titleStr = matchTitleStyle.Render(title)
 		descStr = matchDescStyle.Render(desc)
 		listenerStr = listenerMatchStyle.Render(listeners)
-	} else if isFavorite {
-		// Favorite - highlight with favorite color
-		favoriteTitleStyle := lipgloss.NewStyle().
-			Foreground(favoriteColor).
-			Padding(0, 0, 0, 2).
-			Width(leftColWidth)
-		favoriteDescStyle := lipgloss.NewStyle().
-			Foreground(subtleColor).
-			Padding(0, 0, 0, 2).
-			Width(leftColWidth)
-		titleStr = favoriteTitleStyle.Render(title)
-		descStr = favoriteDescStyle.Render(desc)
-		listenerStr = listenerFavoriteStyle.Render(listeners)
 	} else {
 		titleStr = d.Styles.NormalTitle.Width(leftColWidth).Render(title)
 		descStr = d.Styles.NormalDesc.Width(leftColWidth).Render(desc)

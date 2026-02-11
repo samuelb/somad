@@ -10,7 +10,6 @@ var (
 	errorColor       = lipgloss.Color("#FF3333") // Red for errors
 	subtleColor      = lipgloss.Color("#666666") // Gray for secondary text
 	searchMatchColor = lipgloss.Color("#E6DB74") // Yellow for search matches
-	favoriteColor    = lipgloss.Color("#4CAF50") // Green for favorites
 )
 
 // Styles

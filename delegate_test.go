@@ -81,7 +81,7 @@ func TestDelegateRender_Favorite(t *testing.T) {
 
 	output := buf.String()
 	assert.Contains(t, output, "Drone Zone")
-	assert.Contains(t, output, "★") // favorite indicator
+	assert.Contains(t, output, "♥") // favorite indicator
 }
 
 func TestDelegateRender_InvalidItem(t *testing.T) {
