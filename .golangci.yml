@@ -21,11 +21,7 @@ linters:
     - tparallel
     - unconvert
     - wastedassign
-
-linters-settings:
-  gosec:
-    excludes:
-      - G104  # Audit errors not checked (we use _ = intentionally)
-
-issues:
-  exclude-use-default: false
+  settings:
+    gosec:
+      excludes:
+        - G104
