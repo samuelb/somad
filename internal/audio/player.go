@@ -1,10 +1,13 @@
 package audio
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"somatui/internal/security"
 
 	"github.com/ebitengine/oto/v3"
 	"github.com/hajimehoshi/ebiten/v2/audio/mp3"
@@ -68,7 +71,15 @@ func (p *AudioPlayer) Play(url string) error {
 	go func() {
 		defer func() { _ = pw.Close() }()
 
-		req, err := http.NewRequest("GET", url, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := security.ValidateURL(url); err != nil {
+			pw.CloseWithError(fmt.Errorf("invalid stream URL: %w", err))
+			return
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			pw.CloseWithError(fmt.Errorf("failed to create request: %w", err))
 			return
@@ -76,7 +87,7 @@ func (p *AudioPlayer) Play(url string) error {
 		req.Header.Set("User-Agent", p.userAgent)
 
 		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
 		if err != nil {
 			pw.CloseWithError(fmt.Errorf("failed to fetch stream: %w", err))
 			return

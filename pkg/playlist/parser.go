@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"somatui/internal/security"
 )
 
 const plsFilePrefix = "File1="
@@ -15,6 +17,10 @@ const plsFilePrefix = "File1="
 // and returns the first stream URL found within the playlist.
 // It supports .pls playlist formats.
 func GetStreamURLFromPlaylist(playlistURL, userAgent string) (string, error) {
+	if err := security.ValidateURL(playlistURL); err != nil {
+		return "", fmt.Errorf("invalid playlist URL: %w", err)
+	}
+
 	// Fetch the playlist file content
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -27,7 +33,7 @@ func GetStreamURLFromPlaylist(playlistURL, userAgent string) (string, error) {
 
 	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
 	if err != nil {
 		return "", fmt.Errorf("failed to get playlist from %s: %w", playlistURL, err)
 	}

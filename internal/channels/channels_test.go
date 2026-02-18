@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"somatui/internal/security"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -73,8 +75,8 @@ func TestReadChannelsFromCache_CorruptJSON(t *testing.T) {
 	dir := SetCacheDir(t)
 
 	cacheDir := filepath.Join(dir, appCacheDirName)
-	require.NoError(t, os.MkdirAll(cacheDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(cacheDir, cacheFileName), []byte("not json"), 0644))
+	require.NoError(t, os.MkdirAll(cacheDir, 0755))                                                    // #nosec G301 // Test directory
+	require.NoError(t, os.WriteFile(filepath.Join(cacheDir, cacheFileName), []byte("not json"), 0644)) // #nosec G306 // Test file
 
 	channels, err := ReadChannelsFromCache()
 	assert.Error(t, err)
@@ -83,6 +85,7 @@ func TestReadChannelsFromCache_CorruptJSON(t *testing.T) {
 }
 
 func TestFetchChannelsFromNetwork(t *testing.T) {
+	security.AllowTestHosts(t)
 	SetCacheDir(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +112,7 @@ func TestFetchChannelsFromNetwork(t *testing.T) {
 }
 
 func TestFetchChannelsFromNetwork_ServerError(t *testing.T) {
+	security.AllowTestHosts(t)
 	SetCacheDir(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

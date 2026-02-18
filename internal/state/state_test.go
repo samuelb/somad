@@ -58,8 +58,8 @@ func TestLoadState_CorruptJSON(t *testing.T) {
 
 	// Write corrupt data to the state file
 	stateDir := filepath.Join(dir, appDirName)
-	require.NoError(t, os.MkdirAll(stateDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFileName), []byte("{invalid json"), 0644))
+	require.NoError(t, os.MkdirAll(stateDir, 0755))                                                         // #nosec G301 // Test directory
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFileName), []byte("{invalid json"), 0644)) // #nosec G306 // Test file
 
 	state, err := LoadState()
 	assert.Error(t, err)
@@ -71,8 +71,8 @@ func TestLoadState_EmptyJSON(t *testing.T) {
 	dir := SetStateDir(t)
 
 	stateDir := filepath.Join(dir, appDirName)
-	require.NoError(t, os.MkdirAll(stateDir, 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFileName), []byte("{}"), 0644))
+	require.NoError(t, os.MkdirAll(stateDir, 0755))                                              // #nosec G301 // Test directory
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFileName), []byte("{}"), 0644)) // #nosec G306 // Test file
 
 	state, err := LoadState()
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestSaveState_CreatesDirectory(t *testing.T) {
 	assert.FileExists(t, stateFile)
 
 	// Verify content is valid JSON
-	data, err := os.ReadFile(stateFile)
+	data, err := os.ReadFile(stateFile) // #nosec G304 // Test file path
 	require.NoError(t, err)
 	var state State
 	require.NoError(t, json.Unmarshal(data, &state))
@@ -161,9 +161,9 @@ func TestLoadState_BackwardCompatibility(t *testing.T) {
 
 	// Write state JSON without favorites field (simulates old version)
 	stateDir := filepath.Join(dir, appDirName)
-	require.NoError(t, os.MkdirAll(stateDir, 0755))
+	require.NoError(t, os.MkdirAll(stateDir, 0755)) // #nosec G301 // Test directory
 	oldJSON := `{"last_selected_channel_id": "groovesalad"}`
-	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFileName), []byte(oldJSON), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(stateDir, stateFileName), []byte(oldJSON), 0644)) // #nosec G306 // Test file
 
 	state, err := LoadState()
 	require.NoError(t, err)

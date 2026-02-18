@@ -121,12 +121,13 @@ func (d StyledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 	// Truncate description to prevent wrapping (content area is leftColWidth - 2 for padding)
 	desc := ansi.Truncate(i.Description(), leftColWidth-2, "…")
 
-	if isSelected {
+	switch {
+	case isSelected:
 		// Subtract 1 from width to account for left border character
 		titleStr = d.Styles.SelectedTitle.Width(leftColWidth - 1).Render(title)
 		descStr = d.Styles.SelectedDesc.Width(leftColWidth - 1).Render(desc)
 		listenerStr = listenerSelectedStyle.Render(listeners)
-	} else if isPlaying {
+	case isPlaying:
 		// Playing but not selected - show green indicator
 		playingTitleStyle := lipgloss.NewStyle().
 			Foreground(PlayingColor).
@@ -139,7 +140,7 @@ func (d StyledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		titleStr = playingTitleStyle.Render(title)
 		descStr = playingDescStyle.Render(desc)
 		listenerStr = listenerPlayingStyle.Render(listeners)
-	} else if isMatch {
+	case isMatch:
 		// Search match - highlight with match color
 		matchTitleStyle := lipgloss.NewStyle().
 			Foreground(SearchMatchColor).
@@ -152,7 +153,7 @@ func (d StyledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		titleStr = matchTitleStyle.Render(title)
 		descStr = matchDescStyle.Render(desc)
 		listenerStr = listenerMatchStyle.Render(listeners)
-	} else {
+	default:
 		titleStr = d.Styles.NormalTitle.Width(leftColWidth).Render(title)
 		descStr = d.Styles.NormalDesc.Width(leftColWidth).Render(desc)
 		listenerStr = listenerStyle.Render(listeners)

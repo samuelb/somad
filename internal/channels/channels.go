@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"somatui/internal/security"
 )
 
 // Playlist represents a single playlist entry for a SomaFM channel.
@@ -57,7 +59,7 @@ func GetCacheFilePath() (string, error) {
 		}
 	}
 	appCacheDir := filepath.Join(cacheDir, appCacheDirName)
-	if err := os.MkdirAll(appCacheDir, 0755); err != nil {
+	if err := os.MkdirAll(appCacheDir, 0750); err != nil { // #nosec G703 -- path validated by ValidatePathNoTraversal()
 		return "", fmt.Errorf("failed to create app cache directory: %w", err)
 	}
 	return filepath.Join(appCacheDir, cacheFileName), nil
@@ -70,7 +72,11 @@ func ReadChannelsFromCache() (*Channels, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(cachePath)
+	if err := security.ValidatePathNoTraversal(cachePath); err != nil {
+		return nil, fmt.Errorf("invalid cache path: %w", err)
+	}
+
+	data, err := os.ReadFile(cachePath) // #nosec G304 -- path validated by ValidatePathNoTraversal()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
@@ -95,7 +101,7 @@ func WriteChannelsToCache(channels *Channels) error {
 		return fmt.Errorf("failed to marshal channels for caching: %w", err)
 	}
 
-	if err := os.WriteFile(cachePath, data, 0644); err != nil {
+	if err := os.WriteFile(cachePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write channels to cache file: %w", err)
 	}
 
@@ -115,7 +121,11 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 
 	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := client.Do(req)
+	if err := security.ValidateURL(SomaFMChannelsURL); err != nil {
+		return nil, fmt.Errorf("invalid channels URL: %w", err)
+	}
+
+	resp, err := client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch channels from network: %w", err)
 	}

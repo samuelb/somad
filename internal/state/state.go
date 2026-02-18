@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+
+	"somatui/internal/security"
 )
 
 // State holds application state that persists between sessions.
@@ -70,7 +72,7 @@ func GetStateFilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
+	if err := os.MkdirAll(stateDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create state directory: %w", err)
 	}
 	return filepath.Join(stateDir, stateFileName), nil
@@ -84,7 +86,11 @@ func LoadState() (*State, error) {
 		return nil, err
 	}
 
-	data, err := os.ReadFile(statePath)
+	if err := security.ValidatePathNoTraversal(statePath); err != nil {
+		return nil, fmt.Errorf("invalid state path: %w", err)
+	}
+
+	data, err := os.ReadFile(statePath) // #nosec G304 -- path validated by ValidatePathNoTraversal()
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &State{}, nil
@@ -112,7 +118,7 @@ func SaveState(state *State) error {
 		return fmt.Errorf("failed to marshal state for saving: %w", err)
 	}
 
-	if err := os.WriteFile(statePath, data, 0644); err != nil {
+	if err := os.WriteFile(statePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write state to file: %w", err)
 	}
 

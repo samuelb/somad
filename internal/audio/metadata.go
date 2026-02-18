@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"somatui/internal/security"
 )
 
 const metadataCheckInterval = 10 * time.Second
@@ -79,6 +81,10 @@ func (mr *MetadataReader) getMetadata(userAgent string) (TrackInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	if err := security.ValidateURL(mr.url); err != nil {
+		return TrackInfo{}, fmt.Errorf("invalid stream URL: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", mr.url, nil)
 	if err != nil {
 		return TrackInfo{}, fmt.Errorf("failed to create request: %w", err)
@@ -87,7 +93,7 @@ func (mr *MetadataReader) getMetadata(userAgent string) (TrackInfo, error) {
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Icy-MetaData", "1") // Request metadata
 
-	resp, err := mr.client.Do(req)
+	resp, err := mr.client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
 	if err != nil {
 		return TrackInfo{}, fmt.Errorf("failed to fetch stream: %w", err)
 	}

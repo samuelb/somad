@@ -4,9 +4,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"somatui/internal/security"
 )
 
 func TestGetStreamURLFromPlaylist(t *testing.T) {
+	security.AllowTestHosts(t)
 	tests := []struct {
 		name       string
 		content    string

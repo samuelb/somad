@@ -83,11 +83,6 @@ func main() {
 	}
 	m.List = l
 
-	// Clean up MPRIS on exit
-	if mpris != nil {
-		defer mpris.Close()
-	}
-
 	// Start the Bubble Tea program with window size handling
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
@@ -98,6 +93,14 @@ func main() {
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v\n", err)
+		if mpris != nil {
+			mpris.Close()
+		}
 		os.Exit(1)
+	}
+
+	// Clean up MPRIS on normal exit
+	if mpris != nil {
+		mpris.Close()
 	}
 }

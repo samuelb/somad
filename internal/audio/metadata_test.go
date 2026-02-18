@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"somatui/internal/security"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -131,7 +133,7 @@ func buildICYStream(icyInt int, metadata string) *bytes.Buffer {
 	buf.Write(bytes.Repeat([]byte{0xFF}, icyInt))
 	// Metadata length byte (in 16-byte units)
 	metaLen := (len(metadata) + 15) / 16
-	buf.WriteByte(byte(metaLen))
+	buf.WriteByte(byte(metaLen)) // #nosec G115 // Test helper, metadata length is always small
 	// Metadata padded with null bytes to fill metaLen*16 bytes
 	buf.WriteString(metadata)
 	padding := metaLen*16 - len(metadata)
@@ -225,6 +227,7 @@ func TestReadICYMetadata_ZeroLengthMetadata(t *testing.T) {
 }
 
 func TestGetMetadata(t *testing.T) {
+	security.AllowTestHosts(t)
 	server := newICYServer(100, "StreamTitle='Server Song';")
 	defer server.Close()
 
@@ -236,6 +239,7 @@ func TestGetMetadata(t *testing.T) {
 }
 
 func TestGetMetadata_VerifiesHeaders(t *testing.T) {
+	security.AllowTestHosts(t)
 	var gotUserAgent, gotIcyMetaData string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUserAgent = r.Header.Get("User-Agent")
@@ -256,6 +260,7 @@ func TestGetMetadata_VerifiesHeaders(t *testing.T) {
 }
 
 func TestGetMetadata_NoIcyMetaint(t *testing.T) {
+	security.AllowTestHosts(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// No icy-metaint header
 		w.WriteHeader(http.StatusOK)
@@ -270,6 +275,7 @@ func TestGetMetadata_NoIcyMetaint(t *testing.T) {
 }
 
 func TestGetMetadata_ServerError(t *testing.T) {
+	security.AllowTestHosts(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -282,6 +288,7 @@ func TestGetMetadata_ServerError(t *testing.T) {
 }
 
 func TestMetadataReaderStartStop(t *testing.T) {
+	security.AllowTestHosts(t)
 	server := newICYServer(50, "StreamTitle='Live Track';")
 	defer server.Close()
 
