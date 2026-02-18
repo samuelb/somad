@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"somatui/internal/audio"
 	"somatui/internal/channels"
-	"somatui/internal/state"
 )
 
 const (
@@ -109,21 +108,4 @@ func (m *Model) UpdateMPRIS(items []list.Item) {
 	m.MPRIS.SetPlaying(ch.Title, track, ch.Title)
 }
 
-// PlayChannel starts playing the given channel.
-func (m *Model) PlayChannel(i Item) tea.Cmd {
-	m.PlayingID = i.Channel.ID
 
-	// Save the last selected channel
-	if m.State != nil {
-		m.State.LastSelectedChannelID = i.Channel.ID
-		_ = state.SaveState(m.State) // Ignore error - don't fail if state can't be saved
-	}
-
-	playlistURL := SelectMP3PlaylistURL(i.Channel.Playlists)
-	if playlistURL == "" {
-		return nil
-	}
-
-	// We'll handle stream URL fetching in the update function
-	return nil
-}
