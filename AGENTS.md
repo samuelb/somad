@@ -48,6 +48,11 @@ Single `main` package using the Bubble Tea (Elm-inspired) architecture: `Init() 
 
 **State persistence**: `state.go` saves `LastSelectedChannelID` to XDG-compliant paths. Restored on startup to select the previously-played channel.
 
+**Security**: `internal/security` package provides input validation:
+- `ValidateURL()` — Ensures URLs are from somafm.com domains (SSRF protection)
+- `ValidatePathNoTraversal()` — Rejects paths with `..` sequences
+- `AllowTestHosts(t)` — Test helper to allow localhost/127.0.0.1 for httptest
+
 ## Testing Conventions
 
 - Use `testify/assert` and `testify/require` for assertions
@@ -60,6 +65,6 @@ Single `main` package using the Bubble Tea (Elm-inspired) architecture: `Init() 
 
 ## Code Style
 
-- No golangci-lint configuration file — uses default rules
+- golangci-lint configuration in `.golangci.yml` with security-focused linters (gosec, etc.)
 - Discard error returns with `_ =` when intentional (e.g., `_ = resp.Body.Close()`)
 - Lipgloss styles defined centrally in `styles.go`
