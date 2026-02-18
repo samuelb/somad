@@ -3,9 +3,11 @@ package app
 import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"somatui/internal/audio"
 	"somatui/internal/platform"
 	"somatui/internal/state"
 	"somatui/internal/ui"
+	"somatui/pkg/playlist"
 )
 
 // Update handles incoming messages and updates the model's state.
@@ -250,10 +252,18 @@ func (m *Model) playChannel(i ui.Item) tea.Cmd {
 		return nil
 	}
 
-	// Note: Stream URL fetching and playback would need to be handled here
-	// For now, this is a placeholder
+	streamURL, err := playlist.GetStreamURLFromPlaylist(playlistURL, m.UserAgent)
+	if err != nil {
+		return nil
+	}
+
+	if err := m.Player.Play(streamURL); err != nil {
+		return nil
+	}
 
 	m.StopMetadataReader()
+	m.MetadataReader = audio.NewMetadataReader(streamURL)
+	m.MetadataReader.Start(m.UserAgent)
 	m.TrackInfo = nil
 
 	// Update MPRIS

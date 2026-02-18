@@ -58,6 +58,7 @@ func (p *AudioPlayer) Play(url string) error {
 		close(p.cancelFade)
 	}
 	p.fadeOut()
+	p.cancelFade = make(chan struct{})
 	p.cleanup()
 
 	// Create a pipe to connect the HTTP stream to the MP3 decoder

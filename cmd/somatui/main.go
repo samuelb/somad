@@ -13,7 +13,6 @@ import (
 	"somatui/internal/platform"
 	"somatui/internal/state"
 	"somatui/internal/ui"
-	"somatui/pkg/playlist"
 )
 
 // Version information (set via ldflags during build)
@@ -101,6 +100,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-
-// Ensure Playlist package is imported (it's used by app package)
-var _ = playlist.GetStreamURLFromPlaylist
