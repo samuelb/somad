@@ -42,7 +42,10 @@ const (
 func getStateDir() (string, error) {
 	var baseDir string
 
-	if runtime.GOOS == "darwin" {
+	// Check XDG override first (works on all platforms, enables testing)
+	if xdgState := os.Getenv("XDG_STATE_HOME"); xdgState != "" {
+		baseDir = xdgState
+	} else if runtime.GOOS == "darwin" {
 		// macOS: use Application Support
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
@@ -50,16 +53,12 @@ func getStateDir() (string, error) {
 		}
 		baseDir = filepath.Join(homeDir, "Library", "Application Support")
 	} else {
-		// Linux/other: use XDG_STATE_HOME or fallback to ~/.local/state
-		if xdgState := os.Getenv("XDG_STATE_HOME"); xdgState != "" {
-			baseDir = xdgState
-		} else {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return "", fmt.Errorf("failed to get home directory: %w", err)
-			}
-			baseDir = filepath.Join(homeDir, ".local", "state")
+		// Linux/other: fallback to ~/.local/state
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
 		}
+		baseDir = filepath.Join(homeDir, ".local", "state")
 	}
 
 	return filepath.Join(baseDir, appDirName), nil

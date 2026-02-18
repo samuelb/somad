@@ -47,9 +47,14 @@ var SomaFMChannelsURL = "https://somafm.com/channels.json"
 
 // GetCacheFilePath returns the absolute path to the cache file.
 func GetCacheFilePath() (string, error) {
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get user cache directory: %w", err)
+	// Check XDG override first (works on all platforms, enables testing)
+	cacheDir := os.Getenv("XDG_CACHE_HOME")
+	if cacheDir == "" {
+		var err error
+		cacheDir, err = os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user cache directory: %w", err)
+		}
 	}
 	appCacheDir := filepath.Join(cacheDir, appCacheDirName)
 	if err := os.MkdirAll(appCacheDir, 0755); err != nil {

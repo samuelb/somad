@@ -5,9 +5,10 @@ import (
 	"os"
 	"sort"
 
-	"github.com/charmbracelet/bubbles/list"
 	"somatui/internal/state"
 	"somatui/internal/ui"
+
+	"github.com/charmbracelet/bubbles/list"
 )
 
 // IsFavorite returns true if the item at the given index is a favorite.

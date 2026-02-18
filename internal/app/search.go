@@ -4,9 +4,10 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/list"
 	"somatui/internal/state"
 	"somatui/internal/ui"
+
+	"github.com/charmbracelet/bubbles/list"
 )
 
 // IsValidSearchChar returns true if the character is safe for search input.

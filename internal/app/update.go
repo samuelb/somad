@@ -1,13 +1,14 @@
 package app
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
 	"somatui/internal/audio"
 	"somatui/internal/platform"
 	"somatui/internal/state"
 	"somatui/internal/ui"
 	"somatui/pkg/playlist"
+
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Update handles incoming messages and updates the model's state.

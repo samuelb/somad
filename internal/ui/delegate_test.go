@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"testing"
 
+	"somatui/internal/channels"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/stretchr/testify/assert"
-	"somatui/internal/channels"
 )
 
 func newTestList(channelItems []channels.Channel, playingID *string, matchChecker func(int) bool) (list.Model, StyledDelegate) {

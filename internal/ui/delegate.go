@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"io"
 
+	"somatui/internal/channels"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"somatui/internal/channels"
 )
 
 // Item implements the list.Item interface for displaying channels.

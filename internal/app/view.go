@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	"somatui/internal/channels"
+	"somatui/internal/ui"
+
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"somatui/internal/channels"
-	"somatui/internal/ui"
 )
 
 // RenderHeader renders the list header with column titles.

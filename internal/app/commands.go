@@ -3,10 +3,11 @@ package app
 import (
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
 	"somatui/internal/audio"
 	"somatui/internal/channels"
+
+	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 const (
@@ -107,5 +108,3 @@ func (m *Model) UpdateMPRIS(items []list.Item) {
 	// Use channel title as artist since SomaFM streams don't have separate artist info
 	m.MPRIS.SetPlaying(ch.Title, track, ch.Title)
 }
-
-

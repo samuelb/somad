@@ -1,12 +1,13 @@
 package app
 
 import (
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
 	"somatui/internal/audio"
 	"somatui/internal/channels"
 	"somatui/internal/platform"
 	"somatui/internal/state"
+
+	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // AboutInfo holds version and metadata for the about screen.

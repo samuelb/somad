@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"somatui/internal/app"
 	"somatui/internal/audio"
 	"somatui/internal/platform"
 	"somatui/internal/state"
 	"somatui/internal/ui"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Version information (set via ldflags during build)
