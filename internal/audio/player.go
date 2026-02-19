@@ -191,6 +191,7 @@ func (p *AudioPlayer) Stop() {
 // cleanup releases player and stream resources.
 func (p *AudioPlayer) cleanup() {
 	if p.player != nil {
+		p.player.Pause()
 		p.player = nil
 	}
 	if p.stream != nil {
