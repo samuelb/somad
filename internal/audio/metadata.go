@@ -48,14 +48,20 @@ func (mr *MetadataReader) Start(userAgent string) {
 
 		// Get initial metadata
 		if trackInfo, err := mr.getMetadata(userAgent); err == nil {
-			mr.updateChan <- trackInfo
+			select {
+			case mr.updateChan <- trackInfo:
+			default:
+			}
 		}
 
 		for {
 			select {
 			case <-ticker.C:
 				if trackInfo, err := mr.getMetadata(userAgent); err == nil {
-					mr.updateChan <- trackInfo
+					select {
+					case mr.updateChan <- trackInfo:
+					default:
+					}
 				}
 			case <-mr.stopChan:
 				return
