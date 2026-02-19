@@ -32,6 +32,7 @@ type AudioPlayer struct {
 	player     *oto.Player
 	stream     io.Closer
 	cancelFade chan struct{}
+	reqCancel  context.CancelFunc
 	userAgent  string
 }
 
@@ -68,10 +69,11 @@ func (p *AudioPlayer) Play(url string) error {
 	pr, pw := io.Pipe()
 
 	// Start a goroutine to fetch the stream and write it to the pipe
+	ctx, cancel := context.WithCancel(context.Background())
+	p.reqCancel = cancel
+
 	go func() {
 		defer func() { _ = pw.Close() }()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		if err := security.ValidateURL(url); err != nil {
@@ -176,5 +178,9 @@ func (p *AudioPlayer) cleanup() {
 	if p.stream != nil {
 		_ = p.stream.Close()
 		p.stream = nil
+	}
+	if p.reqCancel != nil {
+		p.reqCancel()
+		p.reqCancel = nil
 	}
 }
