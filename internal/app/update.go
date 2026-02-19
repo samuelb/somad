@@ -79,6 +79,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.PlayingID = ""
 				m.StopMetadataReader()
 				m.TrackInfo = nil
+				m.StreamErr = ""
 				m.UpdateMPRIS(items)
 			}
 		case "a":
@@ -177,7 +178,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.PollTrackUpdates()
 	case StreamErrorMsg:
 		m.PlayingID = ""
+		m.StreamErr = msg.Err.Error()
+		m.StopMetadataReader()
+		m.TrackInfo = nil
 		m.UpdateMPRIS(items)
+		return m, m.ListenStreamErrors()
 
 	// MPRIS control messages
 	case platform.MPRISPlayMsg:
@@ -193,6 +198,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.PlayingID = ""
 			m.StopMetadataReader()
 			m.TrackInfo = nil
+			m.StreamErr = ""
 			m.UpdateMPRIS(items)
 		}
 	case platform.MPRISPlayPauseMsg:
@@ -202,6 +208,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.PlayingID = ""
 			m.StopMetadataReader()
 			m.TrackInfo = nil
+			m.StreamErr = ""
 			m.UpdateMPRIS(items)
 		} else {
 			if i, ok := m.List.SelectedItem().(ui.Item); ok {
@@ -244,6 +251,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // playChannel starts playing the given channel.
 func (m *Model) playChannel(i ui.Item) tea.Cmd {
 	m.PlayingID = i.Channel.ID
+	m.StreamErr = ""
 
 	// Save the last selected channel
 	if m.State != nil {
