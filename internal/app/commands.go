@@ -36,6 +36,9 @@ type TrackUpdateMsg struct {
 	TrackInfo audio.TrackInfo
 }
 
+// TrackPollTickMsg is a message sent when it's time to poll for track updates.
+type TrackPollTickMsg struct{}
+
 // StreamErrorMsg is a message sent when a stream error occurs.
 type StreamErrorMsg struct{}
 
@@ -86,7 +89,7 @@ func (m *Model) PollTrackUpdates() tea.Cmd {
 		case trackInfo := <-m.MetadataReader.GetUpdateChan():
 			return TrackUpdateMsg{TrackInfo: trackInfo}
 		default:
-			return nil
+			return TrackPollTickMsg{}
 		}
 	})
 }

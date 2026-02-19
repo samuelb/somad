@@ -172,6 +172,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Track information has been updated
 		m.TrackInfo = &msg.TrackInfo
 		m.UpdateMPRIS(items)
+		return m, m.PollTrackUpdates()
+	case TrackPollTickMsg:
+		return m, m.PollTrackUpdates()
 	case StreamErrorMsg:
 		m.PlayingID = ""
 		m.UpdateMPRIS(items)
