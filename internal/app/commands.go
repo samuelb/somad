@@ -48,19 +48,21 @@ type StreamErrorMsg struct {
 type ChannelRefreshTickMsg struct{}
 
 // LoadChannels is a Tea command that fetches SomaFM channels asynchronously.
-func LoadChannels() tea.Msg {
-	// Try cache first
-	chans, err := channels.ReadChannelsFromCache()
-	if err == nil {
-		return ChannelsLoadedMsg{Channels: chans, FromCache: true}
-	}
+func LoadChannels(userAgent string) tea.Cmd {
+	return func() tea.Msg {
+		// Try cache first
+		chans, err := channels.ReadChannelsFromCache()
+		if err == nil {
+			return ChannelsLoadedMsg{Channels: chans, FromCache: true}
+		}
 
-	// Fall back to network
-	chans, err = channels.FetchChannelsFromNetwork("SomaTUI")
-	if err != nil {
-		return ErrorMsg{Err: err}
+		// Fall back to network
+		chans, err = channels.FetchChannelsFromNetwork(userAgent)
+		if err != nil {
+			return ErrorMsg{Err: err}
+		}
+		return ChannelsLoadedMsg{Channels: chans, FromCache: false}
 	}
-	return ChannelsLoadedMsg{Channels: chans, FromCache: false}
 }
 
 // RefreshChannels fetches channels from network in the background.
