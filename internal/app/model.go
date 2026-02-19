@@ -28,6 +28,7 @@ type Model struct {
 	State          *state.State
 	TrackInfo      *audio.TrackInfo
 	MetadataReader *audio.MetadataReader
+	StreamErr      string
 	ShowAbout      bool
 	About          AboutInfo
 	Width          int
@@ -45,7 +46,7 @@ type Model struct {
 
 // Init initializes the application, loading channels asynchronously.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(LoadChannels, tea.EnterAltScreen, TickChannelRefresh())
+	return tea.Batch(LoadChannels, tea.EnterAltScreen, TickChannelRefresh(), m.ListenStreamErrors())
 }
 
 // StopMetadataReader stops any active metadata reader.

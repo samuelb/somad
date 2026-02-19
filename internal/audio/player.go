@@ -24,6 +24,7 @@ const (
 type Player interface {
 	Play(url string) error
 	Stop()
+	Errors() <-chan error
 }
 
 // AudioPlayer manages the audio playback for SomaFM streams.
@@ -34,6 +35,7 @@ type AudioPlayer struct {
 	cancelFade chan struct{}
 	reqCancel  context.CancelFunc
 	userAgent  string
+	errChan    chan error
 }
 
 // NewPlayer initializes a new audio player with a default sample rate and channel count.
@@ -51,7 +53,7 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 	// Wait for the audio context to be ready
 	<-ready
 
-	return &AudioPlayer{ctx: ctx, userAgent: userAgent}, nil
+	return &AudioPlayer{ctx: ctx, userAgent: userAgent, errChan: make(chan error, 2)}, nil
 }
 
 // Play starts streaming and playing audio from the given URL.
@@ -77,13 +79,17 @@ func (p *AudioPlayer) Play(url string) error {
 		defer cancel()
 
 		if err := security.ValidateURL(url); err != nil {
-			pw.CloseWithError(fmt.Errorf("invalid stream URL: %w", err))
+			streamErr := fmt.Errorf("invalid stream URL: %w", err)
+			p.reportError(ctx, streamErr)
+			pw.CloseWithError(streamErr)
 			return
 		}
 
 		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
-			pw.CloseWithError(fmt.Errorf("failed to create request: %w", err))
+			streamErr := fmt.Errorf("failed to create request: %w", err)
+			p.reportError(ctx, streamErr)
+			pw.CloseWithError(streamErr)
 			return
 		}
 		req.Header.Set("User-Agent", p.userAgent)
@@ -91,13 +97,17 @@ func (p *AudioPlayer) Play(url string) error {
 		client := &http.Client{}
 		resp, err := client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
 		if err != nil {
-			pw.CloseWithError(fmt.Errorf("failed to fetch stream: %w", err))
+			streamErr := fmt.Errorf("failed to fetch stream: %w", err)
+			p.reportError(ctx, streamErr)
+			pw.CloseWithError(streamErr)
 			return
 		}
 		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != http.StatusOK {
-			pw.CloseWithError(fmt.Errorf("unexpected status code: %d", resp.StatusCode))
+			streamErr := fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			p.reportError(ctx, streamErr)
+			pw.CloseWithError(streamErr)
 			return
 		}
 
@@ -105,6 +115,9 @@ func (p *AudioPlayer) Play(url string) error {
 		_, err = io.Copy(pw, resp.Body)
 		if err != nil {
 			// An error is expected on pipe close, so we don't report it
+			if ctx.Err() == nil {
+				p.reportError(ctx, fmt.Errorf("stream read error: %w", err))
+			}
 			return
 		}
 	}()
@@ -127,6 +140,11 @@ func (p *AudioPlayer) Play(url string) error {
 	go p.fadeIn()
 
 	return nil
+}
+
+// Errors returns a channel for async stream errors.
+func (p *AudioPlayer) Errors() <-chan error {
+	return p.errChan
 }
 
 // fadeIn gradually increases the volume from 0 to 1.
@@ -182,5 +200,18 @@ func (p *AudioPlayer) cleanup() {
 	if p.reqCancel != nil {
 		p.reqCancel()
 		p.reqCancel = nil
+	}
+}
+
+func (p *AudioPlayer) reportError(ctx context.Context, err error) {
+	if err == nil {
+		return
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
+	select {
+	case p.errChan <- err:
+	default:
 	}
 }

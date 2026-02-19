@@ -40,7 +40,9 @@ type TrackUpdateMsg struct {
 type TrackPollTickMsg struct{}
 
 // StreamErrorMsg is a message sent when a stream error occurs.
-type StreamErrorMsg struct{}
+type StreamErrorMsg struct {
+	Err error
+}
 
 // ChannelRefreshTickMsg is a message sent when it's time to refresh channels.
 type ChannelRefreshTickMsg struct{}
@@ -92,6 +94,20 @@ func (m *Model) PollTrackUpdates() tea.Cmd {
 			return TrackPollTickMsg{}
 		}
 	})
+}
+
+// ListenStreamErrors waits for the next async stream error.
+func (m *Model) ListenStreamErrors() tea.Cmd {
+	return func() tea.Msg {
+		if m.Player == nil {
+			return nil
+		}
+		err, ok := <-m.Player.Errors()
+		if !ok || err == nil {
+			return nil
+		}
+		return StreamErrorMsg{Err: err}
+	}
 }
 
 // UpdateMPRIS updates MPRIS metadata based on current playback state.

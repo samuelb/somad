@@ -83,6 +83,12 @@ func (m *Model) RenderStatusBar(items []list.Item) string {
 		parts = append(parts, ui.TrackInfoStyle.Render(trackStr))
 	}
 
+	// Add stream error if present
+	if m.StreamErr != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
+		parts = append(parts, errorStyle.Render("Stream error: "+m.StreamErr))
+	}
+
 	return ui.StatusBarStyle.Render(strings.Join(parts, "  │  "))
 }
 
