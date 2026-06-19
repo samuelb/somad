@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"os"
-	"sort"
 
 	"somatui/internal/state"
 	"somatui/internal/ui"
@@ -59,23 +58,22 @@ func (m *Model) ToggleFavorite() {
 	}
 }
 
-// sortItemsWithFavorites returns items sorted with favorites first,
-// preserving relative order within each group.
+// sortItemsWithFavorites returns items partitioned with favorites first,
+// preserving relative order within each group. O(n) via two-pass partition.
 func (m *Model) sortItemsWithFavorites(items []list.Item) []list.Item {
 	if m.State == nil {
 		return items
 	}
-	sorted := make([]list.Item, len(items))
-	copy(sorted, items)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		iItem, iOK := sorted[i].(ui.Item)
-		jItem, jOK := sorted[j].(ui.Item)
-		if !iOK || !jOK {
-			return false
+	sorted := make([]list.Item, 0, len(items))
+	for _, item := range items {
+		if i, ok := item.(ui.Item); ok && m.State.IsFavorite(i.Channel.ID) {
+			sorted = append(sorted, item)
 		}
-		iFav := m.State.IsFavorite(iItem.Channel.ID)
-		jFav := m.State.IsFavorite(jItem.Channel.ID)
-		return iFav && !jFav
-	})
+	}
+	for _, item := range items {
+		if i, ok := item.(ui.Item); ok && !m.State.IsFavorite(i.Channel.ID) {
+			sorted = append(sorted, item)
+		}
+	}
 	return sorted
 }
