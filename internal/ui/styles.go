@@ -47,12 +47,6 @@ var (
 			MarginTop(2).
 			MarginLeft(2)
 
-	AboutBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(PrimaryColor).
-			Background(lipgloss.Color("#1a1a1a")).
-			Padding(1, 3)
-
 	SearchBarStyle = lipgloss.NewStyle().
 			Foreground(SearchMatchColor).
 			MarginLeft(2)

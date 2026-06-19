@@ -19,17 +19,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	items := m.List.Items()
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Handle about screen dismissal
-		if m.ShowAbout {
-			switch msg.String() {
-			case "ctrl+c":
-				return m, tea.Quit
-			default:
-				m.ShowAbout = false
-				return m, nil
-			}
-		}
-
 		// Handle search input mode
 		if m.Searching {
 			switch msg.String() {
@@ -86,8 +75,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.UpdateMPRIS(items)
 			}
 		case "a":
-			m.ShowAbout = true
+			// Toggle the inline about footer.
+			m.ShowAbout = !m.ShowAbout
+			m.UpdateListSize()
 			return m, nil
+		case "esc":
+			// Close the about footer if it is open; otherwise fall through to the list.
+			if m.ShowAbout {
+				m.ShowAbout = false
+				m.UpdateListSize()
+				return m, nil
+			}
 		case "/":
 			// Enter search mode
 			m.Searching = true

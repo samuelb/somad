@@ -9,7 +9,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // RenderHeader renders the list header with column titles.
@@ -92,62 +91,39 @@ func (m *Model) RenderStatusBar(items []list.Item) string {
 	return ui.StatusBarStyle.Render(strings.Join(parts, "  │  "))
 }
 
-// RenderAboutScreen renders the about dialog.
-func (m *Model) RenderAboutScreen() string {
-	content := fmt.Sprintf(`SomaTUI
-
-A terminal UI for SomaFM internet radio.
-
-Version:  %s
-Commit:   %s
-Built:    %s
-
-License:  MIT
-Author:   Samuel Barabas
-GitHub:   https://github.com/samuelb/somatui
-
-This project is not affiliated with SomaFM.
-All content and station streams are provided by somafm.com.
-
-Press any key to close`, m.About.Version, m.About.Commit, m.About.Date)
-
-	return ui.AboutBoxStyle.Render(content)
-}
-
-// PlaceOverlay places the foreground string on top of the background string
-// at the specified x, y position.
-func PlaceOverlay(x, y int, fg, bg string) string {
-	bgLines := strings.Split(bg, "\n")
-	fgLines := strings.Split(fg, "\n")
-
-	for i, fgLine := range fgLines {
-		bgLineIdx := y + i
-		if bgLineIdx < 0 || bgLineIdx >= len(bgLines) {
-			continue
-		}
-
-		bgLine := bgLines[bgLineIdx]
-		bgLineWidth := ansi.StringWidth(bgLine)
-
-		// Pad background line if needed
-		if bgLineWidth < x {
-			bgLine += strings.Repeat(" ", x-bgLineWidth)
-			bgLineWidth = x
-		}
-
-		// Build the new line: left part + foreground + right part
-		fgWidth := ansi.StringWidth(fgLine)
-		leftPart := ansi.Truncate(bgLine, x, "")
-		rightStart := x + fgWidth
-		var rightPart string
-		if rightStart < bgLineWidth {
-			rightPart = ansi.TruncateLeft(bgLine, bgLineWidth-rightStart, "")
-		}
-
-		bgLines[bgLineIdx] = leftPart + fgLine + rightPart
+// RenderAboutFooter renders the about information as an inline footer, styled
+// like the list help. It returns an empty string unless the about view is active.
+func (m *Model) RenderAboutFooter() string {
+	if !m.ShowAbout {
+		return ""
 	}
 
-	return strings.Join(bgLines, "\n")
+	width := m.List.Width()
+	if width < 1 {
+		width = m.Width
+	}
+	if width < 1 {
+		width = 1
+	}
+
+	separator := lipgloss.NewStyle().
+		Foreground(ui.SubtleColor).
+		Render(strings.Repeat("─", width))
+
+	lines := []string{
+		fmt.Sprintf("SomaTUI %s · commit %s · built %s", m.About.Version, m.About.Commit, m.About.Date),
+		"A terminal UI for SomaFM internet radio · MIT License",
+		"Author: Samuel Barabas · https://github.com/samuelb/somatui",
+		"Not affiliated with SomaFM. Streams provided by somafm.com.",
+		"press a or esc to close",
+	}
+
+	body := lipgloss.NewStyle().
+		Foreground(ui.SubtleColor).
+		Padding(0, 0, 0, 2).
+		Render(strings.Join(lines, "\n"))
+
+	return lipgloss.JoinVertical(lipgloss.Left, separator, body)
 }
 
 // View renders the application's UI.
@@ -173,26 +149,13 @@ func (m *Model) View() string {
 		components = append(components, searchBar)
 	}
 	components = append(components, m.List.View(), m.RenderStatusBar(items))
-	mainView := lipgloss.JoinVertical(lipgloss.Left, components...)
 
-	// Overlay about screen if requested
-	if m.ShowAbout {
-		aboutBox := m.RenderAboutScreen()
-		// Calculate position to center the about box
-		aboutWidth := lipgloss.Width(aboutBox)
-		aboutHeight := lipgloss.Height(aboutBox)
-		x := (m.Width - aboutWidth) / 2
-		y := (m.Height - aboutHeight) / 2
-		if x < 0 {
-			x = 0
-		}
-		if y < 0 {
-			y = 0
-		}
-		return PlaceOverlay(x, y, aboutBox, mainView)
+	// Show the about information as an inline footer when active.
+	if about := m.RenderAboutFooter(); about != "" {
+		components = append(components, about)
 	}
 
-	return mainView
+	return lipgloss.JoinVertical(lipgloss.Left, components...)
 }
 
 // UpdateListSize recalculates and sets the list size based on current UI state.
@@ -204,9 +167,13 @@ func (m *Model) UpdateListSize() {
 	if searchBar := m.RenderSearchBar(); searchBar != "" {
 		searchBarHeight = lipgloss.Height(searchBar)
 	}
+	aboutHeight := 0
+	if about := m.RenderAboutFooter(); about != "" {
+		aboutHeight = lipgloss.Height(about)
+	}
 
 	// Total height occupied by elements other than the list itself
-	totalFixedUIHeight := 1 + headerHeight + searchBarHeight + statusBarHeight + 1
+	totalFixedUIHeight := 1 + headerHeight + searchBarHeight + statusBarHeight + aboutHeight + 1
 
 	// Update the list's dimensions
 	m.List.SetSize(m.Width, m.Height-totalFixedUIHeight)

@@ -53,21 +53,33 @@ func TestUpdate_CtrlC_Quits(t *testing.T) {
 	assert.IsType(t, tea.QuitMsg{}, cmd())
 }
 
-func TestUpdate_AboutKey_ShowsAbout(t *testing.T) {
+func TestUpdate_AboutKey_TogglesAbout(t *testing.T) {
 	m := newTestModel(t)
 
 	sendKey(m, 'a')
+	assert.True(t, m.ShowAbout, "first 'a' opens the about footer")
 
-	assert.True(t, m.ShowAbout)
+	sendKey(m, 'a')
+	assert.False(t, m.ShowAbout, "second 'a' closes the about footer")
 }
 
-func TestUpdate_AboutDismissedByAnyKey(t *testing.T) {
+func TestUpdate_AboutDismissedByEsc(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowAbout = true
 
-	sendKey(m, 'x')
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
 	assert.False(t, m.ShowAbout)
+}
+
+func TestUpdate_AboutIsNonModal(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowAbout = true
+
+	// An unrelated key must not close the footer; it falls through to the list.
+	sendKey(m, 'x')
+
+	assert.True(t, m.ShowAbout)
 }
 
 func TestUpdate_AboutQuitWithCtrlC(t *testing.T) {

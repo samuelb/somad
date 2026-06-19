@@ -1,59 +1,12 @@
 package app
 
 import (
-	"strings"
 	"testing"
 
 	"somatui/internal/audio"
 
 	"github.com/stretchr/testify/assert"
 )
-
-func TestPlaceOverlay_Basic(t *testing.T) {
-	bg := strings.Repeat(".", 10) + "\n" +
-		strings.Repeat(".", 10) + "\n" +
-		strings.Repeat(".", 10)
-	fg := "XY"
-
-	result := PlaceOverlay(2, 1, fg, bg)
-
-	lines := strings.Split(result, "\n")
-	assert.Equal(t, 3, len(lines))
-	assert.Contains(t, lines[1], "XY")
-	// Characters before and after the overlay must be preserved
-	assert.True(t, strings.HasPrefix(lines[1], ".."), "prefix dots preserved: %q", lines[1])
-}
-
-func TestPlaceOverlay_AtOrigin(t *testing.T) {
-	bg := "AAAA\nBBBB"
-	fg := "XY"
-
-	result := PlaceOverlay(0, 0, fg, bg)
-
-	lines := strings.Split(result, "\n")
-	assert.True(t, strings.HasPrefix(lines[0], "XY"), "overlay at 0,0: %q", lines[0])
-}
-
-func TestPlaceOverlay_OutOfBoundsY(t *testing.T) {
-	bg := "AAAA"
-	fg := "XY"
-
-	// y beyond background — foreground lines are skipped, background returned intact
-	result := PlaceOverlay(0, 5, fg, bg)
-
-	assert.Equal(t, bg, result)
-}
-
-func TestPlaceOverlay_MultiLine(t *testing.T) {
-	bg := "AAAA\nBBBB\nCCCC"
-	fg := "XX\nYY"
-
-	result := PlaceOverlay(1, 0, fg, bg)
-
-	lines := strings.Split(result, "\n")
-	assert.Contains(t, lines[0], "XX")
-	assert.Contains(t, lines[1], "YY")
-}
 
 func TestRenderSearchBar_Active(t *testing.T) {
 	m := newTestModel(t)
@@ -187,7 +140,7 @@ func TestView_NormalContainsChannels(t *testing.T) {
 	assert.NotContains(t, result, "Loading")
 }
 
-func TestView_AboutOverlay(t *testing.T) {
+func TestView_AboutFooter(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowAbout = true
 	m.Width = 80
@@ -198,20 +151,30 @@ func TestView_AboutOverlay(t *testing.T) {
 
 	assert.Contains(t, result, "SomaTUI")
 	assert.Contains(t, result, "1.2.3")
+	assert.Contains(t, result, "close")
 }
 
-func TestRenderAboutScreen_ContainsVersionInfo(t *testing.T) {
+func TestRenderAboutFooter_Hidden(t *testing.T) {
 	m := newTestModel(t)
+	m.ShowAbout = false
+
+	assert.Empty(t, m.RenderAboutFooter())
+}
+
+func TestRenderAboutFooter_ContainsVersionInfo(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowAbout = true
 	m.About = AboutInfo{
 		Version: "2.0.0",
 		Commit:  "deadbeef",
 		Date:    "2024-06-19",
 	}
 
-	result := m.RenderAboutScreen()
+	result := m.RenderAboutFooter()
 
 	assert.Contains(t, result, "2.0.0")
 	assert.Contains(t, result, "deadbeef")
 	assert.Contains(t, result, "2024-06-19")
 	assert.Contains(t, result, "MIT")
+	assert.Contains(t, result, "close")
 }
