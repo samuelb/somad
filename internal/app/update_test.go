@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -311,12 +312,13 @@ func TestUpdate_StreamErrorMsg(t *testing.T) {
 func TestUpdate_MPRISPlayMsg_StartsPlayback(t *testing.T) {
 	security.AllowTestHosts(t)
 
-	// Serve a minimal PLS playlist
+	// Serve a minimal PLS playlist pointing the stream back at the test server.
+	var streamURL string
 	plsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Serve a stream URL that points back to the test server itself
-		fmt.Fprintf(w, "[playlist]\nFile1=%s/stream\nNumberOfEntries=1\n", "http://"+r.Host)
+		_, _ = io.WriteString(w, "[playlist]\nFile1="+streamURL+"/stream\nNumberOfEntries=1\n")
 	}))
 	defer plsServer.Close()
+	streamURL = plsServer.URL
 
 	m := newTestModel(t)
 	// Replace channels with one pointing at the test server
@@ -421,10 +423,12 @@ func TestPlayChannel_NoMP3Playlist(t *testing.T) {
 func TestPlayChannel_PlayerError(t *testing.T) {
 	security.AllowTestHosts(t)
 
+	var streamURL string
 	plsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "[playlist]\nFile1=%s/stream\nNumberOfEntries=1\n", "http://"+r.Host)
+		_, _ = io.WriteString(w, "[playlist]\nFile1="+streamURL+"/stream\nNumberOfEntries=1\n")
 	}))
 	defer plsServer.Close()
+	streamURL = plsServer.URL
 
 	m := newTestModel(t)
 	mp := m.Player.(*mockPlayer)
@@ -451,10 +455,12 @@ func TestPlayChannel_PlayerError(t *testing.T) {
 func TestPlayChannel_Success(t *testing.T) {
 	security.AllowTestHosts(t)
 
+	var streamURL string
 	plsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "[playlist]\nFile1=%s/stream\nNumberOfEntries=1\n", "http://"+r.Host)
+		_, _ = io.WriteString(w, "[playlist]\nFile1="+streamURL+"/stream\nNumberOfEntries=1\n")
 	}))
 	defer plsServer.Close()
+	streamURL = plsServer.URL
 
 	m := newTestModel(t)
 
