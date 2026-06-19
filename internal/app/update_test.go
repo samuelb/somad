@@ -335,6 +335,11 @@ func TestUpdate_MPRISPlayMsg_StartsPlayback(t *testing.T) {
 
 	// We expect a non-nil cmd (either PollTrackUpdates or StreamErrorMsg)
 	assert.NotNil(t, cmd)
+
+	// playChannel starts a background metadata reader on success; stop it so the
+	// goroutine does not outlive the test (and the test server).
+	m.StopMetadataReader()
+	m.Player.Stop()
 }
 
 func TestUpdate_MPRISStopMsg(t *testing.T) {

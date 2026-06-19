@@ -6,18 +6,29 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
 const allowedHostSuffix = ".somafm.com"
 
-var extraAllowedHosts []string
+// extraAllowedHostsMu guards extraAllowedHosts. ValidateURL reads this state
+// from any goroutine that makes a request (metadata, player, channel fetch),
+// while the test helpers below mutate it, so access must be synchronized.
+var (
+	extraAllowedHostsMu sync.RWMutex
+	extraAllowedHosts   []string
+)
 
 func AddAllowedHost(host string) {
+	extraAllowedHostsMu.Lock()
+	defer extraAllowedHostsMu.Unlock()
 	extraAllowedHosts = append(extraAllowedHosts, host)
 }
 
 func ClearAllowedHosts() {
+	extraAllowedHostsMu.Lock()
+	defer extraAllowedHostsMu.Unlock()
 	extraAllowedHosts = nil
 }
 
@@ -47,6 +58,8 @@ func ValidateURL(rawURL string) error {
 }
 
 func isExtraAllowedHost(host string) bool {
+	extraAllowedHostsMu.RLock()
+	defer extraAllowedHostsMu.RUnlock()
 	for _, h := range extraAllowedHosts {
 		if h == host {
 			return true
