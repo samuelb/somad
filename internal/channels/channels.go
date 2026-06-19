@@ -113,19 +113,13 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, "GET", SomaFMChannelsURL, nil)
+	req, err := security.NewRequest(ctx, SomaFMChannelsURL, userAgent)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("User-Agent", userAgent)
-
-	if err := security.ValidateURL(SomaFMChannelsURL); err != nil {
 		return nil, fmt.Errorf("invalid channels URL: %w", err)
 	}
 
-	resp, err := client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
+	client := &http.Client{}
+	resp, err := client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch channels from network: %w", err)
 	}

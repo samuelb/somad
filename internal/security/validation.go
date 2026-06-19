@@ -1,7 +1,9 @@
 package security
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
@@ -58,4 +60,21 @@ func ValidatePathNoTraversal(path string) error {
 		return fmt.Errorf("path contains traversal sequence")
 	}
 	return nil
+}
+
+// NewRequest creates a validated HTTP GET request with the given context, URL, and
+// User-Agent. Returns an error if the URL fails host validation or request creation fails.
+// Callers may add additional headers to the returned request before use.
+func NewRequest(ctx context.Context, rawURL, userAgent string) (*http.Request, error) {
+	if err := ValidateURL(rawURL); err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
+	return req, nil
 }

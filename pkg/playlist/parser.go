@@ -17,23 +17,17 @@ const plsFilePrefix = "File1="
 // and returns the first stream URL found within the playlist.
 // It supports .pls playlist formats.
 func GetStreamURLFromPlaylist(playlistURL, userAgent string) (string, error) {
-	if err := security.ValidateURL(playlistURL); err != nil {
-		return "", fmt.Errorf("invalid playlist URL: %w", err)
-	}
-
 	// Fetch the playlist file content
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, "GET", playlistURL, nil)
+	req, err := security.NewRequest(ctx, playlistURL, userAgent)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("invalid playlist URL: %w", err)
 	}
 
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
+	client := &http.Client{}
+	resp, err := client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
 		return "", fmt.Errorf("failed to get playlist from %s: %w", playlistURL, err)
 	}

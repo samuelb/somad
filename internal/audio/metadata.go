@@ -87,19 +87,13 @@ func (mr *MetadataReader) getMetadata(userAgent string) (TrackInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	if err := security.ValidateURL(mr.url); err != nil {
+	req, err := security.NewRequest(ctx, mr.url, userAgent)
+	if err != nil {
 		return TrackInfo{}, fmt.Errorf("invalid stream URL: %w", err)
 	}
+	req.Header.Set("Icy-MetaData", "1") // Request ICY metadata from stream
 
-	req, err := http.NewRequestWithContext(ctx, "GET", mr.url, nil)
-	if err != nil {
-		return TrackInfo{}, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Icy-MetaData", "1") // Request metadata
-
-	resp, err := mr.client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
+	resp, err := mr.client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
 		return TrackInfo{}, fmt.Errorf("failed to fetch stream: %w", err)
 	}

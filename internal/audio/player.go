@@ -78,24 +78,16 @@ func (p *AudioPlayer) Play(url string) error {
 		defer func() { _ = pw.Close() }()
 		defer cancel()
 
-		if err := security.ValidateURL(url); err != nil {
+		req, err := security.NewRequest(ctx, url, p.userAgent)
+		if err != nil {
 			streamErr := fmt.Errorf("invalid stream URL: %w", err)
 			p.reportError(ctx, streamErr)
 			pw.CloseWithError(streamErr)
 			return
 		}
 
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			streamErr := fmt.Errorf("failed to create request: %w", err)
-			p.reportError(ctx, streamErr)
-			pw.CloseWithError(streamErr)
-			return
-		}
-		req.Header.Set("User-Agent", p.userAgent)
-
 		client := &http.Client{}
-		resp, err := client.Do(req) // #nosec G704 -- URL validated by ValidateURL()
+		resp, err := client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 		if err != nil {
 			streamErr := fmt.Errorf("failed to fetch stream: %w", err)
 			p.reportError(ctx, streamErr)
