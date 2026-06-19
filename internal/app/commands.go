@@ -83,14 +83,17 @@ func TickChannelRefresh() tea.Cmd {
 }
 
 // PollTrackUpdates is a Tea command that polls for track information updates.
+// It captures the current metadata reader on the Update goroutine so the tick
+// callback (which runs on a separate timer goroutine) never reads m.MetadataReader
+// concurrently with the writes in playChannel/StopMetadataReader.
 func (m *Model) PollTrackUpdates() tea.Cmd {
+	reader := m.MetadataReader
+	if reader == nil {
+		return nil
+	}
 	return tea.Tick(trackUpdateInterval, func(t time.Time) tea.Msg {
-		if m.MetadataReader == nil {
-			return nil
-		}
-
 		select {
-		case trackInfo := <-m.MetadataReader.GetUpdateChan():
+		case trackInfo := <-reader.GetUpdateChan():
 			return TrackUpdateMsg{TrackInfo: trackInfo}
 		default:
 			return TrackPollTickMsg{}
