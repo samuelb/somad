@@ -26,8 +26,7 @@ func GetStreamURLFromPlaylist(playlistURL, userAgent string) (string, error) {
 		return "", fmt.Errorf("invalid playlist URL: %w", err)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
+	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
 		return "", fmt.Errorf("failed to get playlist from %s: %w", playlistURL, err)
 	}

@@ -24,7 +24,6 @@ type TrackInfo struct {
 // MetadataReader reads and monitors MP3 metadata from a stream.
 type MetadataReader struct {
 	url        string
-	client     *http.Client
 	stopChan   chan struct{}
 	stopOnce   sync.Once
 	updateChan chan TrackInfo
@@ -34,7 +33,6 @@ type MetadataReader struct {
 func NewMetadataReader(url string) *MetadataReader {
 	return &MetadataReader{
 		url:        url,
-		client:     &http.Client{},
 		stopChan:   make(chan struct{}),
 		updateChan: make(chan TrackInfo, 1),
 	}
@@ -93,7 +91,7 @@ func (mr *MetadataReader) getMetadata(userAgent string) (TrackInfo, error) {
 	}
 	req.Header.Set("Icy-MetaData", "1") // Request ICY metadata from stream
 
-	resp, err := mr.client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
+	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
 		return TrackInfo{}, fmt.Errorf("failed to fetch stream: %w", err)
 	}

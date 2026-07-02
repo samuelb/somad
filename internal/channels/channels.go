@@ -114,8 +114,7 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 		return nil, fmt.Errorf("invalid channels URL: %w", err)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
+	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch channels from network: %w", err)
 	}

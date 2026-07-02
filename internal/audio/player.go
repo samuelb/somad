@@ -133,8 +133,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 		return
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
+	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
 		streamErr := fmt.Errorf("failed to fetch stream: %w", err)
 		p.reportError(ctx, streamErr)

@@ -11,6 +11,11 @@ import (
 
 const allowedHostSuffix = ".somafm.com"
 
+// HTTPClient is the process-wide HTTP client, shared so connections to the
+// SomaFM hosts are reused across playlist, channel, stream, and metadata
+// requests. Per-request deadlines come from the request context.
+var HTTPClient = &http.Client{}
+
 // extraAllowedHostsMu guards extraAllowedHosts. ValidateURL reads this state
 // from any goroutine that makes a request (metadata, player, channel fetch),
 // while the test helpers below mutate it, so access must be synchronized.

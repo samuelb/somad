@@ -103,10 +103,6 @@ func TestNewMetadataReader(t *testing.T) {
 		t.Errorf("NewMetadataReader url = %v, want %v", mr.url, url)
 	}
 
-	if mr.client == nil {
-		t.Error("NewMetadataReader client should not be nil")
-	}
-
 	if mr.stopChan == nil {
 		t.Error("NewMetadataReader stopChan should not be nil")
 	}
