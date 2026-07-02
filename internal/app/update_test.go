@@ -277,6 +277,18 @@ func TestUpdate_ChannelsRefreshedMsg_UpdatesList(t *testing.T) {
 	assert.Equal(t, "lush", item.Channel.ID)
 }
 
+func TestUpdate_ChannelsRefreshedMsg_ClearsLoadError(t *testing.T) {
+	m := newTestModel(t)
+	// Simulate a failed initial load: the error screen is showing.
+	m.Err = errors.New("network failure")
+
+	chans := &channels.Channels{Channels: testChannels()}
+	m.Update(ChannelsRefreshedMsg{Channels: chans})
+
+	assert.NoError(t, m.Err, "a successful background refresh must clear the load error")
+	assert.Len(t, m.List.Items(), len(testChannels()))
+}
+
 func TestUpdate_ChannelsRefreshedMsg_RestoresSelection(t *testing.T) {
 	m := newTestModel(t)
 	m.List.Select(1) // select Drone Zone

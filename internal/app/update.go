@@ -146,7 +146,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return RefreshChannels(m.UserAgent) }
 		}
 	case ChannelsRefreshedMsg:
-		// Channels have been refreshed from network, update the list
+		// Channels have been refreshed from network, update the list.
+		// A successful refresh also recovers from an earlier load failure,
+		// so clear any error that would keep the error screen visible.
+		m.Err = nil
 		// Remember selected channel by ID for stable restoration after sort
 		var selectedChannelID string
 		if sel, ok := m.List.SelectedItem().(ui.Item); ok {
