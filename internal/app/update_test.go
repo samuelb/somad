@@ -111,6 +111,36 @@ func TestUpdate_SearchMode_TypeChar(t *testing.T) {
 	assert.Equal(t, "g", m.SearchQuery)
 }
 
+func TestUpdate_SearchMode_TypeNonASCII(t *testing.T) {
+	m := newTestModel(t)
+	m.Searching = true
+
+	sendKey(m, 'ü')
+	sendKey(m, '楽')
+
+	assert.Equal(t, "ü楽", m.SearchQuery)
+}
+
+func TestUpdate_SearchMode_TypeSpace(t *testing.T) {
+	m := newTestModel(t)
+	m.Searching = true
+	m.SearchQuery = "drone"
+
+	m.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+
+	assert.Equal(t, "drone ", m.SearchQuery)
+}
+
+func TestUpdate_SearchMode_BackspaceDeletesFullRune(t *testing.T) {
+	m := newTestModel(t)
+	m.Searching = true
+	m.SearchQuery = "grüß"
+
+	m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+
+	assert.Equal(t, "grü", m.SearchQuery)
+}
+
 func TestUpdate_SearchMode_Backspace(t *testing.T) {
 	m := newTestModel(t)
 	m.Searching = true

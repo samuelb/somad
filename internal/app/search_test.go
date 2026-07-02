@@ -6,30 +6,24 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestIsValidSearchChar(t *testing.T) {
+func TestPrintableRunes(t *testing.T) {
 	tests := []struct {
 		name  string
-		input byte
-		want  bool
+		input []rune
+		want  string
 	}{
-		{"lowercase letter", 'a', true},
-		{"uppercase letter", 'Z', true},
-		{"digit", '5', true},
-		{"space", ' ', true},
-		{"hyphen", '-', true},
-		{"underscore", '_', true},
-		{"period", '.', true},
-		{"null byte", 0, false},
-		{"backspace", 8, false},
-		{"tab", 9, false},
-		{"newline", 10, false},
-		{"DEL", 127, false},
-		{"high byte", 200, false},
+		{"ascii letters", []rune("aZ5"), "aZ5"},
+		{"space", []rune{' '}, " "},
+		{"punctuation", []rune("-_."), "-_."},
+		{"non-ascii", []rune("über groß"), "über groß"},
+		{"cjk", []rune("音楽"), "音楽"},
+		{"control chars dropped", []rune{0, 8, 9, 10, 127, 'a'}, "a"},
+		{"empty", nil, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, IsValidSearchChar(tt.input))
+			assert.Equal(t, tt.want, PrintableRunes(tt.input))
 		})
 	}
 }

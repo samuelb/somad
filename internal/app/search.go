@@ -7,15 +7,16 @@ import (
 	"somatui/internal/ui"
 )
 
-// IsValidSearchChar returns true if the character is safe for search input.
-func IsValidSearchChar(c byte) bool {
-	// Allow printable ASCII characters except control characters
-	// Exclude potentially problematic characters like null, backspace, etc.
-	if c < 32 || c > 126 {
-		return false
+// PrintableRunes returns the printable runes of the input (including space
+// and non-ASCII characters) as a string, dropping control characters.
+func PrintableRunes(runes []rune) string {
+	var b strings.Builder
+	for _, r := range runes {
+		if unicode.IsPrint(r) {
+			b.WriteRune(r)
+		}
 	}
-	// Allow letters, numbers, spaces, and common punctuation
-	return unicode.IsPrint(rune(c))
+	return b.String()
 }
 
 // UpdateSearchMatches finds all items matching the search query.

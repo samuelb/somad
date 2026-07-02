@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os"
+	"unicode/utf8"
 
 	"somatui/internal/audio"
 	"somatui/internal/platform"
@@ -40,15 +41,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "backspace":
 				if len(m.SearchQuery) > 0 {
-					m.SearchQuery = m.SearchQuery[:len(m.SearchQuery)-1]
+					_, size := utf8.DecodeLastRuneInString(m.SearchQuery)
+					m.SearchQuery = m.SearchQuery[:len(m.SearchQuery)-size]
 					m.UpdateSearchMatches()
 				}
 				return m, nil
 			default:
-				// Add valid printable characters to search query
-				if len(msg.String()) == 1 && IsValidSearchChar(msg.String()[0]) {
-					m.SearchQuery += msg.String()
-					m.UpdateSearchMatches()
+				// Append printable characters (including non-ASCII) to the query.
+				if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
+					if input := PrintableRunes(msg.Runes); input != "" {
+						m.SearchQuery += input
+						m.UpdateSearchMatches()
+					}
 				}
 				return m, nil
 			}
