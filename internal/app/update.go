@@ -181,6 +181,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TrackPollTickMsg:
 		return m, m.PollTrackUpdates()
 	case StreamErrorMsg:
+		// Stop the player so the failed session's goroutine and audio
+		// resources are released instead of lingering until the next play.
+		if m.Player != nil {
+			m.Player.Stop()
+		}
 		m.PlayingID = ""
 		m.StreamErr = msg.Err.Error()
 		m.StopMetadataReader()

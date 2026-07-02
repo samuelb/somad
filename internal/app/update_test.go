@@ -323,6 +323,8 @@ func TestUpdate_TrackUpdateMsg(t *testing.T) {
 
 func TestUpdate_StreamErrorMsg(t *testing.T) {
 	m := newTestModel(t)
+	mp := m.Player.(*mockPlayer)
+	mp.playing = true
 	m.PlayingID = "groovesalad"
 	m.TrackInfo = &audio.TrackInfo{Title: "Test"}
 
@@ -330,6 +332,17 @@ func TestUpdate_StreamErrorMsg(t *testing.T) {
 
 	assert.Empty(t, m.PlayingID)
 	assert.Nil(t, m.TrackInfo)
+	assert.Equal(t, "connection lost", m.StreamErr)
+	assert.False(t, mp.playing, "the failed session must be stopped and released")
+}
+
+func TestUpdate_StreamErrorMsg_NoPlayer_NoOp(t *testing.T) {
+	m := newTestModel(t)
+	m.Player = nil
+
+	// Should not panic when player is nil
+	m.Update(StreamErrorMsg{Err: errors.New("connection lost")})
+
 	assert.Equal(t, "connection lost", m.StreamErr)
 }
 
