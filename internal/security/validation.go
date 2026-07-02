@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"testing"
 )
 
 const allowedHostSuffix = ".somafm.com"
@@ -30,13 +29,6 @@ func ClearAllowedHosts() {
 	extraAllowedHostsMu.Lock()
 	defer extraAllowedHostsMu.Unlock()
 	extraAllowedHosts = nil
-}
-
-func AllowTestHosts(t *testing.T) {
-	t.Helper()
-	AddAllowedHost("127.0.0.1")
-	AddAllowedHost("localhost")
-	t.Cleanup(ClearAllowedHosts)
 }
 
 func ValidateURL(rawURL string) error {

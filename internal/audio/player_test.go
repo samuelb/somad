@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"somatui/internal/security"
+	"somatui/internal/security/securitytest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,7 +83,7 @@ func drainPipe(r io.Reader) ([]byte, error) {
 }
 
 func TestFetchStream_Success(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "SomaTUI/test", r.Header.Get("User-Agent"))
 		_, _ = w.Write([]byte("audio-bytes"))
@@ -123,7 +123,7 @@ func TestFetchStream_InvalidURL(t *testing.T) {
 }
 
 func TestFetchStream_BadStatusCode(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -146,7 +146,7 @@ func TestFetchStream_BadStatusCode(t *testing.T) {
 }
 
 func TestFetchStream_CancelledContextSuppressesReadError(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	// Server that blocks so the copy is interrupted by cancellation.
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"somatui/internal/security"
+	"somatui/internal/security/securitytest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -227,7 +227,7 @@ func TestReadICYMetadata_ZeroLengthMetadata(t *testing.T) {
 }
 
 func TestGetMetadata(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	server := newICYServer(100, "StreamTitle='Server Song';")
 	defer server.Close()
 
@@ -239,7 +239,7 @@ func TestGetMetadata(t *testing.T) {
 }
 
 func TestGetMetadata_VerifiesHeaders(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	var gotUserAgent, gotIcyMetaData string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUserAgent = r.Header.Get("User-Agent")
@@ -260,7 +260,7 @@ func TestGetMetadata_VerifiesHeaders(t *testing.T) {
 }
 
 func TestGetMetadata_NoIcyMetaint(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// No icy-metaint header
 		w.WriteHeader(http.StatusOK)
@@ -275,7 +275,7 @@ func TestGetMetadata_NoIcyMetaint(t *testing.T) {
 }
 
 func TestGetMetadata_ServerError(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -288,7 +288,7 @@ func TestGetMetadata_ServerError(t *testing.T) {
 }
 
 func TestMetadataReaderStartStop(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	server := newICYServer(50, "StreamTitle='Live Track';")
 	defer server.Close()
 

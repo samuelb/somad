@@ -11,7 +11,7 @@ import (
 	"somatui/internal/audio"
 	"somatui/internal/channels"
 	"somatui/internal/platform"
-	"somatui/internal/security"
+	"somatui/internal/security/securitytest"
 	"somatui/internal/ui"
 
 	listpkg "github.com/charmbracelet/bubbles/list"
@@ -377,7 +377,7 @@ func TestUpdate_StreamErrorMsg_NoPlayer_NoOp(t *testing.T) {
 }
 
 func TestUpdate_MPRISPlayMsg_StartsPlayback(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 
 	// Serve a minimal PLS playlist pointing the stream back at the test server.
 	var streamURL string
@@ -439,7 +439,7 @@ func TestUpdate_MPRISPlayPauseMsg_Toggles(t *testing.T) {
 }
 
 func TestUpdate_MPRISNextMsg_SelectsNextChannel(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 
 	m := newTestModel(t)
 	m.List.Select(0)
@@ -488,7 +488,7 @@ func TestPlayChannel_NoMP3Playlist(t *testing.T) {
 }
 
 func TestPlayChannel_PlayerError(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 
 	var streamURL string
 	plsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -520,7 +520,7 @@ func TestPlayChannel_PlayerError(t *testing.T) {
 }
 
 func TestPlayChannel_Success(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 
 	var streamURL string
 	plsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

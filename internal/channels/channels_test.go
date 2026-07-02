@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"somatui/internal/security"
+	"somatui/internal/security/securitytest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,7 +85,7 @@ func TestReadChannelsFromCache_CorruptJSON(t *testing.T) {
 }
 
 func TestFetchChannelsFromNetwork(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	SetCacheDir(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +112,7 @@ func TestFetchChannelsFromNetwork(t *testing.T) {
 }
 
 func TestFetchChannelsFromNetwork_ServerError(t *testing.T) {
-	security.AllowTestHosts(t)
+	securitytest.AllowTestHosts(t)
 	SetCacheDir(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
