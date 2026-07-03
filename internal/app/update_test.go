@@ -211,6 +211,62 @@ func TestUpdate_StopKey_NoPlayer_NoOp(t *testing.T) {
 	sendKey(m, 's')
 }
 
+func TestUpdate_VolumeKeys_AdjustVolume(t *testing.T) {
+	m := newTestModel(t)
+	mp := m.Player.(*mockPlayer)
+	require.Equal(t, 1.0, mp.volume)
+
+	sendKey(m, '-')
+	assert.InDelta(t, 0.95, mp.volume, 1e-9)
+
+	sendKey(m, '+')
+	assert.InDelta(t, 1.0, mp.volume, 1e-9)
+
+	// '=' is an unshifted alias for '+'
+	sendKey(m, '-')
+	sendKey(m, '=')
+	assert.InDelta(t, 1.0, mp.volume, 1e-9)
+}
+
+func TestUpdate_VolumeKeys_ClampAtBounds(t *testing.T) {
+	m := newTestModel(t)
+	mp := m.Player.(*mockPlayer)
+
+	sendKey(m, '+')
+	assert.InDelta(t, 1.0, mp.volume, 1e-9, "volume must not exceed 100%")
+
+	mp.volume = 0.03
+	sendKey(m, '-')
+	assert.Zero(t, mp.volume, "volume must not go below 0")
+}
+
+func TestUpdate_VolumeKeys_PersistToState(t *testing.T) {
+	m := newTestModel(t)
+
+	sendKey(m, '-')
+
+	assert.InDelta(t, 0.95, m.State.GetVolume(), 1e-9)
+}
+
+func TestUpdate_MPRISVolumeMsg_SetsVolume(t *testing.T) {
+	m := newTestModel(t)
+	mp := m.Player.(*mockPlayer)
+
+	m.Update(platform.MPRISVolumeMsg{Volume: 0.5})
+
+	assert.InDelta(t, 0.5, mp.volume, 1e-9)
+	assert.InDelta(t, 0.5, m.State.GetVolume(), 1e-9)
+}
+
+func TestUpdate_MPRISVolumeMsg_Clamped(t *testing.T) {
+	m := newTestModel(t)
+	mp := m.Player.(*mockPlayer)
+
+	m.Update(platform.MPRISVolumeMsg{Volume: 4.2})
+
+	assert.InDelta(t, 1.0, mp.volume, 1e-9)
+}
+
 func TestUpdate_FavoriteKey_TogglesSelected(t *testing.T) {
 	m := newTestModel(t)
 

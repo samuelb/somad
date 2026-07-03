@@ -101,6 +101,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle favorite on selected channel
 			m.ToggleFavorite()
 			return m, nil
+		case "+", "=":
+			m.adjustVolume(volumeStep)
+			return m, nil
+		case "-", "_":
+			m.adjustVolume(-volumeStep)
+			return m, nil
 		case "c":
 			// Clear search
 			if m.SearchQuery != "" {
@@ -250,6 +256,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.playChannel(i)
 			}
 		}
+	case platform.MPRISVolumeMsg:
+		// Volume written via D-Bus (e.g. a desktop volume slider). The MPRIS
+		// property is already updated, so don't mirror it back.
+		m.applyVolume(msg.Volume, false)
 	case platform.MPRISPrevMsg:
 		// Move to previous channel and play
 		listItems := m.List.Items()
@@ -322,6 +332,7 @@ func NewHelpKeys() ([]key.Binding, []key.Binding) {
 	fullHelp := []key.Binding{
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
+		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume")),
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),

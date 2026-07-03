@@ -202,6 +202,34 @@ func TestFetchStream_NoICYHeaderPassesThrough(t *testing.T) {
 	assert.Empty(t, p.trackChan)
 }
 
+func TestSetVolume_ClampsAndStores(t *testing.T) {
+	p := newTestPlayer()
+	p.volume = 1
+
+	p.SetVolume(0.5)
+	assert.InDelta(t, 0.5, p.Volume(), 1e-9)
+
+	p.SetVolume(-0.2)
+	assert.Zero(t, p.Volume())
+
+	p.SetVolume(1.7)
+	assert.InDelta(t, 1.0, p.Volume(), 1e-9)
+}
+
+func TestSessionSetVolume_NewestWins(t *testing.T) {
+	s := &session{volumeCh: make(chan float64, 1)}
+
+	s.setVolume(0.3)
+	s.setVolume(0.7) // replaces the pending 0.3
+
+	select {
+	case v := <-s.volumeCh:
+		assert.InDelta(t, 0.7, v, 1e-9)
+	default:
+		t.Fatal("expected a pending volume target")
+	}
+}
+
 func TestReportTrack_NewestWins(t *testing.T) {
 	p := newTestPlayer()
 

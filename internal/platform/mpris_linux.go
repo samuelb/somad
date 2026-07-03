@@ -102,7 +102,7 @@ func NewMPRIS() (*MPRIS, error) {
 			"MinimumRate":    {Value: 1.0, Writable: false, Emit: prop.EmitTrue, Callback: nil},
 			"PlaybackStatus": {Value: "Stopped", Writable: false, Emit: prop.EmitTrue, Callback: nil},
 			"Rate":           {Value: 1.0, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"Volume":         {Value: 1.0, Writable: true, Emit: prop.EmitTrue, Callback: nil},
+			"Volume":         {Value: 1.0, Writable: true, Emit: prop.EmitTrue, Callback: m.onVolumeChange},
 			"Position":       {Value: int64(0), Writable: false, Emit: prop.EmitTrue, Callback: nil},
 			"Metadata":       {Value: map[string]dbus.Variant{}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
 		},
@@ -211,6 +211,25 @@ func (m *MPRIS) SetPlaying(station, track, artist string) {
 	m.props.SetMust(playerInterface, "Metadata", metadata)
 }
 
+// SetVolume mirrors the player volume to the MPRIS Volume property.
+func (m *MPRIS) SetVolume(v float64) {
+	if m.props == nil {
+		return
+	}
+	m.props.SetMust(playerInterface, "Volume", v)
+}
+
+// onVolumeChange forwards D-Bus writes to the Volume property (e.g. from a
+// desktop volume slider) to the application.
+func (m *MPRIS) onVolumeChange(c *prop.Change) *dbus.Error {
+	if m.sender != nil {
+		if v, ok := c.Value.(float64); ok {
+			m.sender.Send(MPRISVolumeMsg{Volume: v})
+		}
+	}
+	return nil
+}
+
 // SetStopped updates the playback status to stopped.
 func (m *MPRIS) SetStopped() {
 	if m.props == nil {
@@ -290,6 +309,11 @@ type MPRISNextMsg struct{}
 
 // MPRISPrevMsg is sent when MPRIS requests to go to previous track.
 type MPRISPrevMsg struct{}
+
+// MPRISVolumeMsg is sent when MPRIS requests a volume change.
+type MPRISVolumeMsg struct {
+	Volume float64
+}
 
 func (p *mprisPlayer) Next() *dbus.Error {
 	if p.mpris.sender != nil {

@@ -13,6 +13,30 @@ import (
 type State struct {
 	LastSelectedChannelID string   `json:"last_selected_channel_id"`
 	FavoriteChannelIDs    []string `json:"favorite_channel_ids,omitempty"`
+	// Volume is a pointer so an explicit 0 (muted) is distinguishable from
+	// "never set" (which defaults to full volume).
+	Volume *float64 `json:"volume,omitempty"`
+}
+
+// GetVolume returns the persisted volume clamped to [0, 1], defaulting to
+// full volume when unset.
+func (s *State) GetVolume() float64 {
+	if s.Volume == nil {
+		return 1
+	}
+	v := *s.Volume
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+// SetVolume stores the volume for the next session.
+func (s *State) SetVolume(v float64) {
+	s.Volume = &v
 }
 
 // IsFavorite returns true if the given channel ID is in the favorites list.

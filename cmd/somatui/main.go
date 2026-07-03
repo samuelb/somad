@@ -44,6 +44,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Restore the persisted volume
+	player.SetVolume(appState.GetVolume())
+
 	// Initialize MPRIS for desktop integration (Linux only)
 	mpris, err := platform.NewMPRIS()
 	if err != nil {

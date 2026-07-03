@@ -18,6 +18,7 @@ type mockPlayer struct {
 	playErr   error
 	errChan   chan error
 	trackChan chan audio.TrackInfo
+	volume    float64
 }
 
 func (p *mockPlayer) Play(_ string) error {
@@ -34,11 +35,16 @@ func (p *mockPlayer) Errors() <-chan error { return p.errChan }
 
 func (p *mockPlayer) TrackUpdates() <-chan audio.TrackInfo { return p.trackChan }
 
+func (p *mockPlayer) SetVolume(v float64) { p.volume = v }
+
+func (p *mockPlayer) Volume() float64 { return p.volume }
+
 // newMockPlayer returns a mockPlayer with buffered error and track channels.
 func newMockPlayer() *mockPlayer {
 	return &mockPlayer{
 		errChan:   make(chan error, 2),
 		trackChan: make(chan audio.TrackInfo, 1),
+		volume:    1,
 	}
 }
 

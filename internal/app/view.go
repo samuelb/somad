@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"somatui/internal/channels"
@@ -102,6 +103,12 @@ func (m *Model) RenderStatusBar(items []list.Item) string {
 	if m.StreamErr != "" {
 		errorStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
 		parts = append(parts, errorStyle.Render("Stream error: "+m.StreamErr))
+	}
+
+	// Add the volume level
+	if m.Player != nil {
+		volumeStyle := lipgloss.NewStyle().Foreground(ui.SubtleColor)
+		parts = append(parts, volumeStyle.Render(fmt.Sprintf("♪ %d%%", int(math.Round(m.Player.Volume()*100)))))
 	}
 
 	return ui.StatusBarStyle.Render(strings.Join(parts, "  │  "))

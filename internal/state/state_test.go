@@ -53,6 +53,51 @@ func TestSaveState_OverwritesExisting(t *testing.T) {
 	assert.Equal(t, "secretagent", loaded.LastSelectedChannelID)
 }
 
+func TestGetVolume_DefaultsToFull(t *testing.T) {
+	s := &State{}
+	assert.Equal(t, 1.0, s.GetVolume())
+}
+
+func TestGetVolume_ClampsStoredValues(t *testing.T) {
+	s := &State{}
+
+	s.SetVolume(-0.5)
+	assert.Zero(t, s.GetVolume())
+
+	s.SetVolume(2.0)
+	assert.Equal(t, 1.0, s.GetVolume())
+}
+
+func TestSetVolume_ZeroIsDistinctFromUnset(t *testing.T) {
+	s := &State{}
+	s.SetVolume(0)
+
+	assert.Zero(t, s.GetVolume(), "an explicit mute must not fall back to full volume")
+}
+
+func TestSaveAndLoadState_WithVolume(t *testing.T) {
+	SetStateDir(t)
+
+	original := &State{}
+	original.SetVolume(0.65)
+	require.NoError(t, SaveState(original))
+
+	loaded, err := LoadState()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.65, loaded.GetVolume(), 1e-9)
+}
+
+func TestLoadState_NoVolumeField(t *testing.T) {
+	SetStateDir(t)
+
+	// A pre-volume state file must default to full volume.
+	require.NoError(t, SaveState(&State{LastSelectedChannelID: "groovesalad"}))
+
+	loaded, err := LoadState()
+	require.NoError(t, err)
+	assert.Equal(t, 1.0, loaded.GetVolume())
+}
+
 func TestLoadState_CorruptJSON(t *testing.T) {
 	dir := SetStateDir(t)
 

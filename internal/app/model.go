@@ -1,6 +1,9 @@
 package app
 
 import (
+	"fmt"
+	"os"
+
 	"somatui/internal/audio"
 	"somatui/internal/channels"
 	"somatui/internal/platform"
@@ -87,6 +90,41 @@ func (m *Model) selectChannelByID(id string) {
 			return
 		}
 	}
+}
+
+// volumeStep is how much the +/- keys change the volume.
+const volumeStep = 0.05
+
+// applyVolume sets the playback volume (clamped to [0, 1]), persists it, and
+// optionally mirrors it to MPRIS (skipped when the change came from MPRIS).
+func (m *Model) applyVolume(v float64, updateMPRIS bool) {
+	if m.Player == nil {
+		return
+	}
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	m.Player.SetVolume(v)
+	if m.State != nil {
+		m.State.SetVolume(v)
+		if err := state.SaveState(m.State); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
+		}
+	}
+	if updateMPRIS && m.MPRIS != nil {
+		m.MPRIS.SetVolume(v)
+	}
+}
+
+// adjustVolume changes the playback volume by delta.
+func (m *Model) adjustVolume(delta float64) {
+	if m.Player == nil {
+		return
+	}
+	m.applyVolume(m.Player.Volume()+delta, true)
 }
 
 // findChannelItem returns the list item for the channel with the given ID.

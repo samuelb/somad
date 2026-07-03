@@ -78,6 +78,15 @@ func TestRenderStatusBar_Connecting(t *testing.T) {
 	assert.Contains(t, result, "Groove Salad")
 }
 
+func TestRenderStatusBar_ShowsVolume(t *testing.T) {
+	m := newTestModel(t)
+	m.Player.(*mockPlayer).volume = 0.85
+
+	result := m.RenderStatusBar(m.List.Items())
+
+	assert.Contains(t, result, "♪ 85%")
+}
+
 func TestRenderStatusBar_Reconnecting(t *testing.T) {
 	m := newTestModel(t)
 	m.ReconnectingID = "groovesalad"

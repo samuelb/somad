@@ -47,5 +47,13 @@ type MPRISNextMsg struct{}
 // MPRISPrevMsg is sent when MPRIS requests to go to previous track.
 type MPRISPrevMsg struct{}
 
+// MPRISVolumeMsg is sent when MPRIS requests a volume change.
+type MPRISVolumeMsg struct {
+	Volume float64
+}
+
+// SetVolume is a no-op on non-Linux platforms.
+func (m *MPRIS) SetVolume(v float64) {}
+
 // SanitizeUTF8 is a no-op on non-Linux platforms.
 func SanitizeUTF8(s string) string { return s }

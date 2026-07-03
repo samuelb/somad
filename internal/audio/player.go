@@ -34,6 +34,8 @@ type Player interface {
 	Stop()
 	Errors() <-chan error
 	TrackUpdates() <-chan TrackInfo
+	SetVolume(v float64)
+	Volume() float64
 }
 
 // session represents a single playback lifecycle: one stream, one decoder,
@@ -45,12 +47,26 @@ type session struct {
 	cancel   context.CancelFunc // aborts the HTTP fetch goroutine
 	stop     chan struct{}      // closed to request fade-out and teardown
 	stopOnce sync.Once
+	volumeCh chan float64 // volume targets for the session goroutine to apply
 }
 
 // requestStop signals the session to fade out and release resources.
 // Safe to call multiple times.
 func (s *session) requestStop() {
 	s.stopOnce.Do(func() { close(s.stop) })
+}
+
+// setVolume hands a new volume target to the session goroutine, replacing any
+// pending one so the newest value wins.
+func (s *session) setVolume(v float64) {
+	select {
+	case <-s.volumeCh:
+	default:
+	}
+	select {
+	case s.volumeCh <- v:
+	default:
+	}
 }
 
 // AudioPlayer manages the audio playback for SomaFM streams.
@@ -63,6 +79,7 @@ type AudioPlayer struct {
 	mu      sync.Mutex
 	current *session // the active session, guarded by mu
 	playGen uint64   // bumped by every Play/Stop so stale connects never commit
+	volume  float64  // target volume in [0, 1], guarded by mu
 }
 
 // NewPlayer initializes a new audio player with a default sample rate and channel count.
@@ -85,6 +102,7 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 		userAgent: userAgent,
 		errChan:   make(chan error, 2),
 		trackChan: make(chan TrackInfo, 1),
+		volume:    1,
 	}, nil
 }
 
@@ -141,10 +159,11 @@ func (p *AudioPlayer) Play(url string) error {
 	player.Play()
 
 	s := &session{
-		player: player,
-		stream: pr,
-		cancel: cancel,
-		stop:   make(chan struct{}),
+		player:   player,
+		stream:   pr,
+		cancel:   cancel,
+		stop:     make(chan struct{}),
+		volumeCh: make(chan float64, 1),
 	}
 	old := p.current
 	p.current = s
@@ -248,19 +267,31 @@ func (p *AudioPlayer) Errors() <-chan error {
 }
 
 // runSession owns the session's oto player for its entire lifetime: it fades
-// the volume in, holds until a stop is requested, then fades out and releases
-// resources. Because only this goroutine touches s.player after Play, volume
-// changes and teardown never race.
+// the volume in, holds (applying volume changes) until a stop is requested,
+// then fades out and releases resources. Because only this goroutine touches
+// s.player after Play, volume changes and teardown never race.
 func (p *AudioPlayer) runSession(s *session) {
 	if p.fadeIn(s) {
-		// Fade-in completed without interruption; hold until asked to stop.
-		<-s.stop
+		p.holdSession(s)
 	}
 	p.fadeOutAndClose(s)
 }
 
-// fadeIn gradually raises the session volume from 0 to 1. It returns true if
-// the fade completed, or false if a stop was requested partway through.
+// holdSession applies volume changes until a stop is requested.
+func (p *AudioPlayer) holdSession(s *session) {
+	for {
+		select {
+		case <-s.stop:
+			return
+		case v := <-s.volumeCh:
+			s.player.SetVolume(v)
+		}
+	}
+}
+
+// fadeIn gradually raises the session volume from 0 to the target volume. It
+// returns true if the fade completed, or false if a stop was requested
+// partway through.
 func (p *AudioPlayer) fadeIn(s *session) bool {
 	step := fadeInDuration / fadeSteps
 	for i := 1; i <= fadeSteps; i++ {
@@ -268,10 +299,37 @@ func (p *AudioPlayer) fadeIn(s *session) bool {
 		case <-s.stop:
 			return false
 		case <-time.After(step):
-			s.player.SetVolume(float64(i) / fadeSteps)
+			// Re-read the target each step so fades track live volume changes.
+			s.player.SetVolume(p.Volume() * float64(i) / fadeSteps)
 		}
 	}
 	return true
+}
+
+// SetVolume sets the target volume, clamped to [0, 1]. It applies to the
+// active session (via its goroutine) and to all future sessions.
+func (p *AudioPlayer) SetVolume(v float64) {
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	p.mu.Lock()
+	p.volume = v
+	s := p.current
+	p.mu.Unlock()
+
+	if s != nil {
+		s.setVolume(v)
+	}
+}
+
+// Volume returns the current target volume in [0, 1].
+func (p *AudioPlayer) Volume() float64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.volume
 }
 
 // fadeOutAndClose gradually lowers the session volume to 0, then pauses the
