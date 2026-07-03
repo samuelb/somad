@@ -78,6 +78,18 @@ func TestRenderStatusBar_Connecting(t *testing.T) {
 	assert.Contains(t, result, "Groove Salad")
 }
 
+func TestRenderStatusBar_Reconnecting(t *testing.T) {
+	m := newTestModel(t)
+	m.ReconnectingID = "groovesalad"
+	m.ReconnectAttempt = 2
+
+	result := m.RenderStatusBar(m.List.Items())
+
+	assert.Contains(t, result, "Reconnecting 2/5")
+	assert.Contains(t, result, "↻")
+	assert.Contains(t, result, "Groove Salad")
+}
+
 func TestRenderStatusBar_Playing(t *testing.T) {
 	m := newTestModel(t)
 	m.PlayingID = "groovesalad"

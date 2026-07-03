@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 	"unicode/utf8"
 
 	"somatui/internal/audio"
@@ -173,6 +174,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ConnectingID = ""
 		m.PlayingID = msg.ChannelID
+		m.ReconnectAttempt = 0 // connected: a later drop starts a fresh backoff
 		m.TrackInfo = nil
 		m.UpdateMPRIS(items)
 		return m, m.PollTrackUpdates()
@@ -182,11 +184,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.ChannelID != "" && msg.ChannelID != m.ConnectingID {
 			return m, nil
 		}
+		// Remember which channel dropped before stopPlayback clears it.
+		failedID := m.PlayingID
+		if failedID == "" {
+			failedID = m.ConnectingID
+		}
 		// Stop the player so the failed session's goroutine and audio
 		// resources are released instead of lingering until the next play.
 		m.stopPlayback()
 		m.StreamErr = msg.Err.Error()
-		return m, m.ListenStreamErrors()
+
+		cmds := []tea.Cmd{m.ListenStreamErrors()}
+		if failedID != "" && !msg.NoRetry && m.ReconnectAttempt < maxReconnectAttempts {
+			// Schedule an automatic reconnect with exponential backoff.
+			m.ReconnectAttempt++
+			m.ReconnectingID = failedID
+			cmds = append(cmds, tea.Tick(reconnectDelay(m.ReconnectAttempt), func(t time.Time) tea.Msg {
+				return ReconnectTickMsg{ChannelID: failedID}
+			}))
+		} else {
+			m.ReconnectAttempt = 0
+		}
+		return m, tea.Batch(cmds...)
+	case ReconnectTickMsg:
+		// Reconnect only if the drop is still the latest event: the user has
+		// not stopped playback or started another channel in the meantime.
+		if msg.ChannelID != m.ReconnectingID || m.PlayingID != "" || m.ConnectingID != "" {
+			return m, nil
+		}
+		m.ReconnectingID = ""
+		if item, ok := m.findChannelItem(msg.ChannelID); ok {
+			return m, m.playChannel(item)
+		}
+		return m, nil
 
 	// MPRIS control messages
 	case platform.MPRISPlayMsg:
@@ -247,6 +277,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // result arrives as PlaybackStartedMsg or StreamErrorMsg.
 func (m *Model) playChannel(i ui.Item) tea.Cmd {
 	m.StreamErr = ""
+	m.ReconnectingID = "" // a fresh play request abandons any pending reconnect
 
 	if m.State != nil {
 		m.State.LastSelectedChannelID = i.Channel.ID
@@ -263,6 +294,7 @@ func (m *Model) playChannel(i ui.Item) tea.Cmd {
 			return StreamErrorMsg{
 				Err:       fmt.Errorf("no MP3 playlist available for %s", i.Channel.Title),
 				ChannelID: channelID,
+				NoRetry:   true, // reconnecting cannot conjure up a playlist
 			}
 		}
 	}

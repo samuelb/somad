@@ -51,11 +51,16 @@ func (m *Model) RenderStatusBar(items []list.Item) string {
 	var icon, stateText string
 	var stateStyle lipgloss.Style
 
-	// Determine state and styling; an in-flight connect wins over stopped.
+	// Determine state and styling; an in-flight connect or a pending
+	// reconnect wins over stopped.
 	switch {
 	case m.ConnectingID != "":
 		icon = "◌"
 		stateText = "Connecting"
+		stateStyle = ui.StatusConnectingStyle
+	case m.ReconnectingID != "":
+		icon = "↻"
+		stateText = fmt.Sprintf("Reconnecting %d/%d", m.ReconnectAttempt, maxReconnectAttempts)
 		stateStyle = ui.StatusConnectingStyle
 	case m.PlayingID == "":
 		icon = "■"
@@ -70,10 +75,12 @@ func (m *Model) RenderStatusBar(items []list.Item) string {
 	// Build the status line
 	parts := []string{stateStyle.Render(icon + " " + stateText)}
 
-	// Add the channel name if playing or connecting
+	// Add the channel name if playing, connecting, or awaiting a reconnect
 	activeID := m.PlayingID
 	if m.ConnectingID != "" {
 		activeID = m.ConnectingID
+	} else if m.ReconnectingID != "" {
+		activeID = m.ReconnectingID
 	}
 	if activeID != "" {
 		for _, listItem := range items {

@@ -393,6 +393,101 @@ func TestUpdate_StreamErrorMsg(t *testing.T) {
 	assert.False(t, mp.playing, "the failed session must be stopped and released")
 }
 
+func TestUpdate_StreamErrorMsg_SchedulesReconnect(t *testing.T) {
+	m := newTestModel(t)
+	m.Player.(*mockPlayer).playing = true
+	m.PlayingID = "groovesalad"
+
+	_, cmd := m.Update(StreamErrorMsg{Err: errors.New("connection lost")})
+
+	assert.Equal(t, "groovesalad", m.ReconnectingID, "a dropped stream must schedule a reconnect")
+	assert.Equal(t, 1, m.ReconnectAttempt)
+	assert.NotNil(t, cmd)
+}
+
+func TestUpdate_StreamErrorMsg_NoRetrySkipsReconnect(t *testing.T) {
+	m := newTestModel(t)
+	m.ConnectingID = "aac-only"
+
+	m.Update(StreamErrorMsg{Err: errors.New("no MP3 playlist"), ChannelID: "aac-only", NoRetry: true})
+
+	assert.Empty(t, m.ReconnectingID)
+	assert.Zero(t, m.ReconnectAttempt)
+}
+
+func TestUpdate_StreamErrorMsg_ReconnectAttemptsExhausted(t *testing.T) {
+	m := newTestModel(t)
+	m.PlayingID = "groovesalad"
+	m.ReconnectAttempt = maxReconnectAttempts
+
+	m.Update(StreamErrorMsg{Err: errors.New("still down")})
+
+	assert.Empty(t, m.ReconnectingID, "no reconnect after the attempt budget is spent")
+	assert.Zero(t, m.ReconnectAttempt, "the counter resets for the next drop")
+}
+
+func TestUpdate_StreamErrorMsg_WhileStopped_NoReconnect(t *testing.T) {
+	m := newTestModel(t)
+
+	// A late runtime error with nothing playing must not schedule anything.
+	m.Update(StreamErrorMsg{Err: errors.New("late error")})
+
+	assert.Empty(t, m.ReconnectingID)
+}
+
+func TestUpdate_ReconnectTickMsg_RetriesChannel(t *testing.T) {
+	m := newTestModel(t)
+	m.ReconnectingID = "groovesalad"
+	m.ReconnectAttempt = 1
+
+	_, cmd := m.Update(ReconnectTickMsg{ChannelID: "groovesalad"})
+
+	assert.Equal(t, "groovesalad", m.ConnectingID, "the tick must start a new connect attempt")
+	assert.NotNil(t, cmd)
+}
+
+func TestUpdate_ReconnectTickMsg_CancelledByStop(t *testing.T) {
+	m := newTestModel(t)
+	m.PlayingID = "groovesalad"
+	m.Update(StreamErrorMsg{Err: errors.New("drop")})
+	require.Equal(t, "groovesalad", m.ReconnectingID)
+
+	sendKey(m, 's') // user stops: pending reconnect is abandoned
+	assert.Empty(t, m.ReconnectingID)
+
+	_, cmd := m.Update(ReconnectTickMsg{ChannelID: "groovesalad"})
+
+	assert.Empty(t, m.ConnectingID)
+	assert.Nil(t, cmd)
+}
+
+func TestUpdate_ReconnectTickMsg_IgnoredWhenUserPlaysOther(t *testing.T) {
+	m := newTestModel(t)
+	m.ReconnectingID = "groovesalad"
+	m.ConnectingID = "dronezone" // user started another channel meanwhile
+
+	_, cmd := m.Update(ReconnectTickMsg{ChannelID: "groovesalad"})
+
+	assert.Equal(t, "dronezone", m.ConnectingID)
+	assert.Nil(t, cmd)
+}
+
+func TestUpdate_PlaybackStartedMsg_ResetsReconnectBudget(t *testing.T) {
+	m := newTestModel(t)
+	m.ConnectingID = "groovesalad"
+	m.ReconnectAttempt = 3
+
+	m.Update(PlaybackStartedMsg{ChannelID: "groovesalad"})
+
+	assert.Zero(t, m.ReconnectAttempt)
+}
+
+func TestReconnectDelay_Doubles(t *testing.T) {
+	assert.Equal(t, reconnectBaseDelay, reconnectDelay(1))
+	assert.Equal(t, 2*reconnectBaseDelay, reconnectDelay(2))
+	assert.Equal(t, 16*reconnectBaseDelay, reconnectDelay(5))
+}
+
 func TestUpdate_StreamErrorMsg_NoPlayer_NoOp(t *testing.T) {
 	m := newTestModel(t)
 	m.Player = nil

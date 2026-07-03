@@ -13,7 +13,17 @@ import (
 const (
 	channelRefreshInterval = 10 * time.Minute
 	trackUpdateInterval    = 2 * time.Second
+
+	// maxReconnectAttempts bounds the automatic retries after a stream drop;
+	// reconnectBaseDelay doubles with every attempt (2s, 4s, ... 32s).
+	maxReconnectAttempts = 5
+	reconnectBaseDelay   = 2 * time.Second
 )
+
+// reconnectDelay returns the backoff delay before the given attempt (1-based).
+func reconnectDelay(attempt int) time.Duration {
+	return reconnectBaseDelay << (attempt - 1)
+}
 
 // ChannelsLoadedMsg is a message sent when channels are successfully loaded.
 type ChannelsLoadedMsg struct {
@@ -41,9 +51,17 @@ type TrackPollTickMsg struct{}
 
 // StreamErrorMsg is a message sent when a stream error occurs. ChannelID is
 // set when the error belongs to a specific play request (so stale requests can
-// be ignored) and empty for runtime errors on the active stream.
+// be ignored) and empty for runtime errors on the active stream. NoRetry marks
+// errors that cannot be fixed by reconnecting (e.g. no playable playlist).
 type StreamErrorMsg struct {
 	Err       error
+	ChannelID string
+	NoRetry   bool
+}
+
+// ReconnectTickMsg fires when the backoff delay before a reconnect attempt
+// has elapsed.
+type ReconnectTickMsg struct {
 	ChannelID string
 }
 

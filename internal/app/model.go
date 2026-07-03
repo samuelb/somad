@@ -24,6 +24,9 @@ type Model struct {
 	Player       audio.Player
 	PlayingID    string // ID of the playing channel, empty if not playing
 	ConnectingID string // ID of the channel currently connecting, empty if none
+	// Reconnect state after a stream drop
+	ReconnectingID   string // channel awaiting an automatic reconnect, empty if none
+	ReconnectAttempt int    // number of reconnect attempts for the current drop
 	Loading      bool
 	Err          error
 	State        *state.State
@@ -49,14 +52,16 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(LoadChannels(m.UserAgent), tea.EnterAltScreen, TickChannelRefresh(), m.ListenStreamErrors())
 }
 
-// stopPlayback stops the player (cancelling any in-flight connect) and clears
-// all playback-related state, then reflects the stopped state to MPRIS.
+// stopPlayback stops the player (cancelling any in-flight connect), cancels
+// any pending reconnect, and clears all playback-related state, then reflects
+// the stopped state to MPRIS.
 func (m *Model) stopPlayback() {
 	if m.Player != nil {
 		m.Player.Stop()
 	}
 	m.PlayingID = ""
 	m.ConnectingID = ""
+	m.ReconnectingID = ""
 	m.TrackInfo = nil
 	m.StreamErr = ""
 	m.UpdateMPRIS(m.List.Items())
@@ -82,6 +87,16 @@ func (m *Model) selectChannelByID(id string) {
 			return
 		}
 	}
+}
+
+// findChannelItem returns the list item for the channel with the given ID.
+func (m *Model) findChannelItem(id string) (ui.Item, bool) {
+	for _, li := range m.List.Items() {
+		if it, ok := li.(ui.Item); ok && it.Channel.ID == id {
+			return it, true
+		}
+	}
+	return ui.Item{}, false
 }
 
 // mp3QualityRank orders SomaFM playlist quality levels, best first.
