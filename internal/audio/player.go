@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -32,6 +33,7 @@ type Player interface {
 	Play(url string) error
 	Stop()
 	Errors() <-chan error
+	TrackUpdates() <-chan TrackInfo
 }
 
 // session represents a single playback lifecycle: one stream, one decoder,
@@ -56,6 +58,7 @@ type AudioPlayer struct {
 	ctx       *oto.Context
 	userAgent string
 	errChan   chan error
+	trackChan chan TrackInfo
 
 	mu      sync.Mutex
 	current *session // the active session, guarded by mu
@@ -77,7 +80,12 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 	// Wait for the audio context to be ready
 	<-ready
 
-	return &AudioPlayer{ctx: ctx, userAgent: userAgent, errChan: make(chan error, 2)}, nil
+	return &AudioPlayer{
+		ctx:       ctx,
+		userAgent: userAgent,
+		errChan:   make(chan error, 2),
+		trackChan: make(chan TrackInfo, 1),
+	}, nil
 }
 
 // Play starts streaming and playing audio from the given URL. It blocks until
@@ -142,6 +150,9 @@ func (p *AudioPlayer) Play(url string) error {
 	p.current = s
 	p.mu.Unlock()
 
+	// Titles buffered from the previous channel must not leak into this one.
+	p.drainTrackUpdates()
+
 	if old != nil {
 		old.requestStop()
 	}
@@ -150,8 +161,10 @@ func (p *AudioPlayer) Play(url string) error {
 	return nil
 }
 
-// fetchStream fetches the stream over HTTP and pipes it to the decoder.
-// It reports network errors asynchronously via the errors channel.
+// fetchStream fetches the stream over HTTP and pipes it to the decoder. It
+// requests interleaved ICY metadata so the same connection carries the
+// now-playing titles, which are demuxed out and reported via TrackUpdates.
+// Network errors are reported asynchronously via the errors channel.
 func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWriter) {
 	defer func() { _ = pw.Close() }()
 
@@ -162,6 +175,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 		pw.CloseWithError(streamErr)
 		return
 	}
+	req.Header.Set("Icy-MetaData", "1") // Request interleaved ICY metadata
 
 	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
@@ -179,12 +193,52 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 		return
 	}
 
+	// If the server honored the metadata request, demux titles out of the
+	// stream; otherwise the body is pure audio and passes through untouched.
+	var body io.Reader = resp.Body
+	if icyInt, err := strconv.Atoi(resp.Header.Get("icy-metaint")); err == nil && icyInt > 0 {
+		body = newICYDemuxer(resp.Body, icyInt, func(title string) {
+			p.reportTrack(ctx, TrackInfo{Title: title})
+		})
+	}
+
 	// Copy the stream to the pipe writer until cancelled or the stream ends.
-	if _, err := io.Copy(pw, resp.Body); err != nil {
+	if _, err := io.Copy(pw, body); err != nil {
 		// An error is expected on cancellation/pipe close, so we don't report it.
 		if ctx.Err() == nil {
 			p.reportError(ctx, fmt.Errorf("stream read error: %w", err))
 		}
+	}
+}
+
+// TrackUpdates returns a channel carrying now-playing title changes for the
+// active stream.
+func (p *AudioPlayer) TrackUpdates() <-chan TrackInfo {
+	return p.trackChan
+}
+
+// reportTrack publishes a track update, replacing any pending one so the
+// newest title wins. Updates from cancelled (superseded) sessions are dropped.
+func (p *AudioPlayer) reportTrack(ctx context.Context, info TrackInfo) {
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
+	select {
+	case <-p.trackChan:
+	default:
+	}
+	select {
+	case p.trackChan <- info:
+	default:
+	}
+}
+
+// drainTrackUpdates discards any pending track update, so titles from a
+// previous channel never surface on the next one.
+func (p *AudioPlayer) drainTrackUpdates() {
+	select {
+	case <-p.trackChan:
+	default:
 	}
 }
 
@@ -243,6 +297,8 @@ func (p *AudioPlayer) Stop() {
 	old := p.current
 	p.current = nil
 	p.mu.Unlock()
+
+	p.drainTrackUpdates()
 
 	if old != nil {
 		old.requestStop()

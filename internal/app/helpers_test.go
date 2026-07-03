@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"somatui/internal/audio"
 	"somatui/internal/channels"
 	"somatui/internal/state"
 	"somatui/internal/ui"
@@ -13,9 +14,10 @@ import (
 
 // mockPlayer is a test double for the audio.Player interface.
 type mockPlayer struct {
-	playing bool
-	playErr error
-	errChan chan error
+	playing   bool
+	playErr   error
+	errChan   chan error
+	trackChan chan audio.TrackInfo
 }
 
 func (p *mockPlayer) Play(_ string) error {
@@ -30,9 +32,14 @@ func (p *mockPlayer) Stop() { p.playing = false }
 
 func (p *mockPlayer) Errors() <-chan error { return p.errChan }
 
-// newMockPlayer returns a mockPlayer with a buffered error channel.
+func (p *mockPlayer) TrackUpdates() <-chan audio.TrackInfo { return p.trackChan }
+
+// newMockPlayer returns a mockPlayer with buffered error and track channels.
 func newMockPlayer() *mockPlayer {
-	return &mockPlayer{errChan: make(chan error, 2)}
+	return &mockPlayer{
+		errChan:   make(chan error, 2),
+		trackChan: make(chan audio.TrackInfo, 1),
+	}
 }
 
 // testChannels returns a fixed set of channels used across test files.

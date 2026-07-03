@@ -48,10 +48,9 @@ type StreamErrorMsg struct {
 }
 
 // PlaybackStartedMsg is sent when a play request has connected and audio is
-// running. It carries the resolved stream URL for the metadata reader.
+// running.
 type PlaybackStartedMsg struct {
 	ChannelID string
-	StreamURL string
 }
 
 // ChannelRefreshTickMsg is a message sent when it's time to refresh channels.
@@ -92,18 +91,18 @@ func TickChannelRefresh() tea.Cmd {
 	})
 }
 
-// PollTrackUpdates is a Tea command that polls for track information updates.
-// It captures the current metadata reader on the Update goroutine so the tick
-// callback (which runs on a separate timer goroutine) never reads m.MetadataReader
-// concurrently with the writes in playChannel/StopMetadataReader.
+// PollTrackUpdates is a Tea command that polls the player for now-playing
+// title updates, demuxed from the playback stream's ICY metadata. The channel
+// is captured here so the tick callback (which runs on a timer goroutine)
+// never touches the model.
 func (m *Model) PollTrackUpdates() tea.Cmd {
-	reader := m.MetadataReader
-	if reader == nil {
+	if m.Player == nil {
 		return nil
 	}
+	updates := m.Player.TrackUpdates()
 	return tea.Tick(trackUpdateInterval, func(t time.Time) tea.Msg {
 		select {
-		case trackInfo := <-reader.GetUpdateChan():
+		case trackInfo := <-updates:
 			return TrackUpdateMsg{TrackInfo: trackInfo}
 		default:
 			return TrackPollTickMsg{}

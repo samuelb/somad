@@ -3,7 +3,6 @@ package app
 import (
 	"testing"
 
-	"somatui/internal/audio"
 	"somatui/internal/channels"
 	"somatui/internal/ui"
 
@@ -11,33 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestStopMetadataReader_Nil(t *testing.T) {
-	m := newTestModel(t)
-	m.MetadataReader = nil
-
-	// Should not panic
-	m.StopMetadataReader()
-	assert.Nil(t, m.MetadataReader)
-}
-
-func TestStopMetadataReader_Active(t *testing.T) {
-	m := newTestModel(t)
-	m.MetadataReader = audio.NewMetadataReader("http://somafm.com/stream.mp3")
-
-	m.StopMetadataReader()
-
-	assert.Nil(t, m.MetadataReader)
-}
-
-func TestStopMetadataReader_SafeToCallTwice(t *testing.T) {
-	m := newTestModel(t)
-	m.MetadataReader = audio.NewMetadataReader("http://somafm.com/stream.mp3")
-
-	// Both calls should succeed without panic
-	m.StopMetadataReader()
-	m.StopMetadataReader()
-}
 
 func TestSelectMP3PlaylistURL_FindsMP3(t *testing.T) {
 	playlists := []channels.Playlist{

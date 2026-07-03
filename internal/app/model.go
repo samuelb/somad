@@ -20,20 +20,19 @@ type AboutInfo struct {
 
 // Model represents the application's state.
 type Model struct {
-	List           list.Model
-	Player         audio.Player
-	PlayingID      string // ID of the playing channel, empty if not playing
-	ConnectingID   string // ID of the channel currently connecting, empty if none
-	Loading        bool
-	Err            error
-	State          *state.State
-	TrackInfo      *audio.TrackInfo
-	MetadataReader *audio.MetadataReader
-	StreamErr      string
-	ShowAbout      bool
-	About          AboutInfo
-	Width          int
-	Height         int
+	List         list.Model
+	Player       audio.Player
+	PlayingID    string // ID of the playing channel, empty if not playing
+	ConnectingID string // ID of the channel currently connecting, empty if none
+	Loading      bool
+	Err          error
+	State        *state.State
+	TrackInfo    *audio.TrackInfo
+	StreamErr    string
+	ShowAbout    bool
+	About        AboutInfo
+	Width        int
+	Height       int
 	// Search state
 	Searching     bool   // Whether search input is active
 	SearchQuery   string // Current search query
@@ -50,14 +49,6 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(LoadChannels(m.UserAgent), tea.EnterAltScreen, TickChannelRefresh(), m.ListenStreamErrors())
 }
 
-// StopMetadataReader stops any active metadata reader.
-func (m *Model) StopMetadataReader() {
-	if m.MetadataReader != nil {
-		m.MetadataReader.Stop()
-		m.MetadataReader = nil
-	}
-}
-
 // stopPlayback stops the player (cancelling any in-flight connect) and clears
 // all playback-related state, then reflects the stopped state to MPRIS.
 func (m *Model) stopPlayback() {
@@ -66,7 +57,6 @@ func (m *Model) stopPlayback() {
 	}
 	m.PlayingID = ""
 	m.ConnectingID = ""
-	m.StopMetadataReader()
 	m.TrackInfo = nil
 	m.StreamErr = ""
 	m.UpdateMPRIS(m.List.Items())
@@ -77,7 +67,6 @@ func (m *Model) quitApp() tea.Cmd {
 	if m.Player != nil {
 		m.Player.Stop()
 	}
-	m.StopMetadataReader()
 	return tea.Quit
 }
 

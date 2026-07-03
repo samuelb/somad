@@ -2,155 +2,89 @@ package audio
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
-	"net/http"
-	"strconv"
 	"strings"
-	"sync"
-	"time"
-
-	"somatui/internal/security"
 )
-
-const metadataCheckInterval = 10 * time.Second
 
 // TrackInfo represents the current track information from ICY metadata.
 type TrackInfo struct {
 	Title string
 }
 
-// MetadataReader reads and monitors MP3 metadata from a stream.
-type MetadataReader struct {
-	url        string
-	stopChan   chan struct{}
-	stopOnce   sync.Once
-	updateChan chan TrackInfo
+// icyDemuxer strips the ICY metadata blocks that Shoutcast/Icecast servers
+// interleave into the audio stream (when requested via Icy-MetaData: 1),
+// forwarding pure audio bytes to the decoder and reporting title changes.
+// This lets one connection serve both playback and now-playing info.
+type icyDemuxer struct {
+	src       *bufio.Reader
+	icyInt    int // audio bytes between metadata blocks
+	remaining int // audio bytes left until the next metadata block
+	onTitle   func(string)
+	lastTitle string
+	gotTitle  bool
 }
 
-// NewMetadataReader creates a new metadata reader for the given stream URL.
-func NewMetadataReader(url string) *MetadataReader {
-	return &MetadataReader{
-		url:        url,
-		stopChan:   make(chan struct{}),
-		updateChan: make(chan TrackInfo, 1),
+// newICYDemuxer wraps src, whose audio is interrupted by a metadata block
+// every icyInt bytes. onTitle is invoked whenever the stream title changes.
+func newICYDemuxer(src io.Reader, icyInt int, onTitle func(string)) *icyDemuxer {
+	return &icyDemuxer{
+		src:       bufio.NewReader(src),
+		icyInt:    icyInt,
+		remaining: icyInt,
+		onTitle:   onTitle,
 	}
 }
 
-// Start begins monitoring the stream for metadata updates.
-func (mr *MetadataReader) Start(userAgent string) {
-	go func() {
-		ticker := time.NewTicker(metadataCheckInterval)
-		defer ticker.Stop()
-
-		// Get initial metadata
-		if trackInfo, err := mr.getMetadata(userAgent); err == nil {
-			select {
-			case mr.updateChan <- trackInfo:
-			default:
-			}
+func (d *icyDemuxer) Read(p []byte) (int, error) {
+	if d.remaining == 0 {
+		if err := d.readMetadataBlock(); err != nil {
+			return 0, err
 		}
-
-		for {
-			select {
-			case <-ticker.C:
-				if trackInfo, err := mr.getMetadata(userAgent); err == nil {
-					select {
-					case mr.updateChan <- trackInfo:
-					default:
-					}
-				}
-			case <-mr.stopChan:
-				return
-			}
-		}
-	}()
+		d.remaining = d.icyInt
+	}
+	if len(p) > d.remaining {
+		p = p[:d.remaining]
+	}
+	n, err := d.src.Read(p)
+	d.remaining -= n
+	return n, err
 }
 
-// Stop halts the metadata monitoring. Safe to call multiple times.
-func (mr *MetadataReader) Stop() {
-	mr.stopOnce.Do(func() {
-		close(mr.stopChan)
-	})
-}
-
-// GetUpdateChan returns the channel for receiving metadata updates.
-func (mr *MetadataReader) GetUpdateChan() <-chan TrackInfo {
-	return mr.updateChan
-}
-
-// getMetadata fetches ICY metadata directly from the MP3 stream.
-func (mr *MetadataReader) getMetadata(userAgent string) (TrackInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	req, err := security.NewRequest(ctx, mr.url, userAgent)
+// readMetadataBlock consumes one metadata block from the stream. A zero
+// length byte means "no change". Malformed metadata is skipped, not fatal —
+// the audio around it is still good.
+func (d *icyDemuxer) readMetadataBlock() error {
+	lenByte, err := d.src.ReadByte()
 	if err != nil {
-		return TrackInfo{}, fmt.Errorf("invalid stream URL: %w", err)
+		return err
 	}
-	req.Header.Set("Icy-MetaData", "1") // Request ICY metadata from stream
-
-	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
-	if err != nil {
-		return TrackInfo{}, fmt.Errorf("failed to fetch stream: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return TrackInfo{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	// Check if the stream supports ICY metadata
-	icyInt := resp.Header.Get("icy-metaint")
-	if icyInt == "" {
-		return TrackInfo{}, fmt.Errorf("stream does not support ICY metadata")
-	}
-
-	// Read ICY metadata
-	return mr.readICYMetadata(resp.Body, icyInt)
-}
-
-// readICYMetadata reads ICY metadata from the stream.
-func (mr *MetadataReader) readICYMetadata(body io.Reader, icyIntStr string) (TrackInfo, error) {
-	icyInt, err := strconv.Atoi(icyIntStr)
-	if err != nil {
-		return TrackInfo{}, fmt.Errorf("invalid icy-metaint value: %w", err)
-	}
-
-	reader := bufio.NewReader(body)
-
-	// Skip the first audio block
-	_, err = reader.Discard(icyInt)
-	if err != nil {
-		return TrackInfo{}, fmt.Errorf("failed to skip audio block: %w", err)
-	}
-
-	// Read the metadata length byte
-	metaLenByte, err := reader.ReadByte()
-	if err != nil {
-		return TrackInfo{}, fmt.Errorf("failed to read metadata length: %w", err)
-	}
-
-	metaLen := int(metaLenByte) * 16
+	metaLen := int(lenByte) * 16
 	if metaLen == 0 {
-		return TrackInfo{}, fmt.Errorf("no metadata available")
+		return nil
 	}
 
-	// Read the metadata block
-	metadata := make([]byte, metaLen)
-	_, err = io.ReadFull(reader, metadata)
+	block := make([]byte, metaLen)
+	if _, err := io.ReadFull(d.src, block); err != nil {
+		return err
+	}
+
+	info, err := parseICYMetadata(strings.TrimRight(string(block), "\x00"))
 	if err != nil {
-		return TrackInfo{}, fmt.Errorf("failed to read metadata block: %w", err)
+		return nil
 	}
-
-	// Parse the metadata string
-	metaStr := strings.TrimRight(string(metadata), "\x00")
-	return mr.parseICYMetadata(metaStr)
+	if !d.gotTitle || info.Title != d.lastTitle {
+		d.gotTitle = true
+		d.lastTitle = info.Title
+		if d.onTitle != nil {
+			d.onTitle(info.Title)
+		}
+	}
+	return nil
 }
 
-// parseICYMetadata parses ICY metadata string and extracts the title.
-func (mr *MetadataReader) parseICYMetadata(metaStr string) (TrackInfo, error) {
+// parseICYMetadata parses an ICY metadata string and extracts the title.
+func parseICYMetadata(metaStr string) (TrackInfo, error) {
 	// ICY metadata format: StreamTitle='Title';StreamUrl='';
 	parts := strings.Split(metaStr, ";")
 
@@ -159,7 +93,6 @@ func (mr *MetadataReader) parseICYMetadata(metaStr string) (TrackInfo, error) {
 			title := strings.TrimPrefix(part, "StreamTitle='")
 			title = strings.TrimSuffix(title, "'")
 
-			// Return the title as-is without parsing
 			return TrackInfo{
 				Title: strings.TrimSpace(title),
 			}, nil

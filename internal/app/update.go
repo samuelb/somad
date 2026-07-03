@@ -152,11 +152,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Err = msg.Err
 		m.Loading = false
 	case TrackUpdateMsg:
-		// Track information has been updated
+		// Track information has been updated; ignore it (and stop polling)
+		// once playback has ended.
+		if m.PlayingID == "" {
+			return m, nil
+		}
 		m.TrackInfo = &msg.TrackInfo
 		m.UpdateMPRIS(items)
 		return m, m.PollTrackUpdates()
 	case TrackPollTickMsg:
+		// Keep polling only while something is playing.
+		if m.PlayingID == "" {
+			return m, nil
+		}
 		return m, m.PollTrackUpdates()
 	case PlaybackStartedMsg:
 		if msg.ChannelID != m.ConnectingID {
@@ -165,9 +173,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ConnectingID = ""
 		m.PlayingID = msg.ChannelID
-		m.StopMetadataReader()
-		m.MetadataReader = audio.NewMetadataReader(msg.StreamURL)
-		m.MetadataReader.Start(m.UserAgent)
 		m.TrackInfo = nil
 		m.UpdateMPRIS(items)
 		return m, m.PollTrackUpdates()
@@ -276,7 +281,7 @@ func (m *Model) playChannel(i ui.Item) tea.Cmd {
 			}
 			return StreamErrorMsg{Err: fmt.Errorf("failed to start playback: %w", err), ChannelID: channelID}
 		}
-		return PlaybackStartedMsg{ChannelID: channelID, StreamURL: streamURL}
+		return PlaybackStartedMsg{ChannelID: channelID}
 	}
 }
 

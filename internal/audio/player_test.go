@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -18,7 +19,11 @@ import (
 // exercise fetchStream and reportError, which never touch the audio device — the
 // full Play() path requires hardware and is not testable in CI.
 func newTestPlayer() *AudioPlayer {
-	return &AudioPlayer{userAgent: "SomaTUI/test", errChan: make(chan error, 2)}
+	return &AudioPlayer{
+		userAgent: "SomaTUI/test",
+		errChan:   make(chan error, 2),
+		trackChan: make(chan TrackInfo, 1),
+	}
 }
 
 func TestErrors_ReturnsChannel(t *testing.T) {
@@ -146,6 +151,79 @@ func TestFetchStream_Success(t *testing.T) {
 
 	// No error should have been reported on the happy path.
 	assert.Empty(t, p.errChan)
+}
+
+func TestFetchStream_RequestsAndDemuxesICYMetadata(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+
+	var gotIcyHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotIcyHeader = r.Header.Get("Icy-MetaData")
+		b := &icyStreamBuilder{icyInt: 8}
+		b.segment(0xAA, "StreamTitle='Demuxed Song';")
+		w.Header().Set("icy-metaint", "8")
+		_, _ = w.Write(b.buf.Bytes())
+	}))
+	defer server.Close()
+
+	p := newTestPlayer()
+	pr, pw := io.Pipe()
+	go p.fetchStream(context.Background(), server.URL, pw)
+
+	data, err := drainPipe(pr)
+	require.NoError(t, err)
+
+	assert.Equal(t, "1", gotIcyHeader, "fetchStream must request ICY metadata")
+	assert.Equal(t, bytes.Repeat([]byte{0xAA}, 8), data, "metadata must not reach the decoder")
+
+	select {
+	case info := <-p.TrackUpdates():
+		assert.Equal(t, "Demuxed Song", info.Title)
+	default:
+		t.Fatal("expected a track update from the demuxed metadata")
+	}
+}
+
+func TestFetchStream_NoICYHeaderPassesThrough(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// No icy-metaint header: the body must be forwarded untouched.
+		_, _ = w.Write([]byte("plain-audio"))
+	}))
+	defer server.Close()
+
+	p := newTestPlayer()
+	pr, pw := io.Pipe()
+	go p.fetchStream(context.Background(), server.URL, pw)
+
+	data, err := drainPipe(pr)
+	require.NoError(t, err)
+	assert.Equal(t, "plain-audio", string(data))
+	assert.Empty(t, p.trackChan)
+}
+
+func TestReportTrack_NewestWins(t *testing.T) {
+	p := newTestPlayer()
+
+	p.reportTrack(context.Background(), TrackInfo{Title: "First"})
+	p.reportTrack(context.Background(), TrackInfo{Title: "Second"})
+
+	select {
+	case info := <-p.TrackUpdates():
+		assert.Equal(t, "Second", info.Title)
+	default:
+		t.Fatal("expected a pending track update")
+	}
+}
+
+func TestReportTrack_CancelledContextDropped(t *testing.T) {
+	p := newTestPlayer()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	p.reportTrack(ctx, TrackInfo{Title: "Stale"})
+
+	assert.Empty(t, p.trackChan, "superseded sessions must not publish titles")
 }
 
 func TestFetchStream_InvalidURL(t *testing.T) {

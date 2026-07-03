@@ -2,21 +2,14 @@ package audio
 
 import (
 	"bytes"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
+	"io"
 	"testing"
-	"time"
-
-	"somatui/internal/security/securitytest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestParseICYMetadata(t *testing.T) {
-	mr := NewMetadataReader("http://example.com/stream")
-
 	tests := []struct {
 		name    string
 		input   string
@@ -81,7 +74,7 @@ func TestParseICYMetadata(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := mr.parseICYMetadata(tt.input)
+			got, err := parseICYMetadata(tt.input)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseICYMetadata() error = %v, wantErr %v", err, tt.wantErr)
@@ -95,248 +88,169 @@ func TestParseICYMetadata(t *testing.T) {
 	}
 }
 
-func TestNewMetadataReader(t *testing.T) {
-	url := "http://example.com/stream"
-	mr := NewMetadataReader(url)
-
-	if mr.url != url {
-		t.Errorf("NewMetadataReader url = %v, want %v", mr.url, url)
-	}
-
-	if mr.stopChan == nil {
-		t.Error("NewMetadataReader stopChan should not be nil")
-	}
-
-	if mr.updateChan == nil {
-		t.Error("NewMetadataReader updateChan should not be nil")
-	}
+// icyStreamBuilder assembles a synthetic Shoutcast body: audio segments of
+// exactly icyInt bytes, each followed by a metadata block.
+type icyStreamBuilder struct {
+	buf    bytes.Buffer
+	icyInt int
 }
 
-func TestMetadataReaderGetUpdateChan(t *testing.T) {
-	mr := NewMetadataReader("http://example.com/stream")
-	ch := mr.GetUpdateChan()
-
-	if ch == nil {
-		t.Error("GetUpdateChan() should not return nil")
+// segment appends icyInt bytes of the given audio byte followed by a metadata
+// block containing metadata (or a zero-length block when metadata is empty).
+func (b *icyStreamBuilder) segment(audioByte byte, metadata string) *icyStreamBuilder {
+	b.buf.Write(bytes.Repeat([]byte{audioByte}, b.icyInt))
+	if metadata == "" {
+		b.buf.WriteByte(0)
+		return b
 	}
-}
-
-// buildICYStream constructs a byte buffer simulating an ICY audio stream.
-// It writes icyInt bytes of dummy audio data, then a metadata block.
-func buildICYStream(icyInt int, metadata string) *bytes.Buffer {
-	buf := new(bytes.Buffer)
-	// Dummy audio data
-	buf.Write(bytes.Repeat([]byte{0xFF}, icyInt))
-	// Metadata length byte (in 16-byte units)
 	metaLen := (len(metadata) + 15) / 16
-	buf.WriteByte(byte(metaLen)) // #nosec G115 // Test helper, metadata length is always small
-	// Metadata padded with null bytes to fill metaLen*16 bytes
-	buf.WriteString(metadata)
-	padding := metaLen*16 - len(metadata)
-	if padding > 0 {
-		buf.Write(bytes.Repeat([]byte{0x00}, padding))
+	b.buf.WriteByte(byte(metaLen)) // #nosec G115 // Test helper, metadata length is always small
+	b.buf.WriteString(metadata)
+	if padding := metaLen*16 - len(metadata); padding > 0 {
+		b.buf.Write(bytes.Repeat([]byte{0x00}, padding))
 	}
-	return buf
+	return b
 }
 
-// newICYServer creates an httptest server that serves an ICY-format response.
-func newICYServer(icyInt int, metadata string) *httptest.Server {
-	body := buildICYStream(icyInt, metadata)
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("icy-metaint", strconv.Itoa(icyInt))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(body.Bytes())
-	}))
+// collectTitles reads the demuxed audio and the titles reported along the way.
+func collectTitles(t *testing.T, src io.Reader, icyInt int) (audio []byte, titles []string) {
+	t.Helper()
+	d := newICYDemuxer(src, icyInt, func(title string) {
+		titles = append(titles, title)
+	})
+	audio, err := io.ReadAll(d)
+	require.NoError(t, err, "io.ReadAll treats io.EOF as success")
+	return audio, titles
 }
 
-func TestReadICYMetadata(t *testing.T) {
-	mr := NewMetadataReader("http://example.com/stream")
+func TestICYDemuxer_StripsMetadataAndReportsTitle(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 100}
+	b.segment(0xAA, "StreamTitle='Test Song';").segment(0xBB, "")
 
-	tests := []struct {
-		name     string
-		icyInt   int
-		metadata string
-		want     string
-		wantErr  bool
-	}{
-		{
-			name:     "standard metadata",
-			icyInt:   100,
-			metadata: "StreamTitle='Test Song';",
-			want:     "Test Song",
-		},
-		{
-			name:     "large icy interval",
-			icyInt:   8192,
-			metadata: "StreamTitle='Artist - Track';StreamUrl='';",
-			want:     "Artist - Track",
-		},
-		{
-			name:     "unicode metadata",
-			icyInt:   50,
-			metadata: "StreamTitle='Café — Música';",
-			want:     "Café — Música",
-		},
-		{
-			name:     "no stream title in metadata",
-			icyInt:   100,
-			metadata: "StreamUrl='http://example.com';",
-			wantErr:  true,
-		},
-	}
+	audio, titles := collectTitles(t, &b.buf, b.icyInt)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			buf := buildICYStream(tt.icyInt, tt.metadata)
-			info, err := mr.readICYMetadata(buf, strconv.Itoa(tt.icyInt))
-
-			if tt.wantErr {
-				assert.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, info.Title)
-		})
-	}
+	assert.Equal(t, append(bytes.Repeat([]byte{0xAA}, 100), bytes.Repeat([]byte{0xBB}, 100)...), audio,
+		"metadata must be stripped, audio passed through unchanged")
+	assert.Equal(t, []string{"Test Song"}, titles)
 }
 
-func TestReadICYMetadata_InvalidIcyInt(t *testing.T) {
-	mr := NewMetadataReader("http://example.com/stream")
-	buf := buildICYStream(100, "StreamTitle='Test';")
+func TestICYDemuxer_LargeInterval(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 8192}
+	b.segment(0x01, "StreamTitle='Artist - Track';StreamUrl='';")
 
-	_, err := mr.readICYMetadata(buf, "not-a-number")
+	audio, titles := collectTitles(t, &b.buf, b.icyInt)
+
+	assert.Len(t, audio, 8192)
+	assert.Equal(t, []string{"Artist - Track"}, titles)
+}
+
+func TestICYDemuxer_UnicodeTitle(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 50}
+	b.segment(0x01, "StreamTitle='Café — Música';")
+
+	_, titles := collectTitles(t, &b.buf, b.icyInt)
+
+	assert.Equal(t, []string{"Café — Música"}, titles)
+}
+
+func TestICYDemuxer_ZeroLengthBlockMeansNoChange(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 10}
+	b.segment(0x01, "").segment(0x02, "")
+
+	audio, titles := collectTitles(t, &b.buf, b.icyInt)
+
+	assert.Len(t, audio, 20)
+	assert.Empty(t, titles)
+}
+
+func TestICYDemuxer_RepeatedTitleReportedOnce(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 10}
+	b.segment(0x01, "StreamTitle='Same Song';").
+		segment(0x02, "StreamTitle='Same Song';").
+		segment(0x03, "StreamTitle='New Song';")
+
+	_, titles := collectTitles(t, &b.buf, b.icyInt)
+
+	assert.Equal(t, []string{"Same Song", "New Song"}, titles)
+}
+
+func TestICYDemuxer_MalformedMetadataSkipped(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 10}
+	b.segment(0x01, "StreamUrl='http://example.com';").segment(0x02, "StreamTitle='Good';")
+
+	audio, titles := collectTitles(t, &b.buf, b.icyInt)
+
+	assert.Len(t, audio, 20, "audio around malformed metadata must survive")
+	assert.Equal(t, []string{"Good"}, titles)
+}
+
+func TestICYDemuxer_TruncatedMetadataBlockIsError(t *testing.T) {
+	var buf bytes.Buffer
+	buf.Write(bytes.Repeat([]byte{0x01}, 10))
+	buf.WriteByte(2) // promises 32 metadata bytes...
+	buf.WriteString("StreamTitle='cut") // ...but delivers fewer
+
+	d := newICYDemuxer(&buf, 10, nil)
+	_, err := io.ReadAll(d)
+
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid icy-metaint")
 }
 
-func TestReadICYMetadata_ZeroLengthMetadata(t *testing.T) {
-	mr := NewMetadataReader("http://example.com/stream")
+func TestICYDemuxer_NilCallback(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 10}
+	b.segment(0x01, "StreamTitle='Ignored';")
 
-	// Build a stream where the metadata length byte is 0
-	buf := new(bytes.Buffer)
-	buf.Write(bytes.Repeat([]byte{0xFF}, 100))
-	buf.WriteByte(0) // metadata length = 0
-
-	_, err := mr.readICYMetadata(buf, "100")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no metadata")
-}
-
-func TestGetMetadata(t *testing.T) {
-	securitytest.AllowTestHosts(t)
-	server := newICYServer(100, "StreamTitle='Server Song';")
-	defer server.Close()
-
-	mr := NewMetadataReader(server.URL)
-	info, err := mr.getMetadata("SomaTUI/test")
+	d := newICYDemuxer(&b.buf, b.icyInt, nil)
+	audio, err := io.ReadAll(d)
 
 	require.NoError(t, err)
-	assert.Equal(t, "Server Song", info.Title)
+	assert.Len(t, audio, 10)
 }
 
-func TestGetMetadata_VerifiesHeaders(t *testing.T) {
-	securitytest.AllowTestHosts(t)
-	var gotUserAgent, gotIcyMetaData string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotUserAgent = r.Header.Get("User-Agent")
-		gotIcyMetaData = r.Header.Get("Icy-MetaData")
+func TestICYDemuxer_SmallReadBuffers(t *testing.T) {
+	b := &icyStreamBuilder{icyInt: 7}
+	b.segment(0x01, "StreamTitle='Chunked';").segment(0x02, "")
 
-		body := buildICYStream(50, "StreamTitle='Test';")
-		w.Header().Set("icy-metaint", "50")
-		_, _ = w.Write(body.Bytes())
-	}))
-	defer server.Close()
+	d := newICYDemuxer(&b.buf, b.icyInt, nil)
 
-	mr := NewMetadataReader(server.URL)
-	_, err := mr.getMetadata("SomaTUI/test")
-	require.NoError(t, err)
-
-	assert.Equal(t, "SomaTUI/test", gotUserAgent)
-	assert.Equal(t, "1", gotIcyMetaData)
-}
-
-func TestGetMetadata_NoIcyMetaint(t *testing.T) {
-	securitytest.AllowTestHosts(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// No icy-metaint header
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("audio data"))
-	}))
-	defer server.Close()
-
-	mr := NewMetadataReader(server.URL)
-	_, err := mr.getMetadata("SomaTUI/test")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "ICY metadata")
-}
-
-func TestGetMetadata_ServerError(t *testing.T) {
-	securitytest.AllowTestHosts(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	mr := NewMetadataReader(server.URL)
-	_, err := mr.getMetadata("SomaTUI/test")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "500")
-}
-
-func TestMetadataReaderStartStop(t *testing.T) {
-	securitytest.AllowTestHosts(t)
-	server := newICYServer(50, "StreamTitle='Live Track';")
-	defer server.Close()
-
-	mr := NewMetadataReader(server.URL)
-	mr.Start("SomaTUI/test")
-
-	// Should receive the initial metadata update
-	select {
-	case info := <-mr.GetUpdateChan():
-		assert.Equal(t, "Live Track", info.Title)
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for metadata update")
+	// Read through a 3-byte buffer so reads straddle metadata boundaries.
+	var audio []byte
+	buf := make([]byte, 3)
+	for {
+		n, err := d.Read(buf)
+		audio = append(audio, buf[:n]...)
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
 	}
 
-	// Stop should not panic and should be safe to call multiple times
-	mr.Stop()
-	mr.Stop()
-}
-
-func TestMetadataReaderStop_BeforeStart(t *testing.T) {
-	mr := NewMetadataReader("http://example.com/stream")
-	// Stop without Start should not panic
-	mr.Stop()
-	mr.Stop()
+	assert.Equal(t, append(bytes.Repeat([]byte{0x01}, 7), bytes.Repeat([]byte{0x02}, 7)...), audio)
 }
 
 func BenchmarkParseICYMetadata_Standard(b *testing.B) {
-	mr := NewMetadataReader("http://example.com/stream")
 	input := "StreamTitle='Artist - Song Title';StreamUrl='';"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = mr.parseICYMetadata(input)
+		_, _ = parseICYMetadata(input)
 	}
 }
 
 func BenchmarkParseICYMetadata_Unicode(b *testing.B) {
-	mr := NewMetadataReader("http://example.com/stream")
 	input := "StreamTitle='Café del Mar - Música Ambiental';StreamUrl='';"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = mr.parseICYMetadata(input)
+		_, _ = parseICYMetadata(input)
 	}
 }
 
 func BenchmarkParseICYMetadata_MultipleFields(b *testing.B) {
-	mr := NewMetadataReader("http://example.com/stream")
 	input := "StreamTitle='The Track';StreamUrl='http://foo';StreamGenre='Jazz';StreamBitrate='128';"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = mr.parseICYMetadata(input)
+		_, _ = parseICYMetadata(input)
 	}
 }

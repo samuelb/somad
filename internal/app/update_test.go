@@ -344,11 +344,38 @@ func TestUpdate_ErrorMsg(t *testing.T) {
 
 func TestUpdate_TrackUpdateMsg(t *testing.T) {
 	m := newTestModel(t)
+	m.PlayingID = "groovesalad"
 
 	m.Update(TrackUpdateMsg{TrackInfo: audio.TrackInfo{Title: "Live Track"}})
 
 	require.NotNil(t, m.TrackInfo)
 	assert.Equal(t, "Live Track", m.TrackInfo.Title)
+}
+
+func TestUpdate_TrackUpdateMsg_IgnoredWhenStopped(t *testing.T) {
+	m := newTestModel(t)
+
+	_, cmd := m.Update(TrackUpdateMsg{TrackInfo: audio.TrackInfo{Title: "Stale Track"}})
+
+	assert.Nil(t, m.TrackInfo, "track updates after stop must be dropped")
+	assert.Nil(t, cmd, "polling must not be re-armed when stopped")
+}
+
+func TestUpdate_TrackPollTickMsg_StopsPollingWhenStopped(t *testing.T) {
+	m := newTestModel(t)
+
+	_, cmd := m.Update(TrackPollTickMsg{})
+
+	assert.Nil(t, cmd)
+}
+
+func TestUpdate_TrackPollTickMsg_ContinuesWhilePlaying(t *testing.T) {
+	m := newTestModel(t)
+	m.PlayingID = "groovesalad"
+
+	_, cmd := m.Update(TrackPollTickMsg{})
+
+	assert.NotNil(t, cmd)
 }
 
 func TestUpdate_StreamErrorMsg(t *testing.T) {
@@ -402,12 +429,9 @@ func TestUpdate_MPRISPlayMsg_StartsPlayback(t *testing.T) {
 	// MPRISPlayMsg should attempt to play the selected channel
 	_, cmd := m.Update(platform.MPRISPlayMsg{})
 
-	// We expect a non-nil cmd (either PollTrackUpdates or StreamErrorMsg)
+	// We expect a non-nil cmd (the async connect command)
 	assert.NotNil(t, cmd)
 
-	// playChannel starts a background metadata reader on success; stop it so the
-	// goroutine does not outlive the test (and the test server).
-	m.StopMetadataReader()
 	m.Player.Stop()
 }
 
@@ -551,27 +575,21 @@ func TestPlayChannel_Success(t *testing.T) {
 	started, ok := msg.(PlaybackStartedMsg)
 	require.True(t, ok, "expected PlaybackStartedMsg, got %T", msg)
 	assert.Equal(t, "testchan", started.ChannelID)
-	assert.Equal(t, streamURL+"/stream", started.StreamURL)
 
 	// Feeding the message back completes the transition to playing.
 	m.Update(started)
 	assert.Equal(t, "testchan", m.PlayingID)
 	assert.Empty(t, m.ConnectingID)
-
-	// Stop the metadata reader started by the handler before the server closes.
-	m.StopMetadataReader()
-	m.Player.Stop()
 }
 
 func TestUpdate_PlaybackStartedMsg_StaleIsIgnored(t *testing.T) {
 	m := newTestModel(t)
 	m.ConnectingID = "dronezone" // a newer request is in flight
 
-	_, cmd := m.Update(PlaybackStartedMsg{ChannelID: "groovesalad", StreamURL: "http://somafm.com/old"})
+	_, cmd := m.Update(PlaybackStartedMsg{ChannelID: "groovesalad"})
 
 	assert.Empty(t, m.PlayingID, "stale playback start must not become the playing channel")
 	assert.Equal(t, "dronezone", m.ConnectingID)
-	assert.Nil(t, m.MetadataReader)
 	assert.Nil(t, cmd)
 }
 
