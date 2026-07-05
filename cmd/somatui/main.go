@@ -70,7 +70,7 @@ func main() {
 	case "stop":
 		runStop()
 	case "status":
-		runStatus()
+		runStatus(args[1:])
 	case "volume":
 		runVolume(args[1:])
 	default:
@@ -91,7 +91,7 @@ func printUsage(w io.Writer) {
   somatui prev                   play the previous channel
   somatui pause                  toggle pause (reconnects the live stream on unpause)
   somatui stop                   stop playback
-  somatui status                 show what is playing
+  somatui status [--json]        show what is playing
   somatui volume [<0-100>|+n|-n] show, set, or adjust the playback volume
   somatui server [flags]         run the playback server in the foreground
   somatui server stop            shut down the playback server

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"slices"
@@ -257,9 +258,30 @@ func runStop() {
 	fmt.Println("Stopped")
 }
 
-func runStatus() {
+// runStatus prints the playback state, as JSON with --json so status bars
+// and scripts don't have to parse the human-readable output.
+func runStatus(args []string) {
+	jsonOut := false
+	switch {
+	case len(args) == 0:
+	case len(args) == 1 && args[0] == "--json":
+		jsonOut = true
+	default:
+		fail("usage: somatui status [--json]")
+	}
+
 	c, running := dialServer()
 	if !running {
+		if jsonOut {
+			// No server means stopped; the persisted volume is what the next
+			// server will use, so the snapshot is complete without one.
+			st := protocol.PlaybackState{Status: protocol.StatusStopped}
+			if s, err := state.LoadState(); err == nil {
+				st.Volume = s.GetVolume()
+			}
+			printJSON(st)
+			return
+		}
 		fmt.Println("somatui: stopped (server not running)")
 		return
 	}
@@ -268,6 +290,10 @@ func runStatus() {
 	st, err := c.Status()
 	if err != nil {
 		fail("%v", err)
+	}
+	if jsonOut {
+		printJSON(st)
+		return
 	}
 	switch st.Status {
 	case protocol.StatusPlaying:
@@ -286,6 +312,15 @@ func runStatus() {
 		fmt.Printf("Error:   %s\n", st.StreamError)
 	}
 	fmt.Printf("Volume:  %d%%\n", int(st.Volume*100+0.5))
+}
+
+// printJSON writes v as a single JSON line.
+func printJSON(v any) {
+	out, err := json.Marshal(v)
+	if err != nil {
+		fail("%v", err)
+	}
+	fmt.Println(string(out))
 }
 
 // runVolume shows the volume when called without an argument, sets it for an
