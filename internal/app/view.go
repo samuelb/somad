@@ -61,7 +61,7 @@ func (m *Model) RenderStatusBar() string {
 		stateStyle = ui.StatusConnectingStyle
 	case protocol.StatusReconnecting:
 		icon = "↻"
-		stateText = fmt.Sprintf("Reconnecting %d/%d", m.Snapshot.ReconnectAttempt, m.Snapshot.MaxReconnects)
+		stateText = fmt.Sprintf("Reconnecting #%d", m.Snapshot.ReconnectAttempt)
 		stateStyle = ui.StatusConnectingStyle
 	case protocol.StatusPlaying:
 		icon = "▶"

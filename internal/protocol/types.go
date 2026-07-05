@@ -21,7 +21,6 @@ type PlaybackState struct {
 	Volume           float64 `json:"volume"`
 	StreamError      string  `json:"streamError,omitempty"`
 	ReconnectAttempt int     `json:"reconnectAttempt,omitempty"`
-	MaxReconnects    int     `json:"maxReconnects,omitempty"`
 }
 
 // ChannelsPayload carries the full channel catalog together with the

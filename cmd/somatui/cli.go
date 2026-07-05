@@ -214,7 +214,7 @@ func runStatus() {
 	case protocol.StatusConnecting:
 		fmt.Printf("Connecting: %s\n", st.ChannelTitle)
 	case protocol.StatusReconnecting:
-		fmt.Printf("Reconnecting (%d/%d): %s\n", st.ReconnectAttempt, st.MaxReconnects, st.ChannelTitle)
+		fmt.Printf("Reconnecting (attempt %d): %s\n", st.ReconnectAttempt, st.ChannelTitle)
 	default:
 		fmt.Println("Stopped")
 	}

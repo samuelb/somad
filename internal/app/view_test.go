@@ -93,12 +93,12 @@ func TestRenderStatusBar_Reconnecting(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{
 		Status: protocol.StatusReconnecting, ChannelID: "groovesalad", ChannelTitle: "Groove Salad",
-		ReconnectAttempt: 2, MaxReconnects: 5, Volume: 1,
+		ReconnectAttempt: 2, Volume: 1,
 	})
 
 	result := m.RenderStatusBar()
 
-	assert.Contains(t, result, "Reconnecting 2/5")
+	assert.Contains(t, result, "Reconnecting #2")
 	assert.Contains(t, result, "↻")
 	assert.Contains(t, result, "Groove Salad")
 }

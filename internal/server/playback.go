@@ -11,18 +11,29 @@ import (
 	"somatui/pkg/playlist"
 )
 
-const (
-	// maxReconnectAttempts bounds the automatic retries after a stream drop;
-	// reconnectBaseDelay doubles with every attempt (2s, 4s, ... 32s).
-	maxReconnectAttempts = 5
-)
+// reconnectMaxDelay caps the exponential backoff between reconnect
+// attempts. Retries never give up — the server is a long-running daemon and
+// playback should come back whenever the network does — so past the cap it
+// keeps retrying at this steady interval.
+const reconnectMaxDelay = time.Minute
 
 // reconnectBaseDelay is a variable so tests can shrink the backoff.
 var reconnectBaseDelay = 2 * time.Second
 
-// reconnectDelay returns the backoff delay before the given attempt (1-based).
+// reconnectDelay returns the backoff delay before the given attempt
+// (1-based): it doubles with every attempt (2s, 4s, ...) and is capped at
+// reconnectMaxDelay.
 func reconnectDelay(attempt int) time.Duration {
-	return reconnectBaseDelay << (attempt - 1)
+	const maxShift = 30 // bounds the shift so huge attempt counts cannot overflow
+	shift := attempt - 1
+	if shift > maxShift {
+		shift = maxShift
+	}
+	d := reconnectBaseDelay << shift
+	if d > reconnectMaxDelay || d <= 0 {
+		d = reconnectMaxDelay
+	}
+	return d
 }
 
 // resolveStreamURL resolves a playlist URL to a stream URL. A variable so
@@ -132,10 +143,12 @@ func (s *Server) handleStreamError(err error) {
 	s.broadcastStateLocked()
 }
 
-// scheduleReconnectOrStopLocked moves to reconnecting with exponential
-// backoff while the retry budget lasts, and to stopped otherwise.
+// scheduleReconnectOrStopLocked moves to reconnecting with capped
+// exponential backoff when the error is retryable, and to stopped otherwise.
+// Reconnecting never gives up on its own; only an explicit stop or a new
+// play ends it.
 func (s *Server) scheduleReconnectOrStopLocked(retry bool) {
-	if retry && s.reconnectAttempt < maxReconnectAttempts {
+	if retry {
 		s.reconnectAttempt++
 		s.status = protocol.StatusReconnecting
 		gen := s.playGen

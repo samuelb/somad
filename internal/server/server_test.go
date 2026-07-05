@@ -116,14 +116,14 @@ func TestStreamDrop_ReconnectsAndRecovers(t *testing.T) {
 	player.errChan <- errors.New("stream read error")
 
 	c.waitState("reconnecting", func(st protocol.PlaybackState) bool {
-		return st.Status == protocol.StatusReconnecting && st.ReconnectAttempt == 1 && st.MaxReconnects == maxReconnectAttempts
+		return st.Status == protocol.StatusReconnecting && st.ReconnectAttempt == 1
 	})
 	c.waitState("recovered", func(st protocol.PlaybackState) bool {
 		return st.Status == protocol.StatusPlaying && st.ChannelID == "dronezone"
 	})
 }
 
-func TestStreamDrop_GivesUpAfterMaxAttempts(t *testing.T) {
+func TestStreamDrop_KeepsRetryingUntilRecovery(t *testing.T) {
 	prev := reconnectBaseDelay
 	reconnectBaseDelay = time.Millisecond
 	defer func() { reconnectBaseDelay = prev }()
@@ -135,19 +135,34 @@ func TestStreamDrop_GivesUpAfterMaxAttempts(t *testing.T) {
 
 	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
 
-	// Every reconnect attempt fails at the player.
+	// Every reconnect attempt fails at the player during the outage.
 	player.setPlayErr(errors.New("connection refused"))
 	player.errChan <- errors.New("stream read error")
 
-	for attempt := 1; attempt <= maxReconnectAttempts; attempt++ {
-		c.waitState("reconnect attempt", func(st protocol.PlaybackState) bool {
+	// Reconnecting must not give up: well past the old 5-attempt budget it
+	// is still trying and still reports the failure.
+	const outageAttempts = 8
+	var seen protocol.PlaybackState
+	for attempt := 1; attempt <= outageAttempts; attempt++ {
+		seen = c.waitState("reconnect attempt", func(st protocol.PlaybackState) bool {
 			return st.Status == protocol.StatusReconnecting && st.ReconnectAttempt == attempt
 		})
 	}
-	final := c.waitState("gave up", func(st protocol.PlaybackState) bool {
-		return st.Status == protocol.StatusStopped
+	assert.Contains(t, seen.StreamError, "connection refused")
+
+	// The network comes back; the next attempt must recover playback.
+	player.setPlayErr(nil)
+	c.waitState("recovered", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusPlaying && st.ChannelID == "dronezone"
 	})
-	assert.Contains(t, final.StreamError, "connection refused")
+}
+
+func TestReconnectDelay_DoublesThenCaps(t *testing.T) {
+	assert.Equal(t, 2*time.Second, reconnectDelay(1))
+	assert.Equal(t, 4*time.Second, reconnectDelay(2))
+	assert.Equal(t, 32*time.Second, reconnectDelay(5))
+	assert.Equal(t, reconnectMaxDelay, reconnectDelay(6), "backoff must cap, not keep doubling")
+	assert.Equal(t, reconnectMaxDelay, reconnectDelay(1000), "huge attempt counts must not overflow")
 }
 
 func TestStop_CancelsPendingReconnect(t *testing.T) {

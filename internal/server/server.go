@@ -283,7 +283,6 @@ func (s *Server) snapshotLocked() protocol.PlaybackState {
 	}
 	if s.status == protocol.StatusReconnecting {
 		ps.ReconnectAttempt = s.reconnectAttempt
-		ps.MaxReconnects = maxReconnectAttempts
 	}
 	return ps
 }
