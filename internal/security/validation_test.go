@@ -52,9 +52,19 @@ func TestValidateURL(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "host ending in somafm.com without a dot boundary",
+			url:     "https://evilsomafm.com/stream",
+			wantErr: true,
+		},
+		{
 			name:    "mixed-case somafm subdomain",
 			url:     "https://Ice1.SomaFM.Com/stream",
 			wantErr: false,
+		},
+		{
+			name:    "empty host",
+			url:     "https:///channels.json",
+			wantErr: true,
 		},
 	}
 
@@ -68,6 +78,20 @@ func TestValidateURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateURLExtraAllowedHost(t *testing.T) {
+	const host = "localhost"
+	url := "http://" + host + ":8080/stream"
+
+	require.Error(t, ValidateURL(url), "host should be rejected before it is allowed")
+
+	AddAllowedHost(host)
+	defer ClearAllowedHosts()
+	require.NoError(t, ValidateURL(url), "host should be accepted once allowed")
+
+	ClearAllowedHosts()
+	require.Error(t, ValidateURL(url), "host should be rejected again after clearing")
 }
 
 func hostOf(t *testing.T, rawURL string) string {
