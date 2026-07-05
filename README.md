@@ -116,8 +116,8 @@ background if one isn't running yet.
 | -------------------------- | -------------------------------------------------------- |
 | `somatui`                  | Start the TUI (spawns the playback server if needed)     |
 | `somatui play [channel]`   | Play a channel by ID or name match, or resume the last played channel when omitted |
-| `somatui list`             | List all channels (favorites first, marked with `*`)     |
-| `somatui favorite <channel>` | Toggle a channel's favorite flag (`fav` works too)      |
+| `somatui list [--json]`    | List all channels (favorites first, marked with `*`)     |
+| `somatui favorite [--json] <channel>` | Toggle a channel's favorite flag (`fav` works too) |
 | `somatui next` / `somatui prev` | Play the next / previous channel (favorites first, wraps around) |
 | `somatui pause`            | Toggle pause (live radio: unpausing rejoins the live stream) |
 | `somatui stop`             | Stop playback                                            |

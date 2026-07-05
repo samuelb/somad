@@ -58,7 +58,7 @@ func main() {
 	case "play":
 		runPlay(args[1:])
 	case "list":
-		runList()
+		runList(args[1:])
 	case "favorite", "fav":
 		runFavorite(args[1:])
 	case "next":
@@ -85,8 +85,9 @@ func printUsage(w io.Writer) {
   somatui                        start the TUI (spawns the playback server if needed)
   somatui play [channel]         play a channel by ID or name, or resume the
                                  last played channel (spawns the server if needed)
-  somatui list                   list all channels (favorites first, marked *)
-  somatui favorite <channel>     toggle a channel's favorite flag
+  somatui list [--json]          list all channels (favorites first, marked *)
+  somatui favorite [--json] <channel>
+                                 toggle a channel's favorite flag
   somatui next                   play the next channel (favorites first, wraps)
   somatui prev                   play the previous channel
   somatui pause                  toggle pause (reconnects the live stream on unpause)

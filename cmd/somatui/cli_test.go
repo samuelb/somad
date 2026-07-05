@@ -97,6 +97,36 @@ func TestParseVolumeArg(t *testing.T) {
 	}
 }
 
+func TestExtractJSONFlag(t *testing.T) {
+	rest, jsonOut := extractJSONFlag([]string{"--json"})
+	assert.Empty(t, rest)
+	assert.True(t, jsonOut)
+
+	rest, jsonOut = extractJSONFlag([]string{"groovesalad"})
+	assert.Equal(t, []string{"groovesalad"}, rest)
+	assert.False(t, jsonOut)
+
+	rest, jsonOut = extractJSONFlag([]string{"--json", "groovesalad"})
+	assert.Equal(t, []string{"groovesalad"}, rest)
+	assert.True(t, jsonOut)
+}
+
+func TestChannelListEntries_MarksFavorites(t *testing.T) {
+	payload := protocol.ChannelsPayload{
+		Channels: []channels.Channel{
+			{ID: "dronezone", Title: "Drone Zone", Genre: "ambient"},
+			{ID: "groovesalad", Title: "Groove Salad", Genre: "ambient|electronica"},
+		},
+		Favorites: []string{"dronezone"},
+	}
+
+	entries := channelListEntries(payload)
+
+	require.Len(t, entries, 2)
+	assert.Equal(t, channelListEntry{ID: "dronezone", Title: "Drone Zone", Genre: "ambient", Favorite: true}, entries[0])
+	assert.Equal(t, channelListEntry{ID: "groovesalad", Title: "Groove Salad", Genre: "ambient|electronica", Favorite: false}, entries[1])
+}
+
 func TestFavoriteMessage_ReportsToggleDirection(t *testing.T) {
 	ch := channels.Channel{ID: "dronezone", Title: "Drone Zone"}
 

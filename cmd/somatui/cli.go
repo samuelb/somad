@@ -137,13 +137,36 @@ func runPlay(args []string) {
 	fmt.Printf("Playing: %s\n", st.ChannelTitle)
 }
 
+// extractJSONFlag reports whether "--json" is present in args, returning the
+// remaining arguments with it removed.
+func extractJSONFlag(args []string) (rest []string, jsonOut bool) {
+	for _, a := range args {
+		if a == "--json" {
+			jsonOut = true
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return rest, jsonOut
+}
+
 // runList prints the channel catalog, favorites first and marked with a
-// star, one channel per line for browsing and scripting.
-func runList() {
+// star, one channel per line for browsing and scripting. With --json, it
+// prints the same catalog as a JSON array for scripts to parse.
+func runList(args []string) {
+	args, jsonOut := extractJSONFlag(args)
+	if len(args) != 0 {
+		fail("usage: somatui list [--json]")
+	}
+
 	c := ensureServer()
 	defer func() { _ = c.Close() }()
 
 	payload := waitForCatalog(c)
+	if jsonOut {
+		printJSON(channelListEntries(payload))
+		return
+	}
 	fmt.Print(formatChannelList(payload))
 }
 
@@ -168,11 +191,36 @@ func formatChannelList(payload protocol.ChannelsPayload) string {
 	return b.String()
 }
 
+// channelListEntry is the machine-readable form of one catalog row for
+// `somatui list --json`.
+type channelListEntry struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Genre    string `json:"genre"`
+	Favorite bool   `json:"favorite"`
+}
+
+// channelListEntries converts the catalog payload to its JSON list form,
+// preserving the server's favorites-first ordering.
+func channelListEntries(payload protocol.ChannelsPayload) []channelListEntry {
+	fav := make(map[string]bool, len(payload.Favorites))
+	for _, id := range payload.Favorites {
+		fav[id] = true
+	}
+	entries := make([]channelListEntry, len(payload.Channels))
+	for i, ch := range payload.Channels {
+		entries[i] = channelListEntry{ID: ch.ID, Title: ch.Title, Genre: ch.Genre, Favorite: fav[ch.ID]}
+	}
+	return entries
+}
+
 // runFavorite toggles a channel's favorite flag, so favorites can be managed
-// without opening the TUI.
+// without opening the TUI. With --json, it prints the toggle result instead
+// of the human-readable message.
 func runFavorite(args []string) {
+	args, jsonOut := extractJSONFlag(args)
 	if len(args) != 1 {
-		fail("usage: somatui favorite <channel-id-or-name>")
+		fail("usage: somatui favorite [--json] <channel-id-or-name>")
 	}
 	c := ensureServer()
 	defer func() { _ = c.Close() }()
@@ -186,7 +234,19 @@ func runFavorite(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
+	if jsonOut {
+		printJSON(favoriteResult{ChannelID: ch.ID, Title: ch.Title, Favorite: slices.Contains(favorites, ch.ID)})
+		return
+	}
 	fmt.Println(favoriteMessage(favorites, ch))
+}
+
+// favoriteResult is the machine-readable form of a favorite toggle for
+// `somatui favorite --json`.
+type favoriteResult struct {
+	ChannelID string `json:"channelId"`
+	Title     string `json:"title"`
+	Favorite  bool   `json:"favorite"`
 }
 
 // favoriteMessage reports which way a favorite toggle went, based on the
