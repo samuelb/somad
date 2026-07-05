@@ -36,6 +36,20 @@ jobs:
           awk -v total="$total" -v threshold="$THRESHOLD" 'BEGIN { exit (total + 0 < threshold) }' \
             || { echo "Coverage dropped below ${THRESHOLD}%"; exit 1; }
 
+  test-macos:
+    name: Test macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test -v ./...
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
