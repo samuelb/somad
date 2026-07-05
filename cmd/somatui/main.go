@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -46,6 +47,8 @@ func main() {
 	switch args[0] {
 	case "--version", "-v", "version":
 		fmt.Printf("somatui %s (commit: %s, built: %s)\n", version, commit, date)
+	case "--help", "-h", "help":
+		printUsage(os.Stdout)
 	case "server":
 		if len(args) > 1 && args[1] == "stop" {
 			runServerStop()
@@ -70,13 +73,13 @@ func main() {
 		runVolume(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "somatui: unknown command %q\n\n", args[0])
-		printUsage()
+		printUsage(os.Stderr)
 		os.Exit(2)
 	}
 }
 
-func printUsage() {
-	fmt.Fprint(os.Stderr, `Usage:
+func printUsage(w io.Writer) {
+	fmt.Fprint(w, `Usage:
   somatui                        start the TUI (spawns the playback server if needed)
   somatui play [channel]         play a channel by ID or name, or resume the
                                  last played channel (spawns the server if needed)
@@ -90,6 +93,7 @@ func printUsage() {
   somatui server [flags]         run the playback server in the foreground
   somatui server stop            shut down the playback server
   somatui --version              print version information
+  somatui --help                 show this help
 `)
 }
 
