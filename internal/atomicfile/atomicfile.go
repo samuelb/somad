@@ -38,5 +38,17 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("replacing %s: %w", filepath.Base(path), err)
 	}
+	if err := syncDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("syncing parent directory: %w", err)
+	}
 	return nil
+}
+
+func syncDir(dir string) error {
+	f, err := os.Open(dir) // #nosec G304 -- directory is derived from caller-provided output path
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	return f.Sync()
 }
