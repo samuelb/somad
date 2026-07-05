@@ -190,7 +190,7 @@ func TestEnsureServer_SpawnsAndRetries(t *testing.T) {
 
 // startOutdatedServer runs a fake server that reports the given version and
 // playback status and, when asked to shut down, stops listening so a
-// replacement can bind the socket. It records the channel of any resume Play.
+// replacement can bind the socket. It records the channel of any Play it gets.
 func startOutdatedServer(t *testing.T, path, serverVersion, status, channelID string, played chan<- string) {
 	t.Helper()
 	var ln net.Listener
@@ -222,42 +222,33 @@ func startOutdatedServer(t *testing.T, path, serverVersion, status, channelID st
 	ln = fs.ln
 }
 
-func TestEnsureServer_RestartsPlayingServerAndResumes(t *testing.T) {
+func TestEnsureServer_KeepsPlayingSkewedServer(t *testing.T) {
 	path := testSocketPath(t)
-	oldPlayed := make(chan string, 1) // the old server never gets a Play
-	startOutdatedServer(t, path, "old", protocol.StatusPlaying, "groovesalad", oldPlayed)
+	startOutdatedServer(t, path, "old", protocol.StatusPlaying, "groovesalad", make(chan string, 1))
 
-	resumed := make(chan string, 1)
 	prev := spawnServer
-	spawnServer = func() error {
-		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", resumed)
-		return nil
-	}
+	spawned := false
+	spawnServer = func() error { spawned = true; return nil }
 	t.Cleanup(func() { spawnServer = prev })
 
 	c, hr, err := EnsureServer(path, "new")
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	// The outdated server is replaced by one on our version...
-	assert.Equal(t, "new", hr.ServerVersion)
-	// ...and whatever it was playing resumes on the replacement.
-	select {
-	case ch := <-resumed:
-		assert.Equal(t, "groovesalad", ch, "playback must resume on the restarted server")
-	case <-time.After(2 * time.Second):
-		t.Fatal("restarted server was never asked to resume playback")
-	}
+	// A passive command must not cut off playing music just to upgrade the
+	// daemon: the skewed server keeps serving and the caller sees its version.
+	assert.Equal(t, "old", hr.ServerVersion)
+	assert.False(t, spawned, "a playing server must not be restarted by EnsureServer")
 }
 
-func TestEnsureServer_RestartsIdleServerWithoutResuming(t *testing.T) {
+func TestEnsureServer_RestartsIdleSkewedServer(t *testing.T) {
 	path := testSocketPath(t)
 	startOutdatedServer(t, path, "old", protocol.StatusStopped, "", make(chan string, 1))
 
-	resumed := make(chan string, 1)
+	played := make(chan string, 1)
 	prev := spawnServer
 	spawnServer = func() error {
-		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", resumed)
+		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", played)
 		return nil
 	}
 	t.Cleanup(func() { spawnServer = prev })
@@ -266,10 +257,38 @@ func TestEnsureServer_RestartsIdleServerWithoutResuming(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
+	// An idle server has no music to interrupt, so it is upgraded right away —
+	// without any playback being started on it.
 	assert.Equal(t, "new", hr.ServerVersion)
 	select {
-	case ch := <-resumed:
-		t.Fatalf("a stopped server must not trigger a resume, but %q was played", ch)
+	case ch := <-played:
+		t.Fatalf("restart must not start playback, but %q was played", ch)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+func TestEnsureServerForPlayback_RestartsPlayingSkewedServer(t *testing.T) {
+	path := testSocketPath(t)
+	startOutdatedServer(t, path, "old", protocol.StatusPlaying, "groovesalad", make(chan string, 1))
+
+	played := make(chan string, 1)
+	prev := spawnServer
+	spawnServer = func() error {
+		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", played)
+		return nil
+	}
+	t.Cleanup(func() { spawnServer = prev })
+
+	c, hr, err := EnsureServerForPlayback(path, "new")
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	// A command that interrupts the stream anyway upgrades even a playing
+	// server, and leaves starting playback to the caller.
+	assert.Equal(t, "new", hr.ServerVersion)
+	select {
+	case ch := <-played:
+		t.Fatalf("restart must not start playback itself, but %q was played", ch)
 	case <-time.After(300 * time.Millisecond):
 	}
 }

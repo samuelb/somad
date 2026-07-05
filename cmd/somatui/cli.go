@@ -25,8 +25,9 @@ func fail(format string, args ...any) {
 	os.Exit(1)
 }
 
-// ensureServer connects, spawning the server if needed and transparently
-// restarting it onto our version when a running one is out of date.
+// ensureServer connects for a command that does not interrupt playback (it
+// spawns the server if needed but leaves a running, playing one in place even
+// when its version differs from ours, so the music keeps going).
 func ensureServer() *client.Client {
 	c, _, err := client.EnsureServer(protocol.SocketPath(), version)
 	if err != nil {
@@ -35,18 +36,44 @@ func ensureServer() *client.Client {
 	return c
 }
 
-// dialServer connects to a running server without spawning one. The second
-// return value is false when no server is listening.
-func dialServer() (*client.Client, bool) {
+// ensureServerForPlayback connects for a command that changes the stream. Since
+// that interrupts playback anyway, an out-of-date server is restarted onto our
+// version first, so the command runs against the up-to-date binary.
+func ensureServerForPlayback() *client.Client {
+	c, _, err := client.EnsureServerForPlayback(protocol.SocketPath(), version)
+	if err != nil {
+		fail("%v", err)
+	}
+	return c
+}
+
+// dialServer connects to a running server without spawning one, returning its
+// reported version. The last return value is false when no server is listening.
+func dialServer() (*client.Client, string, bool) {
 	c, err := client.Dial(protocol.SocketPath())
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
-	if _, err := c.Hello(version); err != nil {
+	hr, err := c.Hello(version)
+	if err != nil {
 		_ = c.Close()
 		fail("%v", err)
 	}
-	return c, true
+	return c, hr.ServerVersion, true
+}
+
+// restartForUpgrade restarts an out-of-date server onto our version, for a
+// command that is about to interrupt playback anyway. It returns c unchanged
+// when the server already runs our version.
+func restartForUpgrade(c *client.Client, serverVersion string) *client.Client {
+	if serverVersion == version {
+		return c
+	}
+	nc, _, err := client.Restart(c, protocol.SocketPath(), version)
+	if err != nil {
+		fail("%v", err)
+	}
+	return nc
 }
 
 // waitForCatalog fetches the channel catalog, waiting out a fresh server's
@@ -102,7 +129,7 @@ func runPlay(args []string) {
 	if len(args) > 1 {
 		fail("usage: somatui play [channel-id-or-name]")
 	}
-	c := ensureServer()
+	c := ensureServerForPlayback()
 	defer func() { _ = c.Close() }()
 
 	payload := waitForCatalog(c)
@@ -266,7 +293,7 @@ func findChannelByID(catalog []channels.Channel, id string) (channels.Channel, b
 // runPlayRelative plays the next (+1) or previous (-1) channel relative to
 // the current or last played one, in catalog order (favorites first).
 func runPlayRelative(delta int) {
-	c := ensureServer()
+	c := ensureServerForPlayback()
 	defer func() { _ = c.Close() }()
 
 	// A freshly spawned server may still be loading the catalog.
@@ -282,12 +309,28 @@ func runPlayRelative(delta int) {
 // runPause toggles between stopped and playing. Live radio has no real
 // pause: unpausing reconnects to the live stream of the last channel.
 func runPause() {
-	c, running := dialServer()
+	c, serverVersion, running := dialServer()
 	if !running {
 		fmt.Println("somatui: not playing (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
+
+	if serverVersion != version {
+		// Pausing interrupts playback anyway, so upgrade the server now. The
+		// fresh server starts stopped: if music was playing, that stopped state
+		// *is* the pause; if it was already paused, unpausing means resuming the
+		// last channel on the new server.
+		wasPlaying := false
+		if st, err := c.Status(); err == nil {
+			wasPlaying = st.Status != protocol.StatusStopped
+		}
+		c = restartForUpgrade(c, serverVersion)
+		if wasPlaying {
+			fmt.Println("Paused")
+			return
+		}
+	}
 
 	st, err := c.PlayPause()
 	if err != nil {
@@ -301,12 +344,15 @@ func runPause() {
 }
 
 func runStop() {
-	c, running := dialServer()
+	c, serverVersion, running := dialServer()
 	if !running {
 		fmt.Println("somatui: not playing (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
+	// Stopping interrupts playback anyway, so upgrade an out-of-date server now;
+	// the fresh server starts stopped, which is the state stop leaves us in.
+	c = restartForUpgrade(c, serverVersion)
 	if _, err := c.Stop(); err != nil {
 		fail("%v", err)
 	}
@@ -325,7 +371,7 @@ func runStatus(args []string) {
 		fail("usage: somatui status [--json]")
 	}
 
-	c, running := dialServer()
+	c, _, running := dialServer()
 	if !running {
 		if jsonOut {
 			// No server means stopped; the persisted volume is what the next
@@ -426,7 +472,7 @@ func parseVolumeArg(arg string) (pct int, relative bool, err error) {
 // showVolume prints the current volume without spawning a server: with no
 // server running, the persisted state has the volume the next one will use.
 func showVolume() {
-	if c, running := dialServer(); running {
+	if c, _, running := dialServer(); running {
 		defer func() { _ = c.Close() }()
 		st, err := c.Status()
 		if err != nil {
@@ -443,7 +489,7 @@ func showVolume() {
 }
 
 func runServerStop() {
-	c, running := dialServer()
+	c, _, running := dialServer()
 	if !running {
 		fmt.Println("somatui: server not running")
 		return

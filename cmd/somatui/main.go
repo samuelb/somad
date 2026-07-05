@@ -174,7 +174,7 @@ func runServer(args []string) {
 
 func runTUI() {
 	socketPath := protocol.SocketPath()
-	c, _, err := client.EnsureServer(socketPath, version)
+	c, hr, err := client.EnsureServer(socketPath, version)
 	if err != nil {
 		fmt.Printf("Alas, there's been an error reaching the somatui server: %v\n", err)
 		os.Exit(1)
@@ -183,7 +183,10 @@ func runTUI() {
 	// Create the main application model (need playing ID for delegate)
 	m := &app.Model{
 		Backend: c,
-		Loading: true,
+		// A skewed server keeps playing while the user browses; the next channel
+		// change or stop restarts it onto our version.
+		ServerVersion: hr.ServerVersion,
+		Loading:       true,
 		About: app.AboutInfo{
 			Version: version,
 			Commit:  commit,
@@ -224,7 +227,7 @@ func runTUI() {
 
 // runBridge forwards server events to the program. When the connection is
 // lost it re-establishes it (spawning a new server if needed) and hands the
-// fresh client to the model.
+// fresh client, and its version, to the model.
 func runBridge(p *tea.Program, c *client.Client, socketPath string) {
 	for {
 		for ev := range c.Events() {
@@ -237,26 +240,28 @@ func runBridge(p *tea.Program, c *client.Client, socketPath string) {
 		}
 
 		p.Send(app.ServerLostMsg{})
-		newClient, err := reconnect(socketPath)
+		newClient, serverVersion, err := reconnect(socketPath)
 		if err != nil {
 			p.Send(app.ServerGoneMsg{Err: err})
 			return
 		}
 		c = newClient
-		p.Send(app.ServerReconnectedMsg{Backend: c})
+		p.Send(app.ServerReconnectedMsg{Backend: c, ServerVersion: serverVersion})
 	}
 }
 
-// reconnect tries a few times to get a fresh server connection.
-func reconnect(socketPath string) (*client.Client, error) {
+// reconnect tries a few times to get a fresh server connection, returning the
+// reconnected server's version alongside the client.
+func reconnect(socketPath string) (*client.Client, string, error) {
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		var c *client.Client
-		c, _, err = client.EnsureServer(socketPath, version)
+		var hr protocol.HelloResult
+		c, hr, err = client.EnsureServer(socketPath, version)
 		if err == nil {
-			return c, nil
+			return c, hr.ServerVersion, nil
 		}
 		time.Sleep(time.Second)
 	}
-	return nil, fmt.Errorf("lost connection to the somatui server and could not restore it: %w", err)
+	return nil, "", fmt.Errorf("lost connection to the somatui server and could not restore it: %w", err)
 }

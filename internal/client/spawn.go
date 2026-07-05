@@ -74,11 +74,11 @@ func openServerLog(path string) (*os.File, error) {
 	return os.OpenFile(path, flags, 0o600) // #nosec G304 -- path derived from state dir
 }
 
-// EnsureServer returns a connected, hello-verified client, spawning the
-// server when none is running. When the running server's binary version
-// differs from ours, it is restarted transparently onto our binary — even
-// while it is playing, in which case whatever was playing is resumed on the
-// replacement so the swap costs only the stream's reconnect gap.
+// EnsureServer returns a connected, hello-verified client, spawning the server
+// when none is running. A version-skewed server is restarted onto our binary
+// only when it is idle, so music that is playing is never cut off just to
+// upgrade the daemon — callers about to interrupt playback anyway use
+// EnsureServerForPlayback instead.
 func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
 	c, hr, err := connectOrSpawn(socketPath, clientVersion)
 	if err != nil {
@@ -87,46 +87,46 @@ func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResu
 	if hr.ServerVersion == clientVersion {
 		return c, hr, nil
 	}
-	return restartForVersionSkew(c, socketPath, clientVersion, hr)
-}
-
-// restartForVersionSkew replaces a running server whose binary version differs
-// from the client's with a fresh spawn of the client's own binary. Whatever the
-// old server was playing is captured before it is asked to stop and replayed on
-// the replacement, so an upgrade costs only the stream's reconnect gap rather
-// than leaving a mismatched server in place. The persisted volume and
-// last-played channel carry across on their own — the new server restores them
-// from state on startup — so only the live stream has to be re-established.
-func restartForVersionSkew(c *Client, socketPath, clientVersion string, hr protocol.HelloResult) (*Client, protocol.HelloResult, error) {
-	// Capture what the outgoing server is playing before asking it to stop, so
-	// the replacement can pick it back up. A Status error just means we resume
-	// nothing.
-	prev, statusErr := c.Status()
-
-	_ = c.Shutdown()
-	_ = c.Close()
-	if !waitForServerExit(socketPath) {
-		return nil, protocol.HelloResult{}, fmt.Errorf("somatui server (version %s) did not exit within %s to restart as version %s", hr.ServerVersion, restartWait, clientVersion)
+	// Skewed but playing: leave it be. Restarting would interrupt the stream,
+	// and the running binary still speaks our protocol version.
+	if st, err := c.Status(); err != nil || st.Status != protocol.StatusStopped {
+		return c, hr, nil
 	}
-
-	nc, nhr, err := connectOrSpawn(socketPath, clientVersion)
+	nc, nhr, err := Restart(c, socketPath, clientVersion)
 	if err != nil {
 		return nil, nhr, err
-	}
-
-	// Resume the interrupted stream. A failed resume must not fail the whole
-	// call: the restart already succeeded and the caller has a working,
-	// up-to-date client — it just isn't playing.
-	if statusErr == nil && shouldResume(prev) {
-		_, _ = nc.Play(prev.ChannelID)
 	}
 	return nc, nhr, nil
 }
 
-// shouldResume reports whether a captured state describes active playback worth
-// replaying on the restarted server.
-func shouldResume(st protocol.PlaybackState) bool {
-	return st.ChannelID != "" && st.Status != protocol.StatusStopped
+// EnsureServerForPlayback is EnsureServer for callers about to change, pause,
+// or stop the stream: because that interrupts playback anyway, a version-skewed
+// server is restarted onto our binary even while it is playing. The interrupting
+// command that follows establishes the new playback state, so nothing is
+// resumed here.
+func EnsureServerForPlayback(socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
+	c, hr, err := connectOrSpawn(socketPath, clientVersion)
+	if err != nil {
+		return nil, hr, err
+	}
+	if hr.ServerVersion == clientVersion {
+		return c, hr, nil
+	}
+	return Restart(c, socketPath, clientVersion)
+}
+
+// Restart shuts the connected server down and returns a client to a fresh spawn
+// of our own binary. It closes c on the way. Callers use it only when the
+// running server is out of date and the operation about to follow interrupts
+// playback anyway; the persisted volume and last-played channel carry across on
+// their own, so the caller need only re-establish the stream it wants.
+func Restart(c *Client, socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
+	_ = c.Shutdown()
+	_ = c.Close()
+	if !waitForServerExit(socketPath) {
+		return nil, protocol.HelloResult{}, fmt.Errorf("somatui server did not exit within %s to restart as version %s", restartWait, clientVersion)
+	}
+	return connectOrSpawn(socketPath, clientVersion)
 }
 
 // connectOrSpawn dials the socket, spawning a server and retrying when

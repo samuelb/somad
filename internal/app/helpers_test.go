@@ -19,6 +19,7 @@ type fakeBackend struct {
 	mu        sync.Mutex
 	playIDs   []string
 	stops     int
+	shutdowns int
 	volumes   []float64
 	favorites []string
 	status    protocol.PlaybackState
@@ -71,6 +72,13 @@ func (b *fakeBackend) SetVolume(v float64) (protocol.PlaybackState, error) {
 	b.volumes = append(b.volumes, v)
 	b.status.Volume = v
 	return b.status, nil
+}
+
+func (b *fakeBackend) Shutdown() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.shutdowns++
+	return nil
 }
 
 func (b *fakeBackend) ToggleFavorite(channelID string) ([]string, error) {

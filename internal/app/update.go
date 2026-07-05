@@ -3,6 +3,7 @@ package app
 import (
 	"unicode/utf8"
 
+	"somatui/internal/protocol"
 	"somatui/internal/ui"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -55,9 +56,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "enter", " ":
 			if i, ok := m.List.SelectedItem().(ui.Item); ok {
+				// Changing channel interrupts the stream anyway, so an
+				// out-of-date server is restarted first and the channel is
+				// played once the reconnect delivers a fresh backend.
+				if m.skewed() {
+					m.pendingPlayID = i.Channel.ID
+					return m, m.restartCmd()
+				}
 				return m, m.playCmd(i.Channel.ID)
 			}
 		case "s":
+			// Stopping interrupts the stream anyway; upgrade an out-of-date
+			// server while we're at it (the fresh one comes up stopped).
+			if m.skewed() && m.Snapshot.Status != protocol.StatusStopped {
+				return m, m.restartCmd()
+			}
 			return m, m.stopCmd()
 		case "a":
 			// Toggle the inline about footer.
@@ -127,6 +140,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ServerReconnectedMsg:
 		m.ServerLost = false
 		m.Backend = msg.Backend
+		m.ServerVersion = msg.ServerVersion
+		// A channel change queued before a version-upgrade restart plays now
+		// that a fresh backend is here.
+		if m.pendingPlayID != "" {
+			id := m.pendingPlayID
+			m.pendingPlayID = ""
+			return m, tea.Batch(m.fetchChannels(), m.playCmd(id))
+		}
 		return m, tea.Batch(m.fetchChannels(), m.fetchStatus())
 
 	case ServerGoneMsg:

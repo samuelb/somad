@@ -199,6 +199,62 @@ func TestUpdate_StopKey_StopsPlayback(t *testing.T) {
 	assert.Empty(t, m.PlayingID)
 }
 
+func TestUpdate_PlayKey_RestartsSkewedServerThenPlays(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "new"
+	m.ServerVersion = "old" // server is out of date
+	m.List.Select(1)        // dronezone
+
+	// Enter must not play on the stale server; it shuts it down for a restart
+	// and remembers the channel to play once a fresh backend arrives.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(cmd)
+	assert.Equal(t, 1, backend(m).shutdowns, "a skewed server is restarted, not played on")
+	assert.Empty(t, backend(m).playIDs, "nothing is played on the stale server")
+	assert.Equal(t, "dronezone", m.pendingPlayID)
+
+	// The reconnect delivers a fresh, up-to-date backend; the pending channel
+	// plays on it and the skew clears.
+	fresh := newFakeBackend()
+	_, cmd = m.Update(ServerReconnectedMsg{Backend: fresh, ServerVersion: "new"})
+	for _, c := range runCmd(cmd).(tea.BatchMsg) {
+		runCmd(c)
+	}
+	assert.Equal(t, "new", m.ServerVersion)
+	assert.Empty(t, m.pendingPlayID)
+	assert.False(t, m.skewed())
+	assert.Equal(t, []string{"dronezone"}, fresh.playIDs, "the queued channel plays on the fresh server")
+}
+
+func TestUpdate_StopKey_RestartsSkewedServer(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "new"
+	m.ServerVersion = "old"
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1})
+
+	// Stopping a stale, playing server restarts it (it comes back stopped)
+	// rather than issuing Stop on the outgoing binary.
+	_, cmd := sendKey(m, 's')
+	runCmd(cmd)
+	assert.Equal(t, 1, backend(m).shutdowns)
+	assert.Zero(t, backend(m).stops, "stop is not sent to the stale server")
+	assert.Empty(t, m.pendingPlayID, "stop queues no playback")
+}
+
+func TestUpdate_PlayKey_DoesNotRestartWhenVersionsMatch(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "same"
+	m.ServerVersion = "same"
+	m.List.Select(1)
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(cmd)
+
+	// No skew: play goes straight to the current server, no restart.
+	assert.Zero(t, backend(m).shutdowns)
+	assert.Equal(t, []string{"dronezone"}, backend(m).playIDs)
+}
+
 func TestUpdate_VolumeKeys_AdjustVolume(t *testing.T) {
 	m := newTestModel(t)
 	m.Snapshot.Volume = 0.5
