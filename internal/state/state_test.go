@@ -238,3 +238,14 @@ func TestGetStateDir_XDGOverride(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("/tmp/custom-state", appDirName), dir)
 }
+
+func TestGetLogFilePath(t *testing.T) {
+	dir := SetStateDir(t)
+
+	path, err := GetLogFilePath()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, appDirName, "server.log"), path)
+
+	// Creates the state directory as a side effect, like GetStateFilePath.
+	assert.DirExists(t, filepath.Dir(path))
+}

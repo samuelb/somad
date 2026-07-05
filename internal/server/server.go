@@ -21,7 +21,8 @@ import (
 // clients and stopped playback before exiting on its own.
 const DefaultIdleTimeout = 2 * time.Minute
 
-const channelRefreshInterval = 10 * time.Minute
+// channelRefreshInterval is a variable so tests can shrink it.
+var channelRefreshInterval = 10 * time.Minute
 
 // Config carries the dependencies for a Server.
 type Config struct {
