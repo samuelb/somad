@@ -2,10 +2,8 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -203,14 +201,4 @@ func waitForServerExit(socketPath string) bool {
 		time.Sleep(dialRetryInterval)
 	}
 	return false
-}
-
-// IsNotRunning reports whether err looks like "no server is listening",
-// as opposed to a protocol or handshake failure.
-func IsNotRunning(err error) bool {
-	if err == nil {
-		return false
-	}
-	var opErr *net.OpError
-	return errors.As(err, &opErr)
 }
