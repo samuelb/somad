@@ -218,3 +218,35 @@ func TestEnsureServer_KeepsPlayingServerOnVersionSkew(t *testing.T) {
 	assert.Equal(t, "old", hr.ServerVersion)
 	assert.False(t, spawned, "must not restart a playing server")
 }
+
+func TestEnsureServer_ErrorsWhenStaleServerWontExit(t *testing.T) {
+	path := testSocketPath(t)
+	// A stubborn old server: answers Shutdown but keeps listening, as if it
+	// ignored the request or is slow to tear down.
+	startFakeServer(t, path, func(req protocol.Request, send func(v any)) {
+		respond := func(result any) {
+			raw, _ := json.Marshal(result)
+			send(protocol.Response{ID: req.ID, Result: raw})
+		}
+		switch req.Method {
+		case protocol.MethodHello:
+			respond(protocol.HelloResult{ServerVersion: "old", ProtocolVersion: protocol.Version})
+		case protocol.MethodStatus:
+			respond(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
+		case protocol.MethodShutdown:
+			respond(struct{}{})
+		}
+	})
+
+	prevRestartWait := restartWait
+	restartWait = 300 * time.Millisecond
+	t.Cleanup(func() { restartWait = prevRestartWait })
+
+	prev := spawnServer
+	spawnServer = func() error { return nil }
+	t.Cleanup(func() { spawnServer = prev })
+
+	_, _, err := EnsureServer(path, "new")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not exit")
+}

@@ -18,7 +18,6 @@ import (
 
 const (
 	dialRetryInterval = 100 * time.Millisecond
-	restartWait       = 3 * time.Second
 
 	// maxServerLogSize caps server.log: spawns append to it and it would
 	// otherwise grow forever, so a spawn that finds it above the cap
@@ -33,6 +32,10 @@ const (
 // spawnWait is how long a spawned server gets to bind its socket. A variable
 // so tests can shrink it.
 var spawnWait = 15 * time.Second
+
+// restartWait is how long an old server gets to exit before a version-skew
+// restart gives up. A variable so tests can shrink it.
+var restartWait = 3 * time.Second
 
 // spawnServer is a variable so tests can fake the server launch.
 var spawnServer = SpawnServer
@@ -88,7 +91,9 @@ func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResu
 		if st, err := c.Status(); err == nil && st.Status == protocol.StatusStopped {
 			_ = c.Shutdown()
 			_ = c.Close()
-			waitForServerExit(socketPath)
+			if !waitForServerExit(socketPath) {
+				return nil, protocol.HelloResult{}, fmt.Errorf("somatui server (version %s) did not exit within %s to restart as version %s", hr.ServerVersion, restartWait, clientVersion)
+			}
 			return connectOrSpawn(socketPath, clientVersion)
 		}
 	}
@@ -185,17 +190,19 @@ func serverLogSince(offset int64) string {
 }
 
 // waitForServerExit waits until the old server has stopped answering the
-// socket, so a fresh spawn doesn't lose the single-instance race to it.
-func waitForServerExit(socketPath string) {
+// socket, so a fresh spawn doesn't lose the single-instance race to it. It
+// reports whether the server exited before restartWait elapsed.
+func waitForServerExit(socketPath string) bool {
 	deadline := time.Now().Add(restartWait)
 	for time.Now().Before(deadline) {
 		c, err := Dial(socketPath)
 		if err != nil {
-			return
+			return true
 		}
 		_ = c.Close()
 		time.Sleep(dialRetryInterval)
 	}
+	return false
 }
 
 // IsNotRunning reports whether err looks like "no server is listening",
