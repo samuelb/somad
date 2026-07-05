@@ -12,6 +12,12 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 
 ## Features
 
+- Client-server architecture: playback runs in a background server, so you
+  can close the TUI and the music keeps playing
+- The server starts automatically when needed and exits on its own once
+  playback is stopped and no client is connected
+- Headless CLI commands (`play`, `stop`, `status`, `volume`) for scripting
+  and keybindings without opening the TUI
 - Mark channels as favorites for quick access
 - Browse and filter the full list of SomaFM radio channels
 - Play high-quality MP3 streams directly in your terminal
@@ -21,7 +27,8 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 - Select and remember your last-played channel
 - Fast startup with cached channels and background refresh
 - Smooth, keyboard-driven navigation and playback controls
-- MPRIS desktop integration (Linux)
+- MPRIS desktop integration (Linux) — media keys keep working even with the
+  TUI closed
 
 ## Installation
 
@@ -86,29 +93,53 @@ Simply run:
 ./somatui
 ```
 
-To check the version:
+This opens the TUI and automatically starts the playback server in the
+background if one isn't running yet.
 
-```sh
-./somatui --version
-```
+### Commands
+
+| Command                    | Description                                              |
+| -------------------------- | -------------------------------------------------------- |
+| `somatui`                  | Start the TUI (spawns the playback server if needed)     |
+| `somatui play [channel]`   | Play a channel by ID or name match, or resume the last played channel when omitted |
+| `somatui next` / `somatui prev` | Play the next / previous channel (favorites first, wraps around) |
+| `somatui pause`            | Toggle pause (live radio: unpausing rejoins the live stream) |
+| `somatui stop`             | Stop playback                                            |
+| `somatui status`           | Show what is playing                                     |
+| `somatui volume <0-100>`   | Set the playback volume                                  |
+| `somatui server`           | Run the playback server in the foreground                |
+| `somatui server stop`      | Shut down the playback server                            |
+| `somatui --version`        | Print version information                                |
+
+### Background playback
+
+Audio is streamed and decoded by a separate `somatui server` process that the
+TUI (and the CLI commands) talk to over a Unix socket. Quitting the TUI with
+<kbd>q</kbd> leaves the music playing — reopen `somatui` any time to pick the
+session back up, or use `somatui stop` to silence it. Once playback is
+stopped and no client is connected, the server exits on its own after a grace
+period (2 minutes by default, tunable with `somatui server --idle-timeout`).
 
 ### Keyboard Controls
 
-| Key                                 | Action                 |
-| ----------------------------------- | ---------------------- |
-| <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up   |
-| <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down |
-| <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel  |
-| <kbd>s</kbd>                        | Stop playback          |
-| <kbd>+</kbd> / <kbd>-</kbd>         | Volume up / down       |
-| <kbd>f</kbd> / <kbd>*</kbd>         | Toggle favorite        |
-| <kbd>/</kbd>                        | Filter channels        |
-| <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit                   |
+| Key                                 | Action                          |
+| ----------------------------------- | ------------------------------- |
+| <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up            |
+| <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down          |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel           |
+| <kbd>s</kbd>                        | Stop playback                   |
+| <kbd>+</kbd> / <kbd>-</kbd>         | Volume up / down                |
+| <kbd>f</kbd> / <kbd>*</kbd>         | Toggle favorite                 |
+| <kbd>/</kbd>                        | Filter channels                 |
+| <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues) |
 
 ## Data Storage
 
-- **State**: `~/.local/state/somatui/` (Linux) or `~/Library/Application Support/somatui/` (macOS)
+- **State**: `~/.local/state/somatui/` (Linux) or `~/Library/Application Support/somatui/` (macOS) —
+  also holds `server.log`, the log of the auto-spawned playback server
 - **Cache**: `~/.cache/somatui/` (Linux) or `~/Library/Caches/somatui/` (macOS)
+- **Socket**: `$XDG_RUNTIME_DIR/somatui.sock` (Linux) or a per-user temp
+  directory (macOS); override with `$SOMATUI_SOCKET`
 
 ## Dependencies
 

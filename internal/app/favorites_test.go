@@ -4,20 +4,12 @@ import (
 	"testing"
 
 	"somatui/internal/channels"
-	"somatui/internal/state"
 	"somatui/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestIsFavorite_NilState(t *testing.T) {
-	m := newTestModel(t)
-	m.State = nil
-
-	assert.False(t, m.IsFavorite(0))
-}
 
 func TestIsFavorite_OutOfBounds(t *testing.T) {
 	m := newTestModel(t)
@@ -35,37 +27,41 @@ func TestIsFavorite_NotFavorite(t *testing.T) {
 
 func TestIsFavorite_IsFavorite(t *testing.T) {
 	m := newTestModel(t)
-	m.State.FavoriteChannelIDs = []string{"groovesalad"}
+	m.Favorites = []string{"groovesalad"}
 
 	assert.True(t, m.IsFavorite(0))
 	assert.False(t, m.IsFavorite(1))
-}
-
-func TestToggleFavorite_NilState(t *testing.T) {
-	m := newTestModel(t)
-	m.State = nil
-
-	// Should return without panicking
-	m.ToggleFavorite()
 }
 
 func TestToggleFavorite_AddsToFavorites(t *testing.T) {
 	m := newTestModel(t)
 
 	// Index 0 = Groove Salad is selected by default
-	m.ToggleFavorite()
+	cmd := m.ToggleFavorite()
 
-	require.NotNil(t, m.State)
-	assert.True(t, m.State.IsFavorite("groovesalad"))
+	assert.Contains(t, m.Favorites, "groovesalad")
+	// The command persists the toggle on the server.
+	runCmd(cmd)
+	assert.Equal(t, []string{"groovesalad"}, backend(m).favorites)
 }
 
 func TestToggleFavorite_RemovesFromFavorites(t *testing.T) {
 	m := newTestModel(t)
-	m.State.FavoriteChannelIDs = []string{"groovesalad"}
+	m.Favorites = []string{"groovesalad"}
 
 	m.ToggleFavorite()
 
-	assert.False(t, m.State.IsFavorite("groovesalad"))
+	assert.NotContains(t, m.Favorites, "groovesalad")
+}
+
+func TestToggleFavorite_NoBackend_DoesNotPanic(t *testing.T) {
+	m := newTestModel(t)
+	m.Backend = nil
+
+	cmd := m.ToggleFavorite()
+
+	assert.Contains(t, m.Favorites, "groovesalad")
+	runCmd(cmd) // must not panic
 }
 
 func TestToggleFavorite_FavoritesMovedToTop(t *testing.T) {
@@ -109,17 +105,6 @@ func TestToggleFavorite_SearchMatchesRebuilt(t *testing.T) {
 	assert.NotEqual(t, initialMatch, m.SearchMatches[0], "indices should have been rebuilt")
 }
 
-func TestSortItemsWithFavorites_NilState(t *testing.T) {
-	m := newTestModel(t)
-	m.State = nil
-
-	items := m.List.Items()
-	result := m.sortItemsWithFavorites(items)
-
-	// Should return items unchanged
-	assert.Equal(t, items, result)
-}
-
 func TestSortItemsWithFavorites_NoFavorites(t *testing.T) {
 	m := newTestModel(t)
 
@@ -137,7 +122,7 @@ func TestSortItemsWithFavorites_NoFavorites(t *testing.T) {
 
 func TestSortItemsWithFavorites_FavoritesFirst(t *testing.T) {
 	m := newTestModel(t)
-	m.State.FavoriteChannelIDs = []string{"secretagent"}
+	m.Favorites = []string{"secretagent"}
 
 	items := m.List.Items()
 	result := m.sortItemsWithFavorites(items)
@@ -149,7 +134,7 @@ func TestSortItemsWithFavorites_FavoritesFirst(t *testing.T) {
 
 func TestSortItemsWithFavorites_PreservesRelativeOrder(t *testing.T) {
 	m := newTestModel(t)
-	m.State.FavoriteChannelIDs = []string{"groovesalad", "secretagent"}
+	m.Favorites = []string{"groovesalad", "secretagent"}
 
 	chans := []channels.Channel{
 		{ID: "groovesalad"}, {ID: "dronezone"}, {ID: "secretagent"},
@@ -168,15 +153,4 @@ func TestSortItemsWithFavorites_PreservesRelativeOrder(t *testing.T) {
 	}
 	// Both favorites first (in their original relative order), then non-favorite
 	assert.Equal(t, []string{"groovesalad", "secretagent", "dronezone"}, ids)
-}
-
-func TestToggleFavorite_PersistsState(t *testing.T) {
-	m := newTestModel(t)
-
-	m.ToggleFavorite()
-
-	// Load state from disk and verify it was saved
-	loaded, err := state.LoadState()
-	require.NoError(t, err)
-	assert.True(t, loaded.IsFavorite("groovesalad"))
 }

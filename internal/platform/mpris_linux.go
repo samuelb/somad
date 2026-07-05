@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 	"github.com/godbus/dbus/v5/prop"
@@ -21,9 +20,9 @@ const (
 )
 
 // CmdSender is an interface for sending commands to the application.
-// This matches the tea.Program's Send method signature.
+// This matches the tea.Program's Send method signature (tea.Msg is any).
 type CmdSender interface {
-	Send(msg tea.Msg)
+	Send(msg any)
 }
 
 // MPRIS handles D-Bus MPRIS integration for desktop media control.

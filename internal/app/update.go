@@ -1,17 +1,9 @@
 package app
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"time"
 	"unicode/utf8"
 
-	"somatui/internal/audio"
-	"somatui/internal/platform"
-	"somatui/internal/state"
 	"somatui/internal/ui"
-	"somatui/pkg/playlist"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,14 +11,14 @@ import (
 
 // Update handles incoming messages and updates the model's state.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	items := m.List.Items()
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// Handle search input mode
 		if m.Searching {
 			switch msg.String() {
 			case "ctrl+c":
-				return m, m.quitApp()
+				// Quitting leaves the server (and any playback) running.
+				return m, tea.Quit
 			case "enter":
 				// Exit search mode, keep at current match
 				m.Searching = false
@@ -58,13 +50,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "ctrl+c", "q":
-			return m, m.quitApp()
+			// Quitting the TUI intentionally does not stop playback: the
+			// server keeps streaming until stopped ('s') or it idles out.
+			return m, tea.Quit
 		case "enter", " ":
 			if i, ok := m.List.SelectedItem().(ui.Item); ok {
-				return m, m.playChannel(i)
+				return m, m.playCmd(i.Channel.ID)
 			}
 		case "s":
-			m.stopPlayback()
+			return m, m.stopCmd()
 		case "a":
 			// Toggle the inline about footer.
 			m.ShowAbout = !m.ShowAbout
@@ -99,14 +93,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "f", "*":
 			// Toggle favorite on selected channel
-			m.ToggleFavorite()
-			return m, nil
+			return m, m.ToggleFavorite()
 		case "+", "=":
-			m.adjustVolume(volumeStep)
-			return m, nil
+			return m, m.setVolumeCmd(m.Snapshot.Volume + volumeStep)
 		case "-", "_":
-			m.adjustVolume(-volumeStep)
-			return m, nil
+			return m, m.setVolumeCmd(m.Snapshot.Volume - volumeStep)
 		case "c":
 			// Clear search
 			if m.SearchQuery != "" {
@@ -121,210 +112,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.UpdateListSize()
 		return m, nil
 
-	case ChannelsLoadedMsg:
-		// Channels have been loaded, update the list and stop loading indicator
-		newItems := ChannelsToItems(msg.Channels.Channels)
-		newItems = m.sortItemsWithFavorites(newItems)
-		m.List.SetItems(newItems)
-		m.Loading = false
-
-		// Set the cursor to the last selected channel if available
-		if m.State != nil {
-			m.selectChannelByID(m.State.LastSelectedChannelID)
-		}
-
-		// If loaded from cache, refresh from network in background
-		if msg.FromCache {
-			return m, func() tea.Msg { return RefreshChannels(m.UserAgent) }
-		}
-	case ChannelsRefreshedMsg:
-		// Channels have been refreshed from network, update the list.
-		// A successful refresh also recovers from an earlier load failure,
-		// so clear any error that would keep the error screen visible.
-		m.Err = nil
-		// Remember selected channel by ID for stable restoration after sort
-		var selectedChannelID string
-		if sel, ok := m.List.SelectedItem().(ui.Item); ok {
-			selectedChannelID = sel.Channel.ID
-		}
-		newItems := ChannelsToItems(msg.Channels.Channels)
-		newItems = m.sortItemsWithFavorites(newItems)
-		m.List.SetItems(newItems)
-		m.selectChannelByID(selectedChannelID)
-	case ChannelRefreshTickMsg:
-		// Time to refresh channels, fetch from network and schedule next tick
-		return m, tea.Batch(func() tea.Msg { return RefreshChannels(m.UserAgent) }, TickChannelRefresh())
-	case ErrorMsg:
-		// An error occurred during channel loading
-		m.Err = msg.Err
-		m.Loading = false
-	case TrackUpdateMsg:
-		// Track information has been updated; ignore it (and stop polling)
-		// once playback has ended.
-		if m.PlayingID == "" {
-			return m, nil
-		}
-		m.TrackInfo = &msg.TrackInfo
-		m.UpdateMPRIS(items)
-		return m, m.PollTrackUpdates()
-	case TrackPollTickMsg:
-		// Keep polling only while something is playing.
-		if m.PlayingID == "" {
-			return m, nil
-		}
-		return m, m.PollTrackUpdates()
-	case PlaybackStartedMsg:
-		if msg.ChannelID != m.ConnectingID {
-			// Stale result: a newer play/stop request superseded this one.
-			return m, nil
-		}
-		m.ConnectingID = ""
-		m.PlayingID = msg.ChannelID
-		m.ReconnectAttempt = 0 // connected: a later drop starts a fresh backoff
-		m.TrackInfo = nil
-		m.UpdateMPRIS(items)
-		return m, m.PollTrackUpdates()
-	case StreamErrorMsg:
-		// Ignore errors from play requests that have been superseded; only the
-		// active connect attempt (or the running stream, ChannelID == "") counts.
-		if msg.ChannelID != "" && msg.ChannelID != m.ConnectingID {
-			return m, nil
-		}
-		// Remember which channel dropped before stopPlayback clears it.
-		failedID := m.PlayingID
-		if failedID == "" {
-			failedID = m.ConnectingID
-		}
-		// Stop the player so the failed session's goroutine and audio
-		// resources are released instead of lingering until the next play.
-		m.stopPlayback()
-		m.StreamErr = msg.Err.Error()
-
-		cmds := []tea.Cmd{m.ListenStreamErrors()}
-		if failedID != "" && !msg.NoRetry && m.ReconnectAttempt < maxReconnectAttempts {
-			// Schedule an automatic reconnect with exponential backoff.
-			m.ReconnectAttempt++
-			m.ReconnectingID = failedID
-			cmds = append(cmds, tea.Tick(reconnectDelay(m.ReconnectAttempt), func(t time.Time) tea.Msg {
-				return ReconnectTickMsg{ChannelID: failedID}
-			}))
-		} else {
-			m.ReconnectAttempt = 0
-		}
-		return m, tea.Batch(cmds...)
-	case ReconnectTickMsg:
-		// Reconnect only if the drop is still the latest event: the user has
-		// not stopped playback or started another channel in the meantime.
-		if msg.ChannelID != m.ReconnectingID || m.PlayingID != "" || m.ConnectingID != "" {
-			return m, nil
-		}
-		m.ReconnectingID = ""
-		if item, ok := m.findChannelItem(msg.ChannelID); ok {
-			return m, m.playChannel(item)
-		}
+	case ServerStateMsg:
+		m.applySnapshot(msg.State)
 		return m, nil
 
-	// MPRIS control messages
-	case platform.MPRISPlayMsg:
-		// Play the currently selected channel unless already playing/connecting
-		if m.PlayingID == "" && m.ConnectingID == "" {
-			if i, ok := m.List.SelectedItem().(ui.Item); ok {
-				return m, m.playChannel(i)
-			}
-		}
-	case platform.MPRISStopMsg:
-		if m.PlayingID != "" {
-			m.stopPlayback()
-		}
-	case platform.MPRISPlayPauseMsg:
-		// Toggle: if playing or connecting, stop; if stopped, play
-		if m.PlayingID != "" || m.ConnectingID != "" {
-			m.stopPlayback()
-		} else {
-			if i, ok := m.List.SelectedItem().(ui.Item); ok {
-				return m, m.playChannel(i)
-			}
-		}
-	case platform.MPRISNextMsg:
-		// Move to next channel and play
-		listItems := m.List.Items()
-		if len(listItems) > 0 {
-			currentIdx := m.List.Index()
-			nextIdx := (currentIdx + 1) % len(listItems)
-			m.List.Select(nextIdx)
-			if i, ok := m.List.SelectedItem().(ui.Item); ok {
-				return m, m.playChannel(i)
-			}
-		}
-	case platform.MPRISVolumeMsg:
-		// Volume written via D-Bus (e.g. a desktop volume slider). The MPRIS
-		// property is already updated, so don't mirror it back.
-		m.applyVolume(msg.Volume, false)
-	case platform.MPRISPrevMsg:
-		// Move to previous channel and play
-		listItems := m.List.Items()
-		if len(listItems) > 0 {
-			currentIdx := m.List.Index()
-			prevIdx := currentIdx - 1
-			if prevIdx < 0 {
-				prevIdx = len(listItems) - 1
-			}
-			m.List.Select(prevIdx)
-			if i, ok := m.List.SelectedItem().(ui.Item); ok {
-				return m, m.playChannel(i)
-			}
-		}
+	case ServerChannelsMsg:
+		m.applyChannels(msg.Payload)
+		return m, nil
+
+	case ServerLostMsg:
+		m.ServerLost = true
+		return m, nil
+
+	case ServerReconnectedMsg:
+		m.ServerLost = false
+		m.Backend = msg.Backend
+		return m, tea.Batch(m.fetchChannels(), m.fetchStatus())
+
+	case ServerGoneMsg:
+		m.ServerLost = false
+		m.Loading = false
+		m.Err = msg.Err
+		return m, nil
 	}
 
 	// Update the list component and return its command
 	var cmd tea.Cmd
 	m.List, cmd = m.List.Update(msg)
 	return m, cmd
-}
-
-// playChannel starts connecting to the given channel. The playlist fetch and
-// stream connect run in the returned command so the UI stays responsive; the
-// result arrives as PlaybackStartedMsg or StreamErrorMsg.
-func (m *Model) playChannel(i ui.Item) tea.Cmd {
-	m.StreamErr = ""
-	m.ReconnectingID = "" // a fresh play request abandons any pending reconnect
-
-	if m.State != nil {
-		m.State.LastSelectedChannelID = i.Channel.ID
-		if err := state.SaveState(m.State); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving state: %v\n", err)
-		}
-	}
-
-	channelID := i.Channel.ID
-	m.ConnectingID = channelID
-	playlistURL := SelectMP3PlaylistURL(i.Channel.Playlists)
-	if playlistURL == "" {
-		return func() tea.Msg {
-			return StreamErrorMsg{
-				Err:       fmt.Errorf("no MP3 playlist available for %s", i.Channel.Title),
-				ChannelID: channelID,
-				NoRetry:   true, // reconnecting cannot conjure up a playlist
-			}
-		}
-	}
-
-	player := m.Player
-	userAgent := m.UserAgent
-	return func() tea.Msg {
-		streamURL, err := playlist.GetStreamURLFromPlaylist(playlistURL, userAgent)
-		if err != nil {
-			return StreamErrorMsg{Err: fmt.Errorf("failed to get stream URL: %w", err), ChannelID: channelID}
-		}
-		if err := player.Play(streamURL); err != nil {
-			if errors.Is(err, audio.ErrSuperseded) {
-				// A newer play/stop request won; its own messages drive the UI.
-				return nil
-			}
-			return StreamErrorMsg{Err: fmt.Errorf("failed to start playback: %w", err), ChannelID: channelID}
-		}
-		return PlaybackStartedMsg{ChannelID: channelID}
-	}
 }
 
 // NewHelpKeys returns additional help keys for the list.
@@ -336,6 +151,7 @@ func NewHelpKeys() ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
+		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit (keeps playing)")),
 	}
 
 	shortHelp := []key.Binding{

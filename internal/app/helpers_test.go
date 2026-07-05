@@ -1,51 +1,87 @@
 package app
 
 import (
+	"slices"
+	"sync"
 	"testing"
 
-	"somatui/internal/audio"
 	"somatui/internal/channels"
-	"somatui/internal/state"
+	"somatui/internal/protocol"
 	"somatui/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-
-// mockPlayer is a test double for the audio.Player interface.
-type mockPlayer struct {
-	playing   bool
-	playErr   error
-	errChan   chan error
-	trackChan chan audio.TrackInfo
-	volume    float64
+// fakeBackend is a test double for the Backend interface. It records calls
+// and answers with server-like snapshots.
+type fakeBackend struct {
+	mu        sync.Mutex
+	playIDs   []string
+	stops     int
+	volumes   []float64
+	favorites []string
+	status    protocol.PlaybackState
+	payload   protocol.ChannelsPayload
 }
 
-func (p *mockPlayer) Play(_ string) error {
-	if p.playErr != nil {
-		return p.playErr
+func newFakeBackend() *fakeBackend {
+	return &fakeBackend{
+		status: protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1},
 	}
-	p.playing = true
-	return nil
 }
 
-func (p *mockPlayer) Stop() { p.playing = false }
+func (b *fakeBackend) Status() (protocol.PlaybackState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.status, nil
+}
 
-func (p *mockPlayer) Errors() <-chan error { return p.errChan }
+func (b *fakeBackend) Channels() (protocol.ChannelsPayload, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.payload, nil
+}
 
-func (p *mockPlayer) TrackUpdates() <-chan audio.TrackInfo { return p.trackChan }
+func (b *fakeBackend) Play(channelID string) (protocol.PlaybackState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.playIDs = append(b.playIDs, channelID)
+	b.status = protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: channelID, Volume: b.status.Volume}
+	return b.status, nil
+}
 
-func (p *mockPlayer) SetVolume(v float64) { p.volume = v }
+func (b *fakeBackend) Stop() (protocol.PlaybackState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.stops++
+	b.status = protocol.PlaybackState{Status: protocol.StatusStopped, Volume: b.status.Volume}
+	return b.status, nil
+}
 
-func (p *mockPlayer) Volume() float64 { return p.volume }
-
-// newMockPlayer returns a mockPlayer with buffered error and track channels.
-func newMockPlayer() *mockPlayer {
-	return &mockPlayer{
-		errChan:   make(chan error, 2),
-		trackChan: make(chan audio.TrackInfo, 1),
-		volume:    1,
+func (b *fakeBackend) SetVolume(v float64) (protocol.PlaybackState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if v < 0 {
+		v = 0
 	}
+	if v > 1 {
+		v = 1
+	}
+	b.volumes = append(b.volumes, v)
+	b.status.Volume = v
+	return b.status, nil
+}
+
+func (b *fakeBackend) ToggleFavorite(channelID string) ([]string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if i := slices.Index(b.favorites, channelID); i >= 0 {
+		b.favorites = slices.Delete(b.favorites, i, i+1)
+	} else {
+		b.favorites = append(b.favorites, channelID)
+	}
+	return slices.Clone(b.favorites), nil
 }
 
 // testChannels returns a fixed set of channels used across test files.
@@ -78,24 +114,16 @@ func testChannels() []channels.Channel {
 	}
 }
 
-// setStateDir redirects state persistence to a temp directory for the duration of t.
-func setStateDir(t *testing.T) {
-	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-}
-
-// newTestModel returns a minimal Model populated with testChannels().
-// It sets up a temporary state directory so SaveState calls succeed.
+// newTestModel returns a minimal Model populated with testChannels() and a
+// fake backend.
 func newTestModel(t *testing.T) *Model {
 	t.Helper()
-	setStateDir(t)
 
 	m := &Model{
-		Player:       newMockPlayer(),
-		State:        &state.State{},
+		Backend:      newFakeBackend(),
+		Snapshot:     protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1},
 		Width:        80,
 		Height:       24,
-		UserAgent:    "SomaTUI/test",
 		CurrentMatch: -1,
 	}
 
@@ -107,4 +135,17 @@ func newTestModel(t *testing.T) *Model {
 	m.List = l
 
 	return m
+}
+
+// backend returns the model's fake backend.
+func backend(m *Model) *fakeBackend {
+	return m.Backend.(*fakeBackend)
+}
+
+// runCmd executes a tea.Cmd synchronously, returning its message.
+func runCmd(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	return cmd()
 }

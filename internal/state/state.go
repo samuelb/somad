@@ -100,6 +100,19 @@ func GetStateFilePath() (string, error) {
 	return filepath.Join(stateDir, stateFileName), nil
 }
 
+// GetLogFilePath returns the server log file path, kept in the state
+// directory next to state.json.
+func GetLogFilePath() (string, error) {
+	stateDir, err := getStateDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(stateDir, 0750); err != nil {
+		return "", fmt.Errorf("failed to create state directory: %w", err)
+	}
+	return filepath.Join(stateDir, "server.log"), nil
+}
+
 // LoadState reads the application state from the state file.
 // If the file does not exist, it returns a default empty State.
 func LoadState() (*State, error) {

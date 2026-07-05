@@ -1,161 +1,106 @@
 package app
 
 import (
-	"time"
+	"somatui/internal/protocol"
 
-	"somatui/internal/audio"
-	"somatui/internal/channels"
-
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const (
-	channelRefreshInterval = 10 * time.Minute
-	trackUpdateInterval    = 2 * time.Second
-
-	// maxReconnectAttempts bounds the automatic retries after a stream drop;
-	// reconnectBaseDelay doubles with every attempt (2s, 4s, ... 32s).
-	maxReconnectAttempts = 5
-	reconnectBaseDelay   = 2 * time.Second
-)
-
-// reconnectDelay returns the backoff delay before the given attempt (1-based).
-func reconnectDelay(attempt int) time.Duration {
-	return reconnectBaseDelay << (attempt - 1)
+// Backend is the server-side surface the TUI talks to. It is satisfied by
+// *client.Client; tests substitute a fake to avoid sockets.
+type Backend interface {
+	Status() (protocol.PlaybackState, error)
+	Channels() (protocol.ChannelsPayload, error)
+	Play(channelID string) (protocol.PlaybackState, error)
+	Stop() (protocol.PlaybackState, error)
+	SetVolume(v float64) (protocol.PlaybackState, error)
+	ToggleFavorite(channelID string) ([]string, error)
 }
 
-// ChannelsLoadedMsg is a message sent when channels are successfully loaded.
-type ChannelsLoadedMsg struct {
-	Channels  *channels.Channels
-	FromCache bool
+// ServerStateMsg carries a playback snapshot, either pushed by the server or
+// returned by a request. Snapshots are authoritative and idempotent.
+type ServerStateMsg struct {
+	State protocol.PlaybackState
 }
 
-// ChannelsRefreshedMsg is a message sent when channels are refreshed from network.
-type ChannelsRefreshedMsg struct {
-	Channels *channels.Channels
+// ServerChannelsMsg carries the channel catalog with favorites and the
+// last-played channel.
+type ServerChannelsMsg struct {
+	Payload protocol.ChannelsPayload
 }
 
-// ErrorMsg is a message sent when an error occurs.
-type ErrorMsg struct {
+// ServerLostMsg reports that the server connection dropped; a reconnect is
+// underway in the background.
+type ServerLostMsg struct{}
+
+// ServerReconnectedMsg delivers the fresh backend after a reconnect.
+type ServerReconnectedMsg struct {
+	Backend Backend
+}
+
+// ServerGoneMsg reports that reconnecting failed for good.
+type ServerGoneMsg struct {
 	Err error
 }
 
-// TrackUpdateMsg is a message sent when track information is updated.
-type TrackUpdateMsg struct {
-	TrackInfo audio.TrackInfo
-}
-
-// TrackPollTickMsg is a message sent when it's time to poll for track updates.
-type TrackPollTickMsg struct{}
-
-// StreamErrorMsg is a message sent when a stream error occurs. ChannelID is
-// set when the error belongs to a specific play request (so stale requests can
-// be ignored) and empty for runtime errors on the active stream. NoRetry marks
-// errors that cannot be fixed by reconnecting (e.g. no playable playlist).
-type StreamErrorMsg struct {
-	Err       error
-	ChannelID string
-	NoRetry   bool
-}
-
-// ReconnectTickMsg fires when the backoff delay before a reconnect attempt
-// has elapsed.
-type ReconnectTickMsg struct {
-	ChannelID string
-}
-
-// PlaybackStartedMsg is sent when a play request has connected and audio is
-// running.
-type PlaybackStartedMsg struct {
-	ChannelID string
-}
-
-// ChannelRefreshTickMsg is a message sent when it's time to refresh channels.
-type ChannelRefreshTickMsg struct{}
-
-// LoadChannels is a Tea command that fetches SomaFM channels asynchronously.
-func LoadChannels(userAgent string) tea.Cmd {
+// fetchStatus asks the server for the current playback snapshot.
+func (m *Model) fetchStatus() tea.Cmd {
+	b := m.Backend
 	return func() tea.Msg {
-		// Try cache first
-		chans, err := channels.ReadChannelsFromCache()
-		if err == nil {
-			return ChannelsLoadedMsg{Channels: chans, FromCache: true}
-		}
-
-		// Fall back to network
-		chans, err = channels.FetchChannelsFromNetwork(userAgent)
+		st, err := b.Status()
 		if err != nil {
-			return ErrorMsg{Err: err}
+			// Connection failures surface separately via ServerLostMsg.
+			return nil
 		}
-		return ChannelsLoadedMsg{Channels: chans, FromCache: false}
+		return ServerStateMsg{State: st}
 	}
 }
 
-// RefreshChannels fetches channels from network in the background.
-func RefreshChannels(userAgent string) tea.Msg {
-	chans, err := channels.FetchChannelsFromNetwork(userAgent)
-	if err != nil {
-		// Silently ignore background refresh errors
-		return nil
-	}
-	return ChannelsRefreshedMsg{Channels: chans}
-}
-
-// TickChannelRefresh returns a command that triggers a channel refresh periodically.
-func TickChannelRefresh() tea.Cmd {
-	return tea.Tick(channelRefreshInterval, func(t time.Time) tea.Msg {
-		return ChannelRefreshTickMsg{}
-	})
-}
-
-// PollTrackUpdates is a Tea command that polls the player for now-playing
-// title updates, demuxed from the playback stream's ICY metadata. The channel
-// is captured here so the tick callback (which runs on a timer goroutine)
-// never touches the model.
-func (m *Model) PollTrackUpdates() tea.Cmd {
-	if m.Player == nil {
-		return nil
-	}
-	updates := m.Player.TrackUpdates()
-	return tea.Tick(trackUpdateInterval, func(t time.Time) tea.Msg {
-		select {
-		case trackInfo := <-updates:
-			return TrackUpdateMsg{TrackInfo: trackInfo}
-		default:
-			return TrackPollTickMsg{}
-		}
-	})
-}
-
-// ListenStreamErrors waits for the next async stream error.
-func (m *Model) ListenStreamErrors() tea.Cmd {
+// fetchChannels asks the server for the channel catalog.
+func (m *Model) fetchChannels() tea.Cmd {
+	b := m.Backend
 	return func() tea.Msg {
-		if m.Player == nil {
+		payload, err := b.Channels()
+		if err != nil {
 			return nil
 		}
-		err, ok := <-m.Player.Errors()
-		if !ok || err == nil {
-			return nil
-		}
-		return StreamErrorMsg{Err: err}
+		return ServerChannelsMsg{Payload: payload}
 	}
 }
 
-// UpdateMPRIS updates MPRIS metadata based on current playback state.
-func (m *Model) UpdateMPRIS(items []list.Item) {
-	if m.MPRIS == nil {
-		return
+// playCmd starts a channel on the server. Progress and failures arrive as
+// pushed state events, so the returned snapshot is just the fast path.
+func (m *Model) playCmd(channelID string) tea.Cmd {
+	b := m.Backend
+	return func() tea.Msg {
+		st, err := b.Play(channelID)
+		if err != nil {
+			return nil
+		}
+		return ServerStateMsg{State: st}
 	}
-	ch := m.GetPlayingChannel(items)
-	if ch == nil {
-		m.MPRIS.SetStopped()
-		return
+}
+
+// stopCmd halts playback on the server.
+func (m *Model) stopCmd() tea.Cmd {
+	b := m.Backend
+	return func() tea.Msg {
+		st, err := b.Stop()
+		if err != nil {
+			return nil
+		}
+		return ServerStateMsg{State: st}
 	}
-	track := ""
-	if m.TrackInfo != nil {
-		track = m.TrackInfo.Title
+}
+
+// setVolumeCmd applies a volume on the server, which clamps and persists it.
+func (m *Model) setVolumeCmd(v float64) tea.Cmd {
+	b := m.Backend
+	return func() tea.Msg {
+		st, err := b.SetVolume(v)
+		if err != nil {
+			return nil
+		}
+		return ServerStateMsg{State: st}
 	}
-	// Use channel title as artist since SomaFM streams don't have separate artist info
-	m.MPRIS.SetPlaying(ch.Title, track, ch.Title)
 }

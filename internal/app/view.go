@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"somatui/internal/channels"
+	"somatui/internal/protocol"
 	"somatui/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -47,68 +48,63 @@ func (m *Model) RenderSearchBar() string {
 	return ""
 }
 
-// RenderStatusBar renders the styled status bar.
-func (m *Model) RenderStatusBar(items []list.Item) string {
+// RenderStatusBar renders the styled status bar from the latest server
+// playback snapshot.
+func (m *Model) RenderStatusBar() string {
 	var icon, stateText string
 	var stateStyle lipgloss.Style
 
-	// Determine state and styling; an in-flight connect or a pending
-	// reconnect wins over stopped.
-	switch {
-	case m.ConnectingID != "":
+	switch m.Snapshot.Status {
+	case protocol.StatusConnecting:
 		icon = "◌"
 		stateText = "Connecting"
 		stateStyle = ui.StatusConnectingStyle
-	case m.ReconnectingID != "":
+	case protocol.StatusReconnecting:
 		icon = "↻"
-		stateText = fmt.Sprintf("Reconnecting %d/%d", m.ReconnectAttempt, maxReconnectAttempts)
+		stateText = fmt.Sprintf("Reconnecting %d/%d", m.Snapshot.ReconnectAttempt, m.Snapshot.MaxReconnects)
 		stateStyle = ui.StatusConnectingStyle
-	case m.PlayingID == "":
-		icon = "■"
-		stateText = "Stopped"
-		stateStyle = ui.StatusStoppedStyle
-	default:
+	case protocol.StatusPlaying:
 		icon = "▶"
 		stateText = "Playing"
 		stateStyle = ui.StatusPlayingStyle
+	default:
+		icon = "■"
+		stateText = "Stopped"
+		stateStyle = ui.StatusStoppedStyle
 	}
 
 	// Build the status line
 	parts := []string{stateStyle.Render(icon + " " + stateText)}
 
 	// Add the channel name if playing, connecting, or awaiting a reconnect
-	activeID := m.PlayingID
-	if m.ConnectingID != "" {
-		activeID = m.ConnectingID
-	} else if m.ReconnectingID != "" {
-		activeID = m.ReconnectingID
-	}
-	if activeID != "" {
-		for _, listItem := range items {
-			if i, ok := listItem.(ui.Item); ok && i.Channel.ID == activeID {
-				channelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
-				parts = append(parts, channelStyle.Render(i.Channel.Title))
-				break
-			}
-		}
+	if m.Snapshot.ChannelTitle != "" {
+		channelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+		parts = append(parts, channelStyle.Render(m.Snapshot.ChannelTitle))
 	}
 
 	// Add track info with music note
-	if m.TrackInfo != nil && m.TrackInfo.Title != "" {
-		trackStr := "♫ " + m.TrackInfo.Title
+	if m.Snapshot.TrackTitle != "" {
+		trackStr := "♫ " + m.Snapshot.TrackTitle
 		parts = append(parts, ui.TrackInfoStyle.Render(trackStr))
 	}
 
 	// Add stream error if present
-	if m.StreamErr != "" {
+	if m.Snapshot.StreamError != "" {
 		errorStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
-		parts = append(parts, errorStyle.Render("Stream error: "+m.StreamErr))
+		parts = append(parts, errorStyle.Render("Stream error: "+m.Snapshot.StreamError))
 	}
 
 	// Add the volume level
-	if m.Player != nil {
-		volumeStyle := lipgloss.NewStyle().Foreground(ui.SubtleColor)
-		parts = append(parts, volumeStyle.Render(fmt.Sprintf("♪ %d%%", int(math.Round(m.Player.Volume()*100)))))
+	volumeStyle := lipgloss.NewStyle().Foreground(ui.SubtleColor)
+	parts = append(parts, volumeStyle.Render(fmt.Sprintf("♪ %d%%", int(math.Round(m.Snapshot.Volume*100)))))
+
+	// Surface connection trouble and version skew without hiding the list.
+	warnStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
+	if m.ServerLost {
+		parts = append(parts, warnStyle.Render("server connection lost — reconnecting…"))
+	} else if m.VersionSkew != "" {
+		parts = append(parts, warnStyle.Render(
+			fmt.Sprintf("server v%s ≠ client v%s — restart with `somatui server stop`", m.VersionSkew, m.About.Version)))
 	}
 
 	return ui.StatusBarStyle.Render(strings.Join(parts, "  │  "))
@@ -151,7 +147,6 @@ func (m *Model) RenderAboutFooter() string {
 
 // View renders the application's UI.
 func (m *Model) View() string {
-	items := m.List.Items()
 	// Display loading message if channels are still being fetched
 	if m.Loading {
 		return ui.LoadingStyle.Render("◌ Loading SomaFM channels...")
@@ -171,7 +166,7 @@ func (m *Model) View() string {
 	if searchBar := m.RenderSearchBar(); searchBar != "" {
 		components = append(components, searchBar)
 	}
-	components = append(components, m.List.View(), m.RenderStatusBar(items))
+	components = append(components, m.List.View(), m.RenderStatusBar())
 
 	// Show the about information as an inline footer when active.
 	if about := m.RenderAboutFooter(); about != "" {
@@ -185,7 +180,7 @@ func (m *Model) View() string {
 func (m *Model) UpdateListSize() {
 	// Dynamically calculate the height needed for the header and status bar
 	headerHeight := lipgloss.Height(m.RenderHeader())
-	statusBarHeight := lipgloss.Height(m.RenderStatusBar(nil))
+	statusBarHeight := lipgloss.Height(m.RenderStatusBar())
 	searchBarHeight := 0
 	if searchBar := m.RenderSearchBar(); searchBar != "" {
 		searchBarHeight = lipgloss.Height(searchBar)

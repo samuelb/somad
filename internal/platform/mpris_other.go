@@ -2,11 +2,10 @@
 
 package platform
 
-import tea "github.com/charmbracelet/bubbletea"
-
 // CmdSender is an interface for sending commands to the application.
+// This matches the tea.Program's Send method signature (tea.Msg is any).
 type CmdSender interface {
-	Send(msg tea.Msg)
+	Send(msg any)
 }
 
 // MPRIS is a stub for non-Linux platforms.

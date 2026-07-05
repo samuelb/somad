@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"somatui/internal/audio"
+	"somatui/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -59,9 +59,9 @@ func TestRenderSearchBar_InactiveNoQuery(t *testing.T) {
 
 func TestRenderStatusBar_Stopped(t *testing.T) {
 	m := newTestModel(t)
-	m.PlayingID = ""
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
 
-	result := m.RenderStatusBar(m.List.Items())
+	result := m.RenderStatusBar()
 
 	assert.Contains(t, result, "Stopped")
 	assert.Contains(t, result, "■")
@@ -69,9 +69,11 @@ func TestRenderStatusBar_Stopped(t *testing.T) {
 
 func TestRenderStatusBar_Connecting(t *testing.T) {
 	m := newTestModel(t)
-	m.ConnectingID = "groovesalad"
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusConnecting, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1,
+	})
 
-	result := m.RenderStatusBar(m.List.Items())
+	result := m.RenderStatusBar()
 
 	assert.Contains(t, result, "Connecting")
 	assert.Contains(t, result, "◌")
@@ -80,19 +82,21 @@ func TestRenderStatusBar_Connecting(t *testing.T) {
 
 func TestRenderStatusBar_ShowsVolume(t *testing.T) {
 	m := newTestModel(t)
-	m.Player.(*mockPlayer).volume = 0.85
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 0.85})
 
-	result := m.RenderStatusBar(m.List.Items())
+	result := m.RenderStatusBar()
 
 	assert.Contains(t, result, "♪ 85%")
 }
 
 func TestRenderStatusBar_Reconnecting(t *testing.T) {
 	m := newTestModel(t)
-	m.ReconnectingID = "groovesalad"
-	m.ReconnectAttempt = 2
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusReconnecting, ChannelID: "groovesalad", ChannelTitle: "Groove Salad",
+		ReconnectAttempt: 2, MaxReconnects: 5, Volume: 1,
+	})
 
-	result := m.RenderStatusBar(m.List.Items())
+	result := m.RenderStatusBar()
 
 	assert.Contains(t, result, "Reconnecting 2/5")
 	assert.Contains(t, result, "↻")
@@ -101,9 +105,11 @@ func TestRenderStatusBar_Reconnecting(t *testing.T) {
 
 func TestRenderStatusBar_Playing(t *testing.T) {
 	m := newTestModel(t)
-	m.PlayingID = "groovesalad"
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1,
+	})
 
-	result := m.RenderStatusBar(m.List.Items())
+	result := m.RenderStatusBar()
 
 	assert.Contains(t, result, "Playing")
 	assert.Contains(t, result, "▶")
@@ -112,10 +118,12 @@ func TestRenderStatusBar_Playing(t *testing.T) {
 
 func TestRenderStatusBar_WithTrackInfo(t *testing.T) {
 	m := newTestModel(t)
-	m.PlayingID = "groovesalad"
-	m.TrackInfo = &audio.TrackInfo{Title: "Artist - Song"}
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad",
+		TrackTitle: "Artist - Song", Volume: 1,
+	})
 
-	result := m.RenderStatusBar(m.List.Items())
+	result := m.RenderStatusBar()
 
 	assert.Contains(t, result, "Artist - Song")
 	assert.Contains(t, result, "♫")
@@ -123,12 +131,32 @@ func TestRenderStatusBar_WithTrackInfo(t *testing.T) {
 
 func TestRenderStatusBar_WithStreamError(t *testing.T) {
 	m := newTestModel(t)
-	m.StreamErr = "connection reset"
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, StreamError: "connection reset", Volume: 1})
 
-	result := m.RenderStatusBar(m.List.Items())
+	result := m.RenderStatusBar()
 
 	assert.Contains(t, result, "connection reset")
 	assert.Contains(t, result, "Stream error")
+}
+
+func TestRenderStatusBar_ServerLost(t *testing.T) {
+	m := newTestModel(t)
+	m.ServerLost = true
+
+	result := m.RenderStatusBar()
+
+	assert.Contains(t, result, "server connection lost")
+}
+
+func TestRenderStatusBar_VersionSkew(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "2.0.0"
+	m.VersionSkew = "1.0.0"
+
+	result := m.RenderStatusBar()
+
+	assert.Contains(t, result, "server v1.0.0")
+	assert.Contains(t, result, "client v2.0.0")
 }
 
 func TestRenderHeader_ContainsTitles(t *testing.T) {
