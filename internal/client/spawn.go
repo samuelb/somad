@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,14 +18,21 @@ import (
 
 const (
 	dialRetryInterval = 100 * time.Millisecond
-	spawnWait         = 15 * time.Second
 	restartWait       = 3 * time.Second
 
 	// maxServerLogSize caps server.log: spawns append to it and it would
 	// otherwise grow forever, so a spawn that finds it above the cap
 	// truncates it first.
 	maxServerLogSize = 1 << 20 // 1 MiB
+
+	// maxLogTailLines bounds how much of the server log a startup error
+	// message quotes.
+	maxLogTailLines = 10
 )
+
+// spawnWait is how long a spawned server gets to bind its socket. A variable
+// so tests can shrink it.
+var spawnWait = 15 * time.Second
 
 // spawnServer is a variable so tests can fake the server launch.
 var spawnServer = SpawnServer
@@ -91,6 +100,9 @@ func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResu
 func connectOrSpawn(socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
 	c, err := Dial(socketPath)
 	if err != nil {
+		// Remember where the log ends now, so a startup failure can quote
+		// exactly what the new server wrote.
+		logOffset := serverLogSize()
 		if err := spawnServer(); err != nil {
 			return nil, protocol.HelloResult{}, err
 		}
@@ -101,8 +113,13 @@ func connectOrSpawn(socketPath, clientVersion string) (*Client, protocol.HelloRe
 				break
 			}
 			if time.Now().After(deadline) {
-				return nil, protocol.HelloResult{}, fmt.Errorf(
-					"somatui server did not come up on %s: %w", socketPath, err)
+				spawnErr := fmt.Errorf("somatui server did not come up on %s: %w", socketPath, err)
+				// The failure reason lives in the server's log; without it
+				// the user only learns "did not come up".
+				if tail := serverLogSince(logOffset); tail != "" {
+					spawnErr = fmt.Errorf("%w\nserver log:\n%s", spawnErr, tail)
+				}
+				return nil, protocol.HelloResult{}, spawnErr
 			}
 			time.Sleep(dialRetryInterval)
 		}
@@ -114,6 +131,57 @@ func connectOrSpawn(socketPath, clientVersion string) (*Client, protocol.HelloRe
 		return nil, hr, fmt.Errorf("handshake with somatui server failed: %w", err)
 	}
 	return c, hr, nil
+}
+
+// serverLogSize returns the server log's current size, so output written by
+// a subsequent spawn can be told apart from older log content.
+func serverLogSize() int64 {
+	logPath, err := state.GetLogFilePath()
+	if err != nil {
+		return 0
+	}
+	info, err := os.Stat(logPath)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// serverLogSince returns what the server wrote to its log after offset,
+// capped to the last maxLogTailLines lines, for startup error messages.
+// It returns "" when there is nothing to quote.
+func serverLogSince(offset int64) string {
+	logPath, err := state.GetLogFilePath()
+	if err != nil {
+		return ""
+	}
+	f, err := os.Open(logPath) // #nosec G304 -- path derived from state dir
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+
+	// The spawn may have truncated an oversized log; then the whole file is
+	// the new server's output.
+	if info, err := f.Stat(); err == nil && offset > info.Size() {
+		offset = 0
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 64<<10))
+	if err != nil {
+		return ""
+	}
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) > maxLogTailLines {
+		lines = lines[len(lines)-maxLogTailLines:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // waitForServerExit waits until the old server has stopped answering the
