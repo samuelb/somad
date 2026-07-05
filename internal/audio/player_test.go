@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"somatui/internal/security/securitytest"
 
@@ -149,8 +151,113 @@ func TestFetchStream_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "audio-bytes", string(data))
 
-	// No error should have been reported on the happy path.
-	assert.Empty(t, p.errChan)
+	// A live stream ending (clean EOF) is abnormal and must be reported so
+	// the reconnect machinery kicks in instead of playing silence.
+	select {
+	case reported := <-p.errChan:
+		assert.Contains(t, reported.Error(), "stream ended unexpectedly")
+	default:
+		t.Fatal("expected the stream end to be reported")
+	}
+}
+
+// shortStallTimeout shrinks the stall watchdog for the duration of a test.
+func shortStallTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	orig := streamStallTimeout
+	streamStallTimeout = d
+	t.Cleanup(func() { streamStallTimeout = orig })
+}
+
+func TestFetchStream_StalledStreamReportsError(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	shortStallTimeout(t, 150*time.Millisecond)
+
+	// Send some data, then hold the connection open without closing it: the
+	// classic silent stall (lost link, NAT timeout) that never errors.
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("some-audio"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+	}))
+	defer server.Close()
+	defer close(release) // must run before server.Close, which waits on handlers
+
+	p := newTestPlayer()
+	pr, pw := io.Pipe()
+
+	done := make(chan struct{})
+	go func() {
+		p.fetchStream(context.Background(), server.URL, pw)
+		close(done)
+	}()
+
+	data, _ := drainPipe(pr)
+	<-done
+
+	assert.Equal(t, "some-audio", string(data), "data before the stall must pass through")
+	select {
+	case reported := <-p.errChan:
+		assert.Contains(t, reported.Error(), "stream stalled")
+	default:
+		t.Fatal("expected the stall to be reported")
+	}
+}
+
+func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	shortStallTimeout(t, 150*time.Millisecond)
+
+	// The server never even sends response headers.
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+	defer close(release) // must run before server.Close, which waits on handlers
+
+	p := newTestPlayer()
+	pr, pw := io.Pipe()
+	go p.fetchStream(context.Background(), server.URL, pw)
+
+	_, err := drainPipe(pr)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stream stalled")
+
+	select {
+	case reported := <-p.errChan:
+		assert.Contains(t, reported.Error(), "stream stalled")
+	default:
+		t.Fatal("expected the stall to be reported")
+	}
+}
+
+func TestWatchdogReader_RearmsOnData(t *testing.T) {
+	shortStallTimeout(t, 100*time.Millisecond)
+
+	var fired atomic.Bool
+	timer := time.AfterFunc(streamStallTimeout, func() { fired.Store(true) })
+	defer timer.Stop()
+
+	pr, pw := io.Pipe()
+	w := &watchdogReader{r: pr, timer: timer, timeout: streamStallTimeout}
+
+	// Keep data flowing for well past the stall timeout; the watchdog must
+	// not fire while reads succeed.
+	go func() {
+		for i := 0; i < 6; i++ {
+			_, _ = pw.Write([]byte("x"))
+			time.Sleep(40 * time.Millisecond)
+		}
+		_ = pw.Close()
+	}()
+
+	_, err := io.ReadAll(w)
+	require.NoError(t, err)
+	assert.False(t, fired.Load(), "watchdog must not fire while data flows")
 }
 
 func TestFetchStream_RequestsAndDemuxesICYMetadata(t *testing.T) {

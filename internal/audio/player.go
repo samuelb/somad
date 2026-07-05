@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"somatui/internal/security"
@@ -22,6 +23,12 @@ const (
 	fadeOutDuration = 250 * time.Millisecond
 	fadeSteps       = 20
 )
+
+// streamStallTimeout is how long the stream may deliver no data before the
+// watchdog aborts it: a connection that dies without a FIN (lost link, NAT
+// timeout) blocks reads forever and would otherwise never trigger
+// reconnection. A variable so tests can shrink it.
+var streamStallTimeout = 30 * time.Second
 
 // ErrSuperseded is returned by Play when a newer Play or Stop request arrived
 // while this one was still connecting; the newer request owns the audio state.
@@ -187,7 +194,27 @@ func (p *AudioPlayer) Play(url string) error {
 func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWriter) {
 	defer func() { _ = pw.Close() }()
 
-	req, err := security.NewRequest(ctx, url, p.userAgent)
+	// The watchdog aborts the request when the connection goes silent for
+	// streamStallTimeout; reads on the body below re-arm it. It runs from
+	// before the request so a server that never answers is caught too.
+	reqCtx, cancelReq := context.WithCancel(ctx)
+	defer cancelReq()
+	var stalled atomic.Bool
+	watchdog := time.AfterFunc(streamStallTimeout, func() {
+		stalled.Store(true)
+		cancelReq()
+	})
+	defer watchdog.Stop()
+	// stallErr rewrites an error caused by the watchdog's own cancellation
+	// into one that names the stall.
+	stallErr := func(err error) error {
+		if stalled.Load() {
+			return fmt.Errorf("stream stalled: no data received for %s", streamStallTimeout)
+		}
+		return err
+	}
+
+	req, err := security.NewRequest(reqCtx, url, p.userAgent)
 	if err != nil {
 		streamErr := fmt.Errorf("invalid stream URL: %w", err)
 		p.reportError(ctx, streamErr)
@@ -198,7 +225,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 
 	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
-		streamErr := fmt.Errorf("failed to fetch stream: %w", err)
+		streamErr := stallErr(fmt.Errorf("failed to fetch stream: %w", err))
 		p.reportError(ctx, streamErr)
 		pw.CloseWithError(streamErr)
 		return
@@ -214,20 +241,43 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 
 	// If the server honored the metadata request, demux titles out of the
 	// stream; otherwise the body is pure audio and passes through untouched.
-	var body io.Reader = resp.Body
+	var body io.Reader = &watchdogReader{r: resp.Body, timer: watchdog, timeout: streamStallTimeout}
 	if icyInt, err := strconv.Atoi(resp.Header.Get("icy-metaint")); err == nil && icyInt > 0 {
-		body = newICYDemuxer(resp.Body, icyInt, func(title string) {
+		body = newICYDemuxer(body, icyInt, func(title string) {
 			p.reportTrack(ctx, TrackInfo{Title: title})
 		})
 	}
 
 	// Copy the stream to the pipe writer until cancelled or the stream ends.
-	if _, err := io.Copy(pw, body); err != nil {
-		// An error is expected on cancellation/pipe close, so we don't report it.
-		if ctx.Err() == nil {
-			p.reportError(ctx, fmt.Errorf("stream read error: %w", err))
-		}
+	_, err = io.Copy(pw, body)
+	if ctx.Err() != nil {
+		return // cancelled by a stop or a newer play; expected, not an error
 	}
+	if err == nil {
+		// A live stream never ends on its own: a clean EOF means the server
+		// hung up, and without a report playback would sit silent while the
+		// status still says playing.
+		p.reportError(ctx, errors.New("stream ended unexpectedly"))
+		return
+	}
+	p.reportError(ctx, stallErr(fmt.Errorf("stream read error: %w", err)))
+}
+
+// watchdogReader re-arms the stall watchdog on every read that delivers
+// data, so the watchdog only fires when the stream stops delivering
+// entirely.
+type watchdogReader struct {
+	r       io.Reader
+	timer   *time.Timer
+	timeout time.Duration
+}
+
+func (w *watchdogReader) Read(b []byte) (int, error) {
+	n, err := w.r.Read(b)
+	if n > 0 {
+		w.timer.Reset(w.timeout)
+	}
+	return n, err
 }
 
 // TrackUpdates returns a channel carrying now-playing title changes for the
