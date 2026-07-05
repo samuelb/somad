@@ -8,6 +8,9 @@ BUILD_DIR=.
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
+# GOPATH the environment variable is usually unset with modern Go; fall back
+# to what the toolchain reports so `make install` has a real target directory.
+GOBIN?=$(shell go env GOPATH)/bin
 
 # Build flags
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
@@ -113,18 +116,19 @@ deps-update:
 	$(GOMOD) tidy
 	$(GOMOD) download
 
-# Install the binary to $GOPATH/bin
+# Install the binary to $GOBIN
 .PHONY: install
 install: build
-	@echo "Installing $(BINARY_NAME) to $(GOPATH)/bin..."
-	cp $(BUILD_DIR)/$(BINARY_NAME) $(GOPATH)/bin/
+	@echo "Installing $(BINARY_NAME) to $(GOBIN)..."
+	install -d $(GOBIN)
+	cp $(BUILD_DIR)/$(BINARY_NAME) $(GOBIN)/
 	@echo "Installation complete"
 
-# Uninstall the binary from $GOPATH/bin
+# Uninstall the binary from $GOBIN
 .PHONY: uninstall
 uninstall:
-	@echo "Uninstalling $(BINARY_NAME) from $(GOPATH)/bin..."
-	rm -f $(GOPATH)/bin/$(BINARY_NAME)
+	@echo "Uninstalling $(BINARY_NAME) from $(GOBIN)..."
+	rm -f $(GOBIN)/$(BINARY_NAME)
 	@echo "Uninstall complete"
 
 # Format Go code
@@ -193,8 +197,8 @@ help:
 	@echo "  clean             Remove build artifacts"
 	@echo "  deps              Download and verify dependencies"
 	@echo "  deps-update       Update dependencies"
-	@echo "  install           Install binary to \$$GOPATH/bin"
-	@echo "  uninstall         Remove binary from \$$GOPATH/bin"
+	@echo "  install           Install binary to \$$GOBIN"
+	@echo "  uninstall         Remove binary from \$$GOBIN"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
 	@echo "  security          Run security scan (gosec)"
