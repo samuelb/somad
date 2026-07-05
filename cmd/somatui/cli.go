@@ -12,6 +12,7 @@ import (
 	"somatui/internal/channels"
 	"somatui/internal/client"
 	"somatui/internal/protocol"
+	"somatui/internal/state"
 )
 
 // catalogWait bounds how long CLI commands wait for a freshly spawned
@@ -287,22 +288,68 @@ func runStatus() {
 	fmt.Printf("Volume:  %d%%\n", int(st.Volume*100+0.5))
 }
 
+// runVolume shows the volume when called without an argument, sets it for an
+// absolute percentage, and adjusts it for an explicitly signed one.
 func runVolume(args []string) {
+	if len(args) == 0 {
+		showVolume()
+		return
+	}
 	if len(args) != 1 {
-		fail("usage: somatui volume <0-100>")
+		fail("usage: somatui volume [<0-100> | +<n> | -<n>]")
 	}
-	pct, err := strconv.Atoi(args[0])
-	if err != nil || pct < 0 || pct > 100 {
-		fail("volume must be a number between 0 and 100")
+	pct, relative, err := parseVolumeArg(args[0])
+	if err != nil {
+		fail("%v", err)
 	}
+
 	c := ensureServer()
 	defer func() { _ = c.Close() }()
 
-	st, err := c.SetVolume(float64(pct) / 100)
+	target := float64(pct) / 100
+	if relative {
+		st, err := c.Status()
+		if err != nil {
+			fail("%v", err)
+		}
+		target += st.Volume
+	}
+	// The server clamps to [0, 1], so relative adjustments can't overshoot.
+	st, err := c.SetVolume(target)
 	if err != nil {
 		fail("%v", err)
 	}
 	fmt.Printf("Volume:  %d%%\n", int(st.Volume*100+0.5))
+}
+
+// parseVolumeArg parses a volume argument: an absolute percentage in [0, 100],
+// or a relative adjustment when explicitly signed ("+5", "-10").
+func parseVolumeArg(arg string) (pct int, relative bool, err error) {
+	relative = strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-")
+	pct, convErr := strconv.Atoi(arg)
+	if convErr != nil || (!relative && (pct < 0 || pct > 100)) {
+		return 0, false, fmt.Errorf("volume must be a number between 0 and 100, or a +/- adjustment")
+	}
+	return pct, relative, nil
+}
+
+// showVolume prints the current volume without spawning a server: with no
+// server running, the persisted state has the volume the next one will use.
+func showVolume() {
+	if c, running := dialServer(); running {
+		defer func() { _ = c.Close() }()
+		st, err := c.Status()
+		if err != nil {
+			fail("%v", err)
+		}
+		fmt.Printf("Volume:  %d%%\n", int(st.Volume*100+0.5))
+		return
+	}
+	st, err := state.LoadState()
+	if err != nil {
+		fail("%v", err)
+	}
+	fmt.Printf("Volume:  %d%%\n", int(st.GetVolume()*100+0.5))
 }
 
 func runServerStop() {

@@ -122,7 +122,7 @@ background if one isn't running yet.
 | `somatui pause`            | Toggle pause (live radio: unpausing rejoins the live stream) |
 | `somatui stop`             | Stop playback                                            |
 | `somatui status`           | Show what is playing                                     |
-| `somatui volume <0-100>`   | Set the playback volume                                  |
+| `somatui volume [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
 | `somatui server`           | Run the playback server in the foreground                |
 | `somatui server stop`      | Shut down the playback server                            |
 | `somatui --version`        | Print version information                                |

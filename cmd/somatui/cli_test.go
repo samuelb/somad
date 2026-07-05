@@ -65,6 +65,38 @@ func TestFormatChannelList_EmptyCatalog(t *testing.T) {
 	assert.Empty(t, formatChannelList(protocol.ChannelsPayload{}))
 }
 
+func TestParseVolumeArg(t *testing.T) {
+	tests := []struct {
+		arg      string
+		pct      int
+		relative bool
+		wantErr  bool
+	}{
+		{arg: "0", pct: 0},
+		{arg: "100", pct: 100},
+		{arg: "42", pct: 42},
+		{arg: "+5", pct: 5, relative: true},
+		{arg: "-10", pct: -10, relative: true},
+		// Relative adjustments may exceed 100; the server clamps the result.
+		{arg: "+200", pct: 200, relative: true},
+		{arg: "101", wantErr: true},
+		{arg: "-1", pct: -1, relative: true}, // explicit sign means relative
+		{arg: "150", wantErr: true},
+		{arg: "loud", wantErr: true},
+		{arg: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		pct, relative, err := parseVolumeArg(tt.arg)
+		if tt.wantErr {
+			assert.Error(t, err, "arg %q", tt.arg)
+			continue
+		}
+		require.NoError(t, err, "arg %q", tt.arg)
+		assert.Equal(t, tt.pct, pct, "arg %q", tt.arg)
+		assert.Equal(t, tt.relative, relative, "arg %q", tt.arg)
+	}
+}
+
 func TestFavoriteMessage_ReportsToggleDirection(t *testing.T) {
 	ch := channels.Channel{ID: "dronezone", Title: "Drone Zone"}
 

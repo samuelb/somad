@@ -92,7 +92,7 @@ func printUsage(w io.Writer) {
   somatui pause                  toggle pause (reconnects the live stream on unpause)
   somatui stop                   stop playback
   somatui status                 show what is playing
-  somatui volume <0-100>         set the playback volume
+  somatui volume [<0-100>|+n|-n] show, set, or adjust the playback volume
   somatui server [flags]         run the playback server in the foreground
   somatui server stop            shut down the playback server
   somatui --version              print version information
