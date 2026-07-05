@@ -4,6 +4,7 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"slices"
@@ -311,8 +312,12 @@ func (s *Server) channelsPayloadLocked() protocol.ChannelsPayload {
 
 // ToggleFavorite flips a channel's favorite flag, persists it, re-sorts the
 // catalog, and notifies all clients.
-func (s *Server) ToggleFavorite(channelID string) []string {
+func (s *Server) ToggleFavorite(channelID string) ([]string, error) {
 	s.mu.Lock()
+	if _, ok := s.findChannelLocked(channelID); !ok {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("unknown channel: %s", channelID)
+	}
 	s.st.ToggleFavorite(channelID)
 	stateToSave := s.st.Clone()
 	s.catalog = sortChannelsWithFavorites(s.catalog, s.st.FavoriteChannelIDs)
@@ -323,7 +328,7 @@ func (s *Server) ToggleFavorite(channelID string) []string {
 	s.mu.Unlock()
 
 	saveState(stateToSave)
-	return favorites
+	return favorites, nil
 }
 
 func saveState(st *state.State) {

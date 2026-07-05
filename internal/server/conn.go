@@ -165,7 +165,11 @@ func (c *conn) handleRequest(req protocol.Request) {
 			c.respondError(req.ID, fmt.Errorf("malformed toggleFavorite params: %w", err))
 			return
 		}
-		favorites := c.s.ToggleFavorite(params.ChannelID)
+		favorites, err := c.s.ToggleFavorite(params.ChannelID)
+		if err != nil {
+			c.respondError(req.ID, err)
+			return
+		}
 		c.respond(req.ID, protocol.FavoritesResult{Favorites: favorites})
 
 	case protocol.MethodShutdown:

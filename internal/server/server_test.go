@@ -328,6 +328,19 @@ func TestToggleFavorite_PersistsAndBroadcasts(t *testing.T) {
 	assert.Equal(t, []string{"dronezone"}, persisted.FavoriteChannelIDs)
 }
 
+func TestToggleFavorite_UnknownChannel(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+
+	resp := c.call(protocol.MethodToggleFavorite, protocol.ToggleFavoriteParams{ChannelID: "nope"})
+
+	assert.Contains(t, resp.Error, "unknown channel")
+	persisted, err := state.LoadState()
+	require.NoError(t, err)
+	assert.Empty(t, persisted.FavoriteChannelIDs)
+}
+
 // TestToggleFavorite_ConcurrentReadIsRaceFree guards the favorites slice
 // handed to clients: ChannelsPayload/ToggleFavorite return values are marshaled
 // after the server lock is released, while ToggleFavorite mutates the backing
@@ -353,8 +366,11 @@ func TestToggleFavorite_ConcurrentReadIsRaceFree(t *testing.T) {
 	wg.Go(func() {
 		defer close(stop)
 		for range 2000 {
-			_, _ = json.Marshal(s.ToggleFavorite("dronezone"))
-			s.ToggleFavorite("groovesalad")
+			favorites, err := s.ToggleFavorite("dronezone")
+			require.NoError(t, err)
+			_, _ = json.Marshal(favorites)
+			_, err = s.ToggleFavorite("groovesalad")
+			require.NoError(t, err)
 		}
 	})
 
