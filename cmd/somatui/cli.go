@@ -25,17 +25,12 @@ func fail(format string, args ...any) {
 	os.Exit(1)
 }
 
-// ensureServer connects (spawning the server if needed) and warns about a
-// version mismatch that could not be auto-healed.
+// ensureServer connects, spawning the server if needed and transparently
+// restarting it onto our version when a running one is out of date.
 func ensureServer() *client.Client {
-	c, hr, err := client.EnsureServer(protocol.SocketPath(), version)
+	c, _, err := client.EnsureServer(protocol.SocketPath(), version)
 	if err != nil {
 		fail("%v", err)
-	}
-	if hr.ServerVersion != version {
-		fmt.Fprintf(os.Stderr,
-			"somatui: warning: server runs v%s, client v%s — restart it with `somatui server stop` once playback is stopped\n",
-			hr.ServerVersion, version)
 	}
 	return c
 }

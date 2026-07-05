@@ -76,26 +76,57 @@ func openServerLog(path string) (*os.File, error) {
 
 // EnsureServer returns a connected, hello-verified client, spawning the
 // server when none is running. When the running server's binary version
-// differs from ours and it is idle, it is restarted transparently; when it
-// is playing, the session is kept and the caller can warn using the
-// returned HelloResult.
+// differs from ours, it is restarted transparently onto our binary — even
+// while it is playing, in which case whatever was playing is resumed on the
+// replacement so the swap costs only the stream's reconnect gap.
 func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
 	c, hr, err := connectOrSpawn(socketPath, clientVersion)
 	if err != nil {
 		return nil, hr, err
 	}
-
-	if hr.ServerVersion != clientVersion {
-		if st, err := c.Status(); err == nil && st.Status == protocol.StatusStopped {
-			_ = c.Shutdown()
-			_ = c.Close()
-			if !waitForServerExit(socketPath) {
-				return nil, protocol.HelloResult{}, fmt.Errorf("somatui server (version %s) did not exit within %s to restart as version %s", hr.ServerVersion, restartWait, clientVersion)
-			}
-			return connectOrSpawn(socketPath, clientVersion)
-		}
+	if hr.ServerVersion == clientVersion {
+		return c, hr, nil
 	}
-	return c, hr, nil
+	return restartForVersionSkew(c, socketPath, clientVersion, hr)
+}
+
+// restartForVersionSkew replaces a running server whose binary version differs
+// from the client's with a fresh spawn of the client's own binary. Whatever the
+// old server was playing is captured before it is asked to stop and replayed on
+// the replacement, so an upgrade costs only the stream's reconnect gap rather
+// than leaving a mismatched server in place. The persisted volume and
+// last-played channel carry across on their own — the new server restores them
+// from state on startup — so only the live stream has to be re-established.
+func restartForVersionSkew(c *Client, socketPath, clientVersion string, hr protocol.HelloResult) (*Client, protocol.HelloResult, error) {
+	// Capture what the outgoing server is playing before asking it to stop, so
+	// the replacement can pick it back up. A Status error just means we resume
+	// nothing.
+	prev, statusErr := c.Status()
+
+	_ = c.Shutdown()
+	_ = c.Close()
+	if !waitForServerExit(socketPath) {
+		return nil, protocol.HelloResult{}, fmt.Errorf("somatui server (version %s) did not exit within %s to restart as version %s", hr.ServerVersion, restartWait, clientVersion)
+	}
+
+	nc, nhr, err := connectOrSpawn(socketPath, clientVersion)
+	if err != nil {
+		return nil, nhr, err
+	}
+
+	// Resume the interrupted stream. A failed resume must not fail the whole
+	// call: the restart already succeeded and the caller has a working,
+	// up-to-date client — it just isn't playing.
+	if statusErr == nil && shouldResume(prev) {
+		_, _ = nc.Play(prev.ChannelID)
+	}
+	return nc, nhr, nil
+}
+
+// shouldResume reports whether a captured state describes active playback worth
+// replaying on the restarted server.
+func shouldResume(st protocol.PlaybackState) bool {
+	return st.ChannelID != "" && st.Status != protocol.StatusStopped
 }
 
 // connectOrSpawn dials the socket, spawning a server and retrying when

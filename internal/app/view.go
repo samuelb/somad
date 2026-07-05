@@ -98,13 +98,10 @@ func (m *Model) RenderStatusBar() string {
 	volumeStyle := lipgloss.NewStyle().Foreground(ui.SubtleColor)
 	parts = append(parts, volumeStyle.Render(fmt.Sprintf("♪ %d%%", int(math.Round(m.Snapshot.Volume*100)))))
 
-	// Surface connection trouble and version skew without hiding the list.
-	warnStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
+	// Surface connection trouble without hiding the list.
 	if m.ServerLost {
+		warnStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
 		parts = append(parts, warnStyle.Render("server connection lost — reconnecting…"))
-	} else if m.VersionSkew != "" {
-		parts = append(parts, warnStyle.Render(
-			fmt.Sprintf("server v%s ≠ client v%s — restart with `somatui server stop`", m.VersionSkew, m.About.Version)))
 	}
 
 	return ui.StatusBarStyle.Render(strings.Join(parts, "  │  "))

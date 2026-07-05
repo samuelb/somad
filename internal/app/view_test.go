@@ -148,17 +148,6 @@ func TestRenderStatusBar_ServerLost(t *testing.T) {
 	assert.Contains(t, result, "server connection lost")
 }
 
-func TestRenderStatusBar_VersionSkew(t *testing.T) {
-	m := newTestModel(t)
-	m.About.Version = "2.0.0"
-	m.VersionSkew = "1.0.0"
-
-	result := m.RenderStatusBar()
-
-	assert.Contains(t, result, "server v1.0.0")
-	assert.Contains(t, result, "client v2.0.0")
-}
-
 func TestRenderHeader_ContainsTitles(t *testing.T) {
 	m := newTestModel(t)
 

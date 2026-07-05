@@ -174,7 +174,7 @@ func runServer(args []string) {
 
 func runTUI() {
 	socketPath := protocol.SocketPath()
-	c, hr, err := client.EnsureServer(socketPath, version)
+	c, _, err := client.EnsureServer(socketPath, version)
 	if err != nil {
 		fmt.Printf("Alas, there's been an error reaching the somatui server: %v\n", err)
 		os.Exit(1)
@@ -189,9 +189,6 @@ func runTUI() {
 			Commit:  commit,
 			Date:    date,
 		},
-	}
-	if hr.ServerVersion != version {
-		m.VersionSkew = hr.ServerVersion
 	}
 
 	// Initialize the Bubble Tea list component with styled delegate

@@ -188,35 +188,90 @@ func TestEnsureServer_SpawnsAndRetries(t *testing.T) {
 	assert.Equal(t, "dev", hr.ServerVersion)
 }
 
-func TestEnsureServer_KeepsPlayingServerOnVersionSkew(t *testing.T) {
-	path := testSocketPath(t)
-	startFakeServer(t, path, func(req protocol.Request, send func(v any)) {
+// startOutdatedServer runs a fake server that reports the given version and
+// playback status and, when asked to shut down, stops listening so a
+// replacement can bind the socket. It records the channel of any resume Play.
+func startOutdatedServer(t *testing.T, path, serverVersion, status, channelID string, played chan<- string) {
+	t.Helper()
+	var ln net.Listener
+	fs := startFakeServer(t, path, func(req protocol.Request, send func(v any)) {
 		respond := func(result any) {
 			raw, _ := json.Marshal(result)
 			send(protocol.Response{ID: req.ID, Result: raw})
 		}
 		switch req.Method {
 		case protocol.MethodHello:
-			respond(protocol.HelloResult{ServerVersion: "old", ProtocolVersion: protocol.Version})
+			respond(protocol.HelloResult{ServerVersion: serverVersion, ProtocolVersion: protocol.Version})
 		case protocol.MethodStatus:
-			respond(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1})
+			respond(protocol.PlaybackState{Status: status, ChannelID: channelID, Volume: 1})
+		case protocol.MethodPlay:
+			var p protocol.PlayParams
+			_ = json.Unmarshal(req.Params, &p)
+			select {
+			case played <- p.ChannelID:
+			default:
+			}
+			respond(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: p.ChannelID, Volume: 1})
 		case protocol.MethodShutdown:
 			respond(struct{}{})
+			// Closing the listener unlinks the socket so the replacement can
+			// take it; waitForServerExit then observes the exit.
+			_ = ln.Close()
 		}
 	})
+	ln = fs.ln
+}
 
+func TestEnsureServer_RestartsPlayingServerAndResumes(t *testing.T) {
+	path := testSocketPath(t)
+	oldPlayed := make(chan string, 1) // the old server never gets a Play
+	startOutdatedServer(t, path, "old", protocol.StatusPlaying, "groovesalad", oldPlayed)
+
+	resumed := make(chan string, 1)
 	prev := spawnServer
-	spawned := false
-	spawnServer = func() error { spawned = true; return nil }
+	spawnServer = func() error {
+		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", resumed)
+		return nil
+	}
 	t.Cleanup(func() { spawnServer = prev })
 
 	c, hr, err := EnsureServer(path, "new")
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	// The playing server is kept; the caller sees the skew via HelloResult.
-	assert.Equal(t, "old", hr.ServerVersion)
-	assert.False(t, spawned, "must not restart a playing server")
+	// The outdated server is replaced by one on our version...
+	assert.Equal(t, "new", hr.ServerVersion)
+	// ...and whatever it was playing resumes on the replacement.
+	select {
+	case ch := <-resumed:
+		assert.Equal(t, "groovesalad", ch, "playback must resume on the restarted server")
+	case <-time.After(2 * time.Second):
+		t.Fatal("restarted server was never asked to resume playback")
+	}
+}
+
+func TestEnsureServer_RestartsIdleServerWithoutResuming(t *testing.T) {
+	path := testSocketPath(t)
+	startOutdatedServer(t, path, "old", protocol.StatusStopped, "", make(chan string, 1))
+
+	resumed := make(chan string, 1)
+	prev := spawnServer
+	spawnServer = func() error {
+		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", resumed)
+		return nil
+	}
+	t.Cleanup(func() { spawnServer = prev })
+
+	c, hr, err := EnsureServer(path, "new")
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	assert.Equal(t, "new", hr.ServerVersion)
+	select {
+	case ch := <-resumed:
+		t.Fatalf("a stopped server must not trigger a resume, but %q was played", ch)
+	case <-time.After(300 * time.Millisecond):
+	}
 }
 
 func TestEnsureServer_ErrorsWhenStaleServerWontExit(t *testing.T) {

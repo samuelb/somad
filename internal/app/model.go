@@ -32,8 +32,6 @@ type Model struct {
 	PlayingID string
 	// ServerLost is true while the server connection is being re-established.
 	ServerLost bool
-	// VersionSkew names the server version when it differs from the client's.
-	VersionSkew string
 
 	Loading   bool
 	Err       error

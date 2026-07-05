@@ -16,6 +16,8 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
   can close the TUI and the music keeps playing
 - The server starts automatically when needed and exits on its own once
   playback is stopped and no client is connected
+- After an upgrade, the next command restarts the background server onto the
+  new version automatically, resuming whatever was playing
 - Headless CLI commands (`play`, `list`, `stop`, `status`, `volume`) for scripting
   and keybindings without opening the TUI
 - Mark channels as favorites for quick access
