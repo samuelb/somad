@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -325,6 +326,39 @@ func TestToggleFavorite_PersistsAndBroadcasts(t *testing.T) {
 	persisted, err := state.LoadState()
 	require.NoError(t, err)
 	assert.Equal(t, []string{"dronezone"}, persisted.FavoriteChannelIDs)
+}
+
+// TestToggleFavorite_ConcurrentReadIsRaceFree guards the favorites slice
+// handed to clients: ChannelsPayload/ToggleFavorite return values are marshaled
+// after the server lock is released, while ToggleFavorite mutates the backing
+// slice in place under the lock. Run under -race, this fails if either path
+// stops returning a copy.
+func TestToggleFavorite_ConcurrentReadIsRaceFree(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_, _ = json.Marshal(s.ChannelsPayload())
+		}
+	})
+
+	wg.Go(func() {
+		defer close(stop)
+		for range 2000 {
+			_, _ = json.Marshal(s.ToggleFavorite("dronezone"))
+			s.ToggleFavorite("groovesalad")
+		}
+	})
+
+	wg.Wait()
 }
 
 func TestTrackUpdate_BroadcastsTitle(t *testing.T) {

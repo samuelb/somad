@@ -6,6 +6,7 @@ package server
 import (
 	"log"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -296,8 +297,12 @@ func (s *Server) ChannelsPayload() protocol.ChannelsPayload {
 
 func (s *Server) channelsPayloadLocked() protocol.ChannelsPayload {
 	return protocol.ChannelsPayload{
-		Channels:      s.catalog,
-		Favorites:     s.st.FavoriteChannelIDs,
+		Channels: s.catalog,
+		// Clone: ToggleFavorite mutates this slice in place under the lock,
+		// while the exported ChannelsPayload path marshals the result after
+		// releasing it. s.catalog is only ever replaced wholesale, so it needs
+		// no copy.
+		Favorites:     slices.Clone(s.st.FavoriteChannelIDs),
 		LastChannelID: s.st.LastSelectedChannelID,
 		Error:         s.catalogErr,
 	}
@@ -312,7 +317,9 @@ func (s *Server) ToggleFavorite(channelID string) []string {
 	s.saveStateLocked()
 	s.catalog = sortChannelsWithFavorites(s.catalog, s.st.FavoriteChannelIDs)
 	s.broadcastChannelsLocked()
-	return s.st.FavoriteChannelIDs
+	// Clone: the caller marshals this after the lock is released, but a later
+	// ToggleFavorite mutates the underlying slice in place.
+	return slices.Clone(s.st.FavoriteChannelIDs)
 }
 
 func (s *Server) saveStateLocked() {
