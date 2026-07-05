@@ -1,7 +1,7 @@
 # SomaTUI
 
 [![CI](https://github.com/samuelb/somatui/actions/workflows/ci.yml/badge.svg)](https://github.com/samuelb/somatui/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/badge/go-1.24-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/go-1.25-blue.svg)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **✨ This project was entirely vibe-coded. ✨**
@@ -76,7 +76,7 @@ Then, you can run it from your terminal.
 
 ### Build from Source
 
-Prerequisites: Go 1.24 or newer
+Prerequisites: Go 1.25 or newer
 
 On Linux, the ALSA development library is required for audio support:
 
