@@ -55,7 +55,7 @@ Download the `.deb` package from the [latest release](https://github.com/samuelb
 and install it with:
 
 ```sh
-sudo apt install ./somatui_*_linux_amd64.deb
+sudo apt install ./somatui_*_linux_$(dpkg --print-architecture).deb
 ```
 
 ### Nix
@@ -83,8 +83,12 @@ paru -S somatui
 
 ### Pre-built Binaries
 
-1.  Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somatui/releases).
-2.  Extract the archive.
+1.  Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somatui/releases):
+    - `somatui_darwin_amd64` for Intel Macs
+    - `somatui_darwin_arm64` for Apple Silicon/M-series Macs
+    - `somatui_linux_amd64` for x86_64 Linux
+    - `somatui_linux_arm64` for ARM64 Linux
+2.  Rename it to `somatui` if you want a shorter command.
 3.  Run the `somatui` executable.
 
 #### macOS
@@ -239,6 +243,15 @@ To install lefthook itself, see [installation instructions](https://github.com/e
 ```sh
 go install github.com/evilmartians/lefthook@latest
 ```
+
+## Release Dry Run
+
+To test the full release pipeline without publishing anything, run the `Release`
+workflow manually in GitHub Actions and leave `dry_run` set to `true`. The dry
+run builds all release binaries and Debian packages, generates checksums, renders
+the Homebrew formula and AUR files, and uploads the generated release assets as
+workflow artifacts. It does not create a Git tag, create a GitHub Release, update
+the Homebrew tap, or push to AUR.
 
 ## License
 

@@ -7,6 +7,11 @@ on:
         description: "Version to release (e.g., v0.2.0)"
         required: true
         type: string
+      dry_run:
+        description: "Build and render release artifacts without publishing"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -26,6 +31,7 @@ jobs:
           fi
 
       - name: Check tag doesn't exist
+        if: inputs.dry_run == false
         run: |
           if git rev-parse "${{ inputs.version }}" >/dev/null 2>&1; then
             echo "Error: Tag ${{ inputs.version }} already exists"
@@ -53,6 +59,7 @@ jobs:
       matrix:
         include:
           - { goos: linux, goarch: amd64, runner: ubuntu-latest }
+          - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
           - { goos: darwin, goarch: amd64, runner: macos-latest }
           - { goos: darwin, goarch: arm64, runner: macos-latest }
     runs-on: ${{ matrix.runner }}
@@ -112,6 +119,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Create tag
+        if: inputs.dry_run == false
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -125,12 +133,21 @@ jobs:
           merge-multiple: true
 
       - name: Build Debian package
-        run: packaging/deb/build-deb.sh "${{ inputs.version }}" dist/somatui_linux_amd64 amd64 dist
+        run: |
+          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/somatui_linux_amd64 amd64 dist
+          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/somatui_linux_arm64 arm64 dist
 
       - name: Generate checksums
         run: cd dist && sha256sum somatui_* > checksums.txt
 
+      - uses: actions/upload-artifact@v7
+        if: inputs.dry_run == true
+        with:
+          name: release-artifacts
+          path: dist/*
+
       - uses: softprops/action-gh-release@v3
+        if: inputs.dry_run == false
         with:
           tag_name: ${{ inputs.version }}
           body: ${{ steps.changelog.outputs.body }}
@@ -142,11 +159,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download checksums
+        if: inputs.dry_run == false
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "${{ inputs.version }}" --repo "${{ github.repository }}" --pattern checksums.txt
 
+      - name: Download dry-run release artifacts
+        if: inputs.dry_run == true
+        uses: actions/download-artifact@v8
+        with:
+          name: release-artifacts
+          path: dry-run-release-artifacts
+
+      - name: Copy dry-run checksums
+        if: inputs.dry_run == true
+        run: cp dry-run-release-artifacts/checksums.txt checksums.txt
+
       - name: Check out tap
+        if: inputs.dry_run == false
         uses: actions/checkout@v7
         with:
           repository: samuelb/homebrew-somatui
@@ -161,7 +191,8 @@ jobs:
           DARWIN_ARM64="$(sha somatui_darwin_arm64)"
           DARWIN_AMD64="$(sha somatui_darwin_amd64)"
           LINUX_AMD64="$(sha somatui_linux_amd64)"
-          if [ -z "$DARWIN_ARM64" ] || [ -z "$DARWIN_AMD64" ] || [ -z "$LINUX_AMD64" ]; then
+          LINUX_ARM64="$(sha somatui_linux_arm64)"
+          if [ -z "$DARWIN_ARM64" ] || [ -z "$DARWIN_AMD64" ] || [ -z "$LINUX_AMD64" ] || [ -z "$LINUX_ARM64" ]; then
             echo "Error: missing a checksum for one or more binaries" >&2
             cat checksums.txt >&2
             exit 1
@@ -186,6 +217,10 @@ jobs:
             end
 
             on_linux do
+              on_arm do
+                url "https://github.com/samuelb/somatui/releases/download/${VERSION}/somatui_linux_arm64"
+                sha256 "${LINUX_ARM64}"
+              end
               on_intel do
                 url "https://github.com/samuelb/somatui/releases/download/${VERSION}/somatui_linux_amd64"
                 sha256 "${LINUX_AMD64}"
@@ -202,7 +237,14 @@ jobs:
           end
           EOF
 
+      - uses: actions/upload-artifact@v7
+        if: inputs.dry_run == true
+        with:
+          name: homebrew-formula
+          path: tap/Formula/somatui.rb
+
       - name: Commit and push
+        if: inputs.dry_run == false
         run: |
           cd tap
           if git diff --quiet -- Formula/somatui.rb; then
@@ -222,12 +264,21 @@ jobs:
     env:
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
     steps:
+      - uses: actions/checkout@v7
+
       - name: Render PKGBUILD and .SRCINFO
         run: |
           VERSION="${{ inputs.version }}"
           BARE="${VERSION#v}"
           URL="https://github.com/${{ github.repository }}/archive/refs/tags/${VERSION}.tar.gz"
-          curl -fsSL "$URL" -o source.tar.gz
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            # Render-only: archive HEAD so a checksum can be computed. This SHA256
+            # will not match the real GitHub tag tarball, so the rendered PKGBUILD
+            # is for inspection, not for building.
+            git archive --format=tar.gz --output source.tar.gz HEAD
+          else
+            curl -fsSL "$URL" -o source.tar.gz
+          fi
           SHA256="$(sha256sum source.tar.gz | awk '{print $1}')"
           mkdir -p aur
           cat > aur/PKGBUILD <<EOF
@@ -302,7 +353,7 @@ jobs:
           fi
 
       - name: Publish to AUR
-        if: steps.aur-config.outputs.enabled == 'true'
+        if: inputs.dry_run == false && steps.aur-config.outputs.enabled == 'true'
         run: |
           install -d -m 0700 ~/.ssh
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
