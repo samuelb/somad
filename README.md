@@ -49,6 +49,38 @@ Recent versions of Homebrew ask you to explicitly trust a third-party tap before
 installing from it. If you see an "untrusted tap" error, run
 `brew trust samuelb/somatui` and try again.
 
+### Debian/Ubuntu
+
+Download the `.deb` package from the [latest release](https://github.com/samuelb/somatui/releases)
+and install it with:
+
+```sh
+sudo apt install ./somatui_*_linux_amd64.deb
+```
+
+### Nix
+
+Run SomaTUI directly from the flake:
+
+```sh
+nix run github:samuelb/somatui
+```
+
+Or install it into your profile:
+
+```sh
+nix profile install github:samuelb/somatui
+```
+
+### Arch Linux
+
+SomaTUI can be packaged for the AUR from `packaging/aur/`. Once published, install
+it with an AUR helper such as:
+
+```sh
+paru -S somatui
+```
+
 ### Pre-built Binaries
 
 1.  Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somatui/releases).
@@ -99,7 +131,7 @@ Then build:
 ```sh
 git clone https://github.com/samuelb/somatui.git
 cd somatui
-go build -o somatui
+go build -o somatui ./cmd/somatui
 ```
 
 ## Usage

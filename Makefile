@@ -11,6 +11,7 @@ DATE?=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
 # GOPATH the environment variable is usually unset with modern Go; fall back
 # to what the toolchain reports so `make install` has a real target directory.
 GOBIN?=$(shell go env GOPATH)/bin
+DEB_ARCH?=amd64
 
 # Build flags
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
@@ -100,6 +101,7 @@ clean:
 	@echo "Cleaning..."
 	rm -f $(BUILD_DIR)/$(BINARY_NAME)
 	rm -f coverage.out coverage.html
+	rm -rf dist/
 	@echo "Clean complete"
 
 # Download and verify dependencies
@@ -130,6 +132,18 @@ uninstall:
 	@echo "Uninstalling $(BINARY_NAME) from $(GOBIN)..."
 	rm -f $(GOBIN)/$(BINARY_NAME)
 	@echo "Uninstall complete"
+
+# Build a Debian package from the local binary
+.PHONY: package-deb
+package-deb: build
+	@echo "Building Debian package..."
+	packaging/deb/build-deb.sh "$(VERSION)" "$(BUILD_DIR)/$(BINARY_NAME)" "$(DEB_ARCH)" dist
+
+# Build the default Nix package
+.PHONY: package-nix
+package-nix:
+	@echo "Building Nix package..."
+	nix build .#
 
 # Format Go code
 .PHONY: fmt
@@ -199,6 +213,8 @@ help:
 	@echo "  deps-update       Update dependencies"
 	@echo "  install           Install binary to \$$GOBIN"
 	@echo "  uninstall         Remove binary from \$$GOBIN"
+	@echo "  package-deb       Build a .deb package in dist/"
+	@echo "  package-nix       Build the Nix flake package"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
 	@echo "  security          Run security scan (gosec)"
@@ -211,3 +227,4 @@ help:
 	@echo "  VERSION           Set version (default: git tag or 'dev')"
 	@echo "  COMMIT            Set commit hash (default: git sha or 'none')"
 	@echo "  DATE              Set build date (default: current UTC time)"
+	@echo "  DEB_ARCH          Debian architecture for package-deb (default: amd64)"
