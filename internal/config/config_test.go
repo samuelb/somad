@@ -35,6 +35,7 @@ func TestLoadMissingFileIsEmptyConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	assert.Nil(t, cfg.Server.Tray)
+	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 }
 
 func TestLoadEmptyFileIsEmptyConfig(t *testing.T) {
@@ -43,16 +44,19 @@ func TestLoadEmptyFileIsEmptyConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	assert.Nil(t, cfg.Server.Tray)
+	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 }
 
 func TestLoadFullConfig(t *testing.T) {
-	writeConfig(t, "server:\n  idle_timeout: 5m\n  tray: false\n")
+	writeConfig(t, "server:\n  idle_timeout: 5m\n  tray: false\ntui:\n  shutdown_on_exit: true\n")
 	cfg, err := Load()
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Server.IdleTimeout)
 	assert.Equal(t, 5*time.Minute, time.Duration(*cfg.Server.IdleTimeout))
 	require.NotNil(t, cfg.Server.Tray)
 	assert.False(t, *cfg.Server.Tray)
+	require.NotNil(t, cfg.TUI.ShutdownOnExit)
+	assert.True(t, *cfg.TUI.ShutdownOnExit)
 }
 
 func TestLoadPartialConfigLeavesRestUnset(t *testing.T) {
@@ -62,6 +66,7 @@ func TestLoadPartialConfigLeavesRestUnset(t *testing.T) {
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	require.NotNil(t, cfg.Server.Tray)
 	assert.True(t, *cfg.Server.Tray)
+	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 }
 
 func TestLoadZeroIdleTimeoutIsExplicit(t *testing.T) {
@@ -123,6 +128,7 @@ func TestEnsureTemplateCreatesParseableDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	assert.Nil(t, cfg.Server.Tray)
+	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 
 	// The commented-out settings must be real: uncommenting them (dropping
 	// the prose header, which uses "# " with a single space) has to parse
@@ -143,6 +149,8 @@ func TestEnsureTemplateCreatesParseableDefaults(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, time.Duration(*cfg.Server.IdleTimeout))
 	require.NotNil(t, cfg.Server.Tray)
 	assert.True(t, *cfg.Server.Tray)
+	require.NotNil(t, cfg.TUI.ShutdownOnExit)
+	assert.False(t, *cfg.TUI.ShutdownOnExit)
 }
 
 func TestEnsureTemplateNeverTouchesAnExistingFile(t *testing.T) {

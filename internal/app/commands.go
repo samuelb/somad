@@ -103,6 +103,23 @@ func (m *Model) restartCmd() tea.Cmd {
 	}
 }
 
+// quitCmd exits the TUI. When configured, it also shuts down the playback
+// server; otherwise it only closes the frontend.
+func (m *Model) quitCmd() tea.Cmd {
+	b := m.Backend
+	shutdown := m.ShutdownOnExit
+	onExit := m.OnExit
+	return func() tea.Msg {
+		if onExit != nil {
+			onExit()
+		}
+		if shutdown {
+			_ = b.Shutdown()
+		}
+		return tea.QuitMsg{}
+	}
+}
+
 // stopCmd halts playback on the server.
 func (m *Model) stopCmd() tea.Cmd {
 	b := m.Backend

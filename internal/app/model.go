@@ -46,6 +46,11 @@ type Model struct {
 	About     AboutInfo
 	Width     int
 	Height    int
+	// ShutdownOnExit asks the server to stop playback and exit when the TUI
+	// closes. OnExit is called before quitting so the reconnect bridge does not
+	// auto-spawn a replacement server.
+	ShutdownOnExit bool
+	OnExit         func()
 	// Search state
 	Searching     bool   // Whether search input is active
 	SearchQuery   string // Current search query

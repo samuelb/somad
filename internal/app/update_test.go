@@ -37,6 +37,7 @@ func TestUpdate_QuitKey_DoesNotStopPlayback(t *testing.T) {
 	assert.IsType(t, tea.QuitMsg{}, cmd())
 	// Quitting the TUI must leave the server playing.
 	assert.Zero(t, backend(m).stops)
+	assert.Zero(t, backend(m).shutdowns)
 }
 
 func TestUpdate_CtrlC_Quits(t *testing.T) {
@@ -47,6 +48,21 @@ func TestUpdate_CtrlC_Quits(t *testing.T) {
 	require.NotNil(t, cmd)
 	assert.IsType(t, tea.QuitMsg{}, cmd())
 	assert.Zero(t, backend(m).stops)
+	assert.Zero(t, backend(m).shutdowns)
+}
+
+func TestUpdate_QuitKey_ShutsDownServerWhenConfigured(t *testing.T) {
+	m := newTestModel(t)
+	var exited bool
+	m.ShutdownOnExit = true
+	m.OnExit = func() { exited = true }
+
+	_, cmd := sendKey(m, 'q')
+
+	require.NotNil(t, cmd)
+	assert.IsType(t, tea.QuitMsg{}, cmd())
+	assert.True(t, exited)
+	assert.Equal(t, 1, backend(m).shutdowns)
 }
 
 func TestUpdate_AboutKey_TogglesAbout(t *testing.T) {

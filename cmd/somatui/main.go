@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,7 +43,7 @@ func userAgent() string {
 func main() {
 	args := os.Args[1:]
 	if len(args) == 0 {
-		runTUI()
+		runTUI(nil)
 		return
 	}
 
@@ -51,6 +52,8 @@ func main() {
 		fmt.Printf("somatui %s (commit: %s, built: %s)\n", version, commit, date)
 	case "--help", "-h", "help":
 		printUsage(os.Stdout)
+	case "--shutdown-on-exit":
+		runTUI(args)
 	case "server":
 		if len(args) > 1 && args[1] == "stop" {
 			runServerStop()
@@ -76,6 +79,10 @@ func main() {
 	case "volume":
 		runVolume(args[1:])
 	default:
+		if len(args[0]) > 0 && args[0][0] == '-' {
+			runTUI(args)
+			return
+		}
 		fmt.Fprintf(os.Stderr, "somatui: unknown command %q\n\n", args[0])
 		printUsage(os.Stderr)
 		os.Exit(2)
@@ -85,6 +92,7 @@ func main() {
 func printUsage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Usage:
   somatui                        start the TUI (spawns the playback server if needed)
+                                 (--shutdown-on-exit stops playback and server on quit)
   somatui play [channel]         play a channel by ID or name, or resume the
                                  last played channel (spawns the server if needed)
   somatui list [--json]          list all channels (favorites first, marked *)
@@ -109,6 +117,8 @@ Server flags can also be set in %s
   server:
     idle_timeout: 5m   # exit after this long idle (default "0": never)
     tray: false        # hide the tray / menu-bar icon
+  tui:
+    shutdown_on_exit: true
 `, path)
 	}
 }
@@ -232,7 +242,24 @@ func runServer(args []string) {
 	time.Sleep(400 * time.Millisecond)
 }
 
-func runTUI() {
+func runTUI(args []string) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "somatui: error loading config: %v\n", err)
+		os.Exit(1)
+	}
+	defaultShutdownOnExit := cfg.TUI.ShutdownOnExit != nil && *cfg.TUI.ShutdownOnExit
+
+	fs := flag.NewFlagSet("somatui", flag.ExitOnError)
+	shutdownOnExit := fs.Bool("shutdown-on-exit", defaultShutdownOnExit,
+		"stop playback and shut down the server when the TUI exits")
+	_ = fs.Parse(args)
+	if fs.NArg() != 0 {
+		fmt.Fprintf(os.Stderr, "somatui: unexpected argument %q\n\n", fs.Arg(0))
+		printUsage(os.Stderr)
+		os.Exit(2)
+	}
+
 	socketPath := protocol.SocketPath()
 	c, hr, err := client.EnsureServer(socketPath, version)
 	if err != nil {
@@ -245,13 +272,22 @@ func runTUI() {
 		Backend: c,
 		// A skewed server keeps playing while the user browses; the next channel
 		// change or stop restarts it onto our version.
-		ServerVersion: hr.ServerVersion,
-		Loading:       true,
+		ServerVersion:  hr.ServerVersion,
+		Loading:        true,
+		ShutdownOnExit: *shutdownOnExit,
 		About: app.AboutInfo{
 			Version: version,
 			Commit:  commit,
 			Date:    date,
 		},
+	}
+
+	bridgeDone := make(chan struct{})
+	var bridgeDoneOnce sync.Once
+	m.OnExit = func() {
+		bridgeDoneOnce.Do(func() {
+			close(bridgeDone)
+		})
 	}
 
 	// Initialize the Bubble Tea list component with styled delegate
@@ -263,7 +299,7 @@ func runTUI() {
 	l.Styles.PaginationStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor)
 	l.Styles.HelpStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor).Padding(0, 0, 0, 2)
 
-	fullHelp, shortHelp := app.NewHelpKeys()
+	fullHelp, shortHelp := app.NewHelpKeys(*shutdownOnExit)
 	l.AdditionalFullHelpKeys = func() []key.Binding {
 		return fullHelp
 	}
@@ -277,34 +313,50 @@ func runTUI() {
 
 	// Bridge server events into the Bubble Tea program, reconnecting (and
 	// respawning the server) when the connection drops.
-	go runBridge(p, c, socketPath)
+	go runBridge(p, c, socketPath, bridgeDone)
 
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v\n", err)
 		os.Exit(1)
 	}
+	m.OnExit()
 }
 
 // runBridge forwards server events to the program. When the connection is
 // lost it re-establishes it (spawning a new server if needed) and hands the
 // fresh client, and its version, to the model.
-func runBridge(p *tea.Program, c *client.Client, socketPath string) {
+func runBridge(p *tea.Program, c *client.Client, socketPath string, done <-chan struct{}) {
 	for {
-		for ev := range c.Events() {
-			switch v := ev.(type) {
-			case protocol.PlaybackState:
-				p.Send(app.ServerStateMsg{State: v})
-			case protocol.ChannelsPayload:
-				p.Send(app.ServerChannelsMsg{Payload: v})
+		for {
+			select {
+			case <-done:
+				return
+			case ev, ok := <-c.Events():
+				if !ok {
+					goto reconnect
+				}
+				switch v := ev.(type) {
+				case protocol.PlaybackState:
+					p.Send(app.ServerStateMsg{State: v})
+				case protocol.ChannelsPayload:
+					p.Send(app.ServerChannelsMsg{Payload: v})
+				}
 			}
 		}
 
+	reconnect:
 		p.Send(app.ServerLostMsg{})
+		select {
+		case <-done:
+			return
+		default:
+		}
 		newClient, serverVersion, err := reconnect(socketPath)
 		if err != nil {
 			p.Send(app.ServerGoneMsg{Err: err})
 			return
 		}
+		_ = c.Close()
 		c = newClient
 		p.Send(app.ServerReconnectedMsg{Backend: c, ServerVersion: serverVersion})
 	}

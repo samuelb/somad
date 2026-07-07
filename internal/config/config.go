@@ -27,6 +27,7 @@ const (
 // from an absent key, which falls back to the built-in default.
 type Config struct {
 	Server ServerConfig `yaml:"server"`
+	TUI    TUIConfig    `yaml:"tui"`
 }
 
 // ServerConfig configures the playback server, mirroring the flags of
@@ -38,6 +39,12 @@ type ServerConfig struct {
 	// Tray controls the system tray / menu-bar icon (the inverse of the
 	// --no-tray flag, so the file reads positively).
 	Tray *bool `yaml:"tray"`
+}
+
+// TUIConfig configures the terminal frontend.
+type TUIConfig struct {
+	// ShutdownOnExit stops playback and shuts down the server when the TUI exits.
+	ShutdownOnExit *bool `yaml:"shutdown_on_exit"`
 }
 
 // Duration wraps time.Duration so the YAML file can use Go duration syntax
@@ -142,6 +149,11 @@ const templateFormat = `# SomaTUI configuration file.
 #  # Show the system tray / menu-bar icon while the server runs.
 #  # "tray: false" is the same as the --no-tray flag.
 #  tray: true
+#
+#tui:
+#  # Stop playback and shut down the server when closing the TUI.
+#  # Same as the --shutdown-on-exit flag.
+#  shutdown_on_exit: false
 `
 
 // EnsureTemplate writes the commented-out default template to Path() when no

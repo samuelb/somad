@@ -18,8 +18,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Searching {
 			switch msg.String() {
 			case "ctrl+c":
-				// Quitting leaves the server (and any playback) running.
-				return m, tea.Quit
+				return m, m.quitCmd()
 			case "enter":
 				// Exit search mode, keep at current match
 				m.Searching = false
@@ -51,9 +50,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "ctrl+c", "q":
-			// Quitting the TUI intentionally does not stop playback: the
-			// server keeps streaming until stopped ('s') or it idles out.
-			return m, tea.Quit
+			return m, m.quitCmd()
 		case "enter", " ":
 			if i, ok := m.List.SelectedItem().(ui.Item); ok {
 				// Changing channel interrupts the stream anyway, so an
@@ -164,7 +161,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // NewHelpKeys returns additional help keys for the list.
-func NewHelpKeys() ([]key.Binding, []key.Binding) {
+func NewHelpKeys(shutdownOnExit ...bool) ([]key.Binding, []key.Binding) {
+	quitHelp := "quit (keeps playing)"
+	if len(shutdownOnExit) > 0 && shutdownOnExit[0] {
+		quitHelp = "quit (stops server)"
+	}
 	fullHelp := []key.Binding{
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
@@ -172,7 +173,7 @@ func NewHelpKeys() ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
-		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit (keeps playing)")),
+		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", quitHelp)),
 	}
 
 	shortHelp := []key.Binding{
