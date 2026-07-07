@@ -20,8 +20,9 @@ import (
 )
 
 // DefaultIdleTimeout is how long the server lingers with no connected
-// clients and stopped playback before exiting on its own.
-const DefaultIdleTimeout = 2 * time.Minute
+// clients and stopped playback before exiting on its own; 0 disables the
+// idle exit, so by default the server runs until stopped explicitly.
+const DefaultIdleTimeout time.Duration = 0
 
 // channelRefreshInterval is a variable so tests can shrink it.
 var channelRefreshInterval = 10 * time.Minute

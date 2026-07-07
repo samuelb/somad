@@ -107,7 +107,7 @@ func printUsage(w io.Writer) {
 Server flags can also be set in %s
 (explicit flags take precedence), for example:
   server:
-    idle_timeout: 5m   # exit after this long idle (0 disables)
+    idle_timeout: 5m   # exit after this long idle (default "0": never)
     tray: false        # hide the tray / menu-bar icon
 `, path)
 	}

@@ -175,10 +175,12 @@ background if one isn't running yet.
 Audio is streamed and decoded by a separate `somatui server` process that the
 TUI (and the CLI commands) talk to over a Unix socket. Quitting the TUI with
 <kbd>q</kbd> leaves the music playing — reopen `somatui` any time to pick the
-session back up, or use `somatui stop` to silence it. Once playback is
-stopped and no client is connected, the server exits on its own after a grace
-period (2 minutes by default, tunable with `somatui server --idle-timeout` or
-the `server.idle_timeout` setting in the [configuration file](#configuration)).
+session back up, or use `somatui stop` to silence it. By default the server
+keeps running until stopped explicitly (`somatui server stop` or the tray's
+Quit item); set an idle timeout with `somatui server --idle-timeout` or the
+`server.idle_timeout` setting in the [configuration file](#configuration) to
+make it exit on its own once playback is stopped and no client is connected
+for that long.
 
 While the server runs it shows a tray / menu-bar icon (macOS and Linux, where a
 tray host is available) with the current track, a "Channels" submenu for
@@ -223,7 +225,7 @@ explicit `somatui server` flags take precedence over the file:
 server:
   # How long the server lingers with no connected clients and stopped
   # playback before exiting. Go duration syntax ("90s", "5m", "1h30m");
-  # "0" disables the timeout. Default: 2m. Same as --idle-timeout.
+  # "0" (the default) never exits on idle. Same as --idle-timeout.
   idle_timeout: 5m
 
   # Whether to show the system tray / menu-bar icon while the server runs.

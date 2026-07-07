@@ -133,8 +133,10 @@ const templateFormat = `# SomaTUI configuration file.
 
 #server:
 #  # Exit the playback server after this long with no connected clients and
-#  # stopped playback. Go duration syntax ("90s", "5m", "1h30m"); "0"
-#  # disables the timeout. Same as the --idle-timeout flag.
+#  # stopped playback. Same as the --idle-timeout flag.
+#  #   "0"                      never exit on idle; the server runs until
+#  #                            stopped explicitly (the default)
+#  #   "90s", "5m", "1h30m"     exit after that long idle (Go duration syntax)
 #  idle_timeout: %s
 #
 #  # Show the system tray / menu-bar icon while the server runs.
