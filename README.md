@@ -184,9 +184,10 @@ for that long.
 
 While the server runs it shows a tray / menu-bar icon (macOS and Linux, where a
 tray host is available) with the current track, a "Channels" submenu for
-switching stations (favorites first, marked ★, the playing one marked ▸), and
-play/pause, next, previous, and stop controls, plus a "Quit" item that shuts the
-server down. Pass `somatui server --no-tray` (or set `server.tray: false` in
+switching stations (favorites first, marked ★, the playing one marked ▸),
+play/pause, next, previous, and stop controls, and a "★ Favorite" checkbox that
+marks or unmarks the playing channel, plus a "Quit" item that shuts the server
+down. Pass `somatui server --no-tray` (or set `server.tray: false` in
 the [configuration file](#configuration)) to run without it. On a headless
 host (no display or GUI session) the tray is skipped automatically and the
 server, CLI, and TUI all keep working.

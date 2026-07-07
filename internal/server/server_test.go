@@ -3,11 +3,13 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"somatui/internal/audio"
+	"somatui/internal/platform"
 	"somatui/internal/protocol"
 	"somatui/internal/state"
 
@@ -339,6 +341,25 @@ func TestToggleFavorite_UnknownChannel(t *testing.T) {
 	persisted, err := state.LoadState()
 	require.NoError(t, err)
 	assert.Empty(t, persisted.FavoriteChannelIDs)
+}
+
+// TestToggleFavorite_ViaCommandSender covers the tray's Favorite toggle path:
+// a ToggleFavoriteMsg through the MPRIS/tray command router must flip the
+// flag just like the wire-protocol method. The router handles it on its own
+// goroutine, so the assertions poll.
+func TestToggleFavorite_ViaCommandSender(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	sender := mprisSender{s}
+
+	sender.Send(platform.ToggleFavoriteMsg{ID: "dronezone"})
+	assert.Eventually(t, func() bool {
+		return slices.Equal(s.ChannelsPayload().Favorites, []string{"dronezone"})
+	}, time.Second, 5*time.Millisecond, "channel was not favorited")
+
+	sender.Send(platform.ToggleFavoriteMsg{ID: "dronezone"})
+	assert.Eventually(t, func() bool {
+		return len(s.ChannelsPayload().Favorites) == 0
+	}, time.Second, 5*time.Millisecond, "channel was not unfavorited")
 }
 
 // TestToggleFavorite_ConcurrentReadIsRaceFree guards the favorites slice

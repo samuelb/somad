@@ -25,7 +25,8 @@ var iconPNG []byte
 var iconTemplatePNG []byte
 
 // Channel is a catalog entry the tray offers for playback. Favorites-first
-// ordering is the caller's responsibility; Favorite only drives the marker.
+// ordering is the caller's responsibility; Favorite only drives the ★ marker
+// and the main menu's Favorite checkbox while the channel plays.
 type Channel struct {
 	ID       string
 	Title    string
@@ -49,6 +50,7 @@ type Tray struct {
 
 	titleItem   *systray.MenuItem
 	playPause   *systray.MenuItem
+	favItem     *systray.MenuItem
 	channelsTop *systray.MenuItem
 	// channelItems is a grow-only pool of submenu items reused across catalog
 	// updates: systray cannot cleanly remove items, so surplus slots are
@@ -127,6 +129,9 @@ func (t *Tray) SetChannels(channels []Channel) {
 	for i := range t.channels {
 		t.channels[i].Title = platform.SanitizeUTF8(t.channels[i].Title)
 	}
+	// A catalog push may carry a changed favorite flag for the playing
+	// channel; applyLocked keeps the main menu's Favorite checkbox in sync.
+	t.applyLocked()
 	t.renderChannelsLocked()
 	t.mu.Unlock()
 }
@@ -150,6 +155,7 @@ func (t *Tray) build() {
 	next := systray.AddMenuItem("Next", "Next channel")
 	prev := systray.AddMenuItem("Previous", "Previous channel")
 	stop := systray.AddMenuItem("Stop", "Stop playback")
+	fav := systray.AddMenuItemCheckbox("★ Favorite", "Mark or unmark the playing channel as favorite", false)
 	systray.AddSeparator()
 	channelsTop := systray.AddMenuItem("Channels", "Play a channel")
 	systray.AddSeparator()
@@ -158,6 +164,7 @@ func (t *Tray) build() {
 	t.mu.Lock()
 	t.titleItem = title
 	t.playPause = playPause
+	t.favItem = fav
 	t.channelsTop = channelsTop
 	t.ready = true
 	t.applyLocked()
@@ -175,6 +182,13 @@ func (t *Tray) build() {
 				t.send(platform.MPRISPrevMsg{})
 			case <-stop.ClickedCh:
 				t.send(platform.MPRISStopMsg{})
+			case <-fav.ClickedCh:
+				t.mu.Lock()
+				id := t.playingID
+				t.mu.Unlock()
+				if id != "" {
+					t.send(platform.ToggleFavoriteMsg{ID: id})
+				}
 			case <-quit.ClickedCh:
 				t.quit()
 			}
@@ -193,11 +207,30 @@ func (t *Tray) applyLocked() {
 		t.titleItem.SetTitle("♪ " + label)
 		t.playPause.SetTitle("Pause")
 		systray.SetTooltip("SomaTUI — " + label)
+		t.favItem.Enable()
+		if t.favoriteLocked(t.playingID) {
+			t.favItem.Check()
+		} else {
+			t.favItem.Uncheck()
+		}
 	} else {
 		t.titleItem.SetTitle("Stopped")
 		t.playPause.SetTitle("Play")
 		systray.SetTooltip("SomaTUI")
+		t.favItem.Disable()
+		t.favItem.Uncheck()
 	}
+}
+
+// favoriteLocked reports whether the given channel is a favorite in the last
+// catalog push. The caller holds t.mu.
+func (t *Tray) favoriteLocked(id string) bool {
+	for _, ch := range t.channels {
+		if ch.ID == id {
+			return ch.Favorite
+		}
+	}
+	return false
 }
 
 // renderChannelsLocked syncs the channel submenu with t.channels. The item
@@ -232,16 +265,21 @@ func (t *Tray) renderChannelsLocked() {
 // are reused across catalog updates, so the ID is read at click time.
 func (t *Tray) watchChannelClick(idx int, item *systray.MenuItem) {
 	for range item.ClickedCh {
-		t.mu.Lock()
-		var id string
-		if idx < len(t.channelSlotID) {
-			id = t.channelSlotID[idx]
-		}
-		t.mu.Unlock()
-		if id != "" {
+		if id := t.slotID(idx); id != "" {
 			t.send(platform.PlayChannelMsg{ID: id})
 		}
 	}
+}
+
+// slotID returns the channel ID slot idx currently maps to, or "" for a
+// hidden or not-yet-assigned slot.
+func (t *Tray) slotID(idx int) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if idx < len(t.channelSlotID) {
+		return t.channelSlotID[idx]
+	}
+	return ""
 }
 
 // channelItemTitle marks the playing channel with a leading ▸ and favorites

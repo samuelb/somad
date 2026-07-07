@@ -24,6 +24,11 @@ func (m mprisSender) Send(msg any) {
 		go func() { _, _ = m.s.PlayPause() }()
 	case platform.PlayChannelMsg:
 		go func() { _, _ = m.s.Play(v.ID) }()
+	case platform.ToggleFavoriteMsg:
+		// Not network-bound, but ToggleFavorite writes the state file and
+		// re-renders the tray menu; off-goroutine so the tray's click
+		// dispatcher (which drops clicks it can't deliver) isn't blocked.
+		go func() { _, _ = m.s.ToggleFavorite(v.ID) }()
 	case platform.MPRISNextMsg:
 		go func() { _, _ = m.s.PlayRelative(1) }()
 	case platform.MPRISPrevMsg:

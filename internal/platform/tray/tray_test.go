@@ -101,6 +101,20 @@ func TestSetChannelsCopiesBeforeReady(t *testing.T) {
 	}
 }
 
+func TestFavoriteLocked(t *testing.T) {
+	tr := New()
+	tr.SetChannels([]Channel{{ID: "a", Title: "A"}, {ID: "b", Title: "B", Favorite: true}})
+	if tr.favoriteLocked("a") {
+		t.Error("favoriteLocked(a) = true, want false")
+	}
+	if !tr.favoriteLocked("b") {
+		t.Error("favoriteLocked(b) = false, want true")
+	}
+	if tr.favoriteLocked("missing") {
+		t.Error("favoriteLocked(missing) = true, want false")
+	}
+}
+
 // SetPlaying/SetStopped are safe to call before the menu is built (not ready);
 // they must only update state and never touch systray.
 func TestStateUpdatesBeforeReady(t *testing.T) {
