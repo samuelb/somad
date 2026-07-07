@@ -177,13 +177,15 @@ TUI (and the CLI commands) talk to over a Unix socket. Quitting the TUI with
 <kbd>q</kbd> leaves the music playing — reopen `somatui` any time to pick the
 session back up, or use `somatui stop` to silence it. Once playback is
 stopped and no client is connected, the server exits on its own after a grace
-period (2 minutes by default, tunable with `somatui server --idle-timeout`).
+period (2 minutes by default, tunable with `somatui server --idle-timeout` or
+the `server.idle_timeout` setting in the [configuration file](#configuration)).
 
 While the server runs it shows a tray / menu-bar icon (macOS and Linux, where a
 tray host is available) with the current track, a "Channels" submenu for
 switching stations (favorites first, marked ★, the playing one marked ▸), and
 play/pause, next, previous, and stop controls, plus a "Quit" item that shuts the
-server down. Pass `somatui server --no-tray` to run without it. On a headless
+server down. Pass `somatui server --no-tray` (or set `server.tray: false` in
+the [configuration file](#configuration)) to run without it. On a headless
 host (no display or GUI session) the tray is skipped automatically and the
 server, CLI, and TUI all keep working.
 
@@ -200,8 +202,42 @@ server, CLI, and TUI all keep working.
 | <kbd>/</kbd>                        | Filter channels                 |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues) |
 
+## Configuration
+
+The server flags can also be set in a configuration file, which is handy
+because the server is usually auto-spawned by the TUI or a CLI command and
+therefore runs without any flags. It lives at:
+
+- **Linux**: `$XDG_CONFIG_HOME/somatui/config.yaml` (usually `~/.config/somatui/config.yaml`)
+- **macOS**: `~/Library/Application Support/somatui/config.yaml`
+
+On the first server start the file is created as a template with every
+setting present but commented out, so the defaults stay in effect until you
+uncomment something. Deleting the file is safe — it is recreated with the
+then-current defaults on the next server start.
+
+All settings are optional; anything omitted keeps its built-in default, and
+explicit `somatui server` flags take precedence over the file:
+
+```yaml
+server:
+  # How long the server lingers with no connected clients and stopped
+  # playback before exiting. Go duration syntax ("90s", "5m", "1h30m");
+  # "0" disables the timeout. Default: 2m. Same as --idle-timeout.
+  idle_timeout: 5m
+
+  # Whether to show the system tray / menu-bar icon while the server runs.
+  # Default: true. `tray: false` is the same as --no-tray.
+  tray: false
+```
+
+A config file that exists but fails to parse (or contains unknown keys)
+stops the server from starting, with an error naming the offending line —
+a typo never silently falls back to defaults.
+
 ## Data Storage
 
+- **Config**: `~/.config/somatui/` (Linux) or `~/Library/Application Support/somatui/` (macOS)
 - **State**: `~/.local/state/somatui/` (Linux) or `~/Library/Application Support/somatui/` (macOS) —
   also holds `server.log`, the log of the auto-spawned playback server
 - **Cache**: `~/.cache/somatui/` (Linux) or `~/Library/Caches/somatui/` (macOS)

@@ -14,6 +14,7 @@ import (
 	"somatui/internal/app"
 	"somatui/internal/audio"
 	"somatui/internal/client"
+	"somatui/internal/config"
 	"somatui/internal/platform"
 	"somatui/internal/platform/tray"
 	"somatui/internal/protocol"
@@ -101,15 +102,45 @@ func printUsage(w io.Writer) {
   somatui --version              print version information
   somatui --help                 show this help
 `)
+	if path, err := config.Path(); err == nil {
+		_, _ = fmt.Fprintf(w, `
+Server flags can also be set in %s
+(explicit flags take precedence), for example:
+  server:
+    idle_timeout: 5m   # exit after this long idle (0 disables)
+    tray: false        # hide the tray / menu-bar icon
+`, path)
+	}
 }
 
 // runServer runs the playback daemon: it owns audio, the channel catalog,
 // persisted state, and MPRIS, and serves clients on the Unix socket.
 func runServer(args []string) {
+	// On first start, materialize a commented-out template so the settings
+	// are discoverable; failing to (e.g. a read-only home) is no reason not
+	// to run.
+	if path, created, err := config.EnsureTemplate(server.DefaultIdleTimeout); err != nil {
+		log.Printf("warning: could not write the default config template: %v", err)
+	} else if created {
+		log.Printf("wrote a default config template to %s", path)
+	}
+
+	// The config file supplies the flag defaults, so explicit flags override
+	// it, and an auto-spawned server (which gets no flags) still honors it.
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("error loading config: %v", err)
+	}
+	defaultIdleTimeout := server.DefaultIdleTimeout
+	if cfg.Server.IdleTimeout != nil {
+		defaultIdleTimeout = time.Duration(*cfg.Server.IdleTimeout)
+	}
+	defaultNoTray := cfg.Server.Tray != nil && !*cfg.Server.Tray
+
 	fs := flag.NewFlagSet("server", flag.ExitOnError)
-	idleTimeout := fs.Duration("idle-timeout", server.DefaultIdleTimeout,
+	idleTimeout := fs.Duration("idle-timeout", defaultIdleTimeout,
 		"exit after this long with no clients and stopped playback (0 disables)")
-	noTray := fs.Bool("no-tray", false,
+	noTray := fs.Bool("no-tray", defaultNoTray,
 		"do not show the system tray / menu-bar icon while the server runs")
 	_ = fs.Parse(args)
 
