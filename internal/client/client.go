@@ -1,4 +1,4 @@
-// Package client implements the somatui protocol client used by both the
+// Package client implements the soma protocol client used by both the
 // TUI and the headless CLI commands: request/response calls over the Unix
 // socket plus a stream of decoded server events.
 package client
@@ -12,18 +12,18 @@ import (
 	"sync"
 	"time"
 
-	"somatui/internal/protocol"
+	"somad/internal/protocol"
 )
 
 // ErrDisconnected reports that the server connection is gone; pending and
 // future calls fail with it.
-var ErrDisconnected = errors.New("somatui server connection lost")
+var ErrDisconnected = errors.New("soma daemon connection lost")
 
 // callTimeout bounds a single request/response round trip. Play blocks on
 // the network until the stream is decoding, so this is generous.
 const callTimeout = 30 * time.Second
 
-// Client is a connection to the somatui server. Safe for concurrent use.
+// Client is a connection to the soma daemon. Safe for concurrent use.
 type Client struct {
 	nc      net.Conn
 	writeMu sync.Mutex

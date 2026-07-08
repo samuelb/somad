@@ -5,9 +5,9 @@ import (
 	"sync"
 	"testing"
 
-	"somatui/internal/channels"
-	"somatui/internal/protocol"
-	"somatui/internal/ui"
+	"somad/internal/channels"
+	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"

@@ -80,12 +80,12 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags "-s -w -X main.version=${{ inputs.version }} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o somatui_${{ matrix.goos }}_${{ matrix.goarch }} ./cmd/somatui
+          go build -ldflags "-s -w -X main.version=${{ inputs.version }} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o soma_${{ matrix.goos }}_${{ matrix.goarch }} ./cmd/soma
 
       - uses: actions/upload-artifact@v7
         with:
-          name: somatui-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: somatui_${{ matrix.goos }}_${{ matrix.goarch }}
+          name: soma-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: soma_${{ matrix.goos }}_${{ matrix.goarch }}
 
   build-darwin:
     needs: validate
@@ -107,15 +107,15 @@ jobs:
           GOOS: darwin
         run: |
           LDFLAGS="-s -w -X main.version=${{ inputs.version }} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          GOARCH=arm64 CC="clang -arch arm64" go build -ldflags "$LDFLAGS" -o somatui_darwin_arm64 ./cmd/somatui
-          GOARCH=amd64 CC="clang -arch x86_64" go build -ldflags "$LDFLAGS" -o somatui_darwin_amd64 ./cmd/somatui
-          lipo -create -output somatui_darwin_universal somatui_darwin_amd64 somatui_darwin_arm64
-          lipo -info somatui_darwin_universal
+          GOARCH=arm64 CC="clang -arch arm64" go build -ldflags "$LDFLAGS" -o soma_darwin_arm64 ./cmd/soma
+          GOARCH=amd64 CC="clang -arch x86_64" go build -ldflags "$LDFLAGS" -o soma_darwin_amd64 ./cmd/soma
+          lipo -create -output soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
+          lipo -info soma_darwin_universal
 
       - uses: actions/upload-artifact@v7
         with:
-          name: somatui-darwin-universal
-          path: somatui_darwin_universal
+          name: soma-darwin-universal
+          path: soma_darwin_universal
 
   release:
     needs: [build, build-darwin]
@@ -159,16 +159,16 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: dist
-          pattern: somatui-*
+          pattern: soma-*
           merge-multiple: true
 
       - name: Build Debian package
         run: |
-          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/somatui_linux_amd64 amd64 dist
-          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/somatui_linux_arm64 arm64 dist
+          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/soma_linux_amd64 amd64 dist
+          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/soma_linux_arm64 arm64 dist
 
       - name: Generate checksums
-        run: cd dist && sha256sum somatui_* > checksums.txt
+        run: cd dist && sha256sum soma_* > checksums.txt
 
       - uses: actions/upload-artifact@v7
         if: inputs.dry_run == true
@@ -209,7 +209,7 @@ jobs:
         if: inputs.dry_run == false
         uses: actions/checkout@v7
         with:
-          repository: samuelb/homebrew-somatui
+          repository: samuelb/homebrew-somad
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
 
@@ -218,44 +218,44 @@ jobs:
           VERSION="${{ inputs.version }}"
           BARE="${VERSION#v}"
           sha() { grep " $1\$" checksums.txt | awk '{print $1}'; }
-          DARWIN_UNIVERSAL="$(sha somatui_darwin_universal)"
-          LINUX_AMD64="$(sha somatui_linux_amd64)"
-          LINUX_ARM64="$(sha somatui_linux_arm64)"
+          DARWIN_UNIVERSAL="$(sha soma_darwin_universal)"
+          LINUX_AMD64="$(sha soma_linux_amd64)"
+          LINUX_ARM64="$(sha soma_linux_arm64)"
           if [ -z "$DARWIN_UNIVERSAL" ] || [ -z "$LINUX_AMD64" ] || [ -z "$LINUX_ARM64" ]; then
             echo "Error: missing a checksum for one or more binaries" >&2
             cat checksums.txt >&2
             exit 1
           fi
           mkdir -p tap/Formula
-          cat > tap/Formula/somatui.rb <<EOF
-          class Somatui < Formula
-            desc "Terminal UI client for streaming SomaFM radio channels"
-            homepage "https://github.com/samuelb/somatui"
+          cat > tap/Formula/somad.rb <<EOF
+          class Somad < Formula
+            desc "Client for streaming SomaFM radio channels"
+            homepage "https://github.com/samuelb/somad"
             version "${BARE}"
             license "MIT"
 
             on_macos do
-              url "https://github.com/samuelb/somatui/releases/download/${VERSION}/somatui_darwin_universal"
+              url "https://github.com/samuelb/somad/releases/download/${VERSION}/soma_darwin_universal"
               sha256 "${DARWIN_UNIVERSAL}"
             end
 
             on_linux do
               on_arm do
-                url "https://github.com/samuelb/somatui/releases/download/${VERSION}/somatui_linux_arm64"
+                url "https://github.com/samuelb/somad/releases/download/${VERSION}/soma_linux_arm64"
                 sha256 "${LINUX_ARM64}"
               end
               on_intel do
-                url "https://github.com/samuelb/somatui/releases/download/${VERSION}/somatui_linux_amd64"
+                url "https://github.com/samuelb/somad/releases/download/${VERSION}/soma_linux_amd64"
                 sha256 "${LINUX_AMD64}"
               end
             end
 
             def install
-              bin.install Dir["somatui_*"].first => "somatui"
+              bin.install Dir["soma_*"].first => "soma"
             end
 
             test do
-              assert_match version.to_s, shell_output("#{bin}/somatui --version")
+              assert_match version.to_s, shell_output("#{bin}/soma --version")
             end
           end
           EOF
@@ -264,20 +264,20 @@ jobs:
         if: inputs.dry_run == true
         with:
           name: homebrew-formula
-          path: tap/Formula/somatui.rb
+          path: tap/Formula/somad.rb
 
       - name: Commit and push
         if: inputs.dry_run == false
         run: |
           cd tap
-          if git diff --quiet -- Formula/somatui.rb; then
+          if git diff --quiet -- Formula/somad.rb; then
             echo "Formula already up to date; nothing to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/somatui.rb
-          git commit -m "somatui ${{ inputs.version }}"
+          git add Formula/somad.rb
+          git commit -m "somad ${{ inputs.version }}"
           git push
 
   aur:
@@ -306,10 +306,11 @@ jobs:
           mkdir -p aur
           cat > aur/PKGBUILD <<EOF
           # Maintainer: Samuel B <samuelb@users.noreply.github.com>
-          pkgname=somatui
+          pkgname=somad
+          _binname=soma
           pkgver=${BARE}
           pkgrel=1
-          pkgdesc='Terminal UI client for streaming SomaFM radio channels'
+          pkgdesc='A client for streaming SomaFM radio channels'
           arch=('x86_64' 'aarch64')
           url='https://github.com/${{ github.repository }}'
           license=('MIT')
@@ -324,8 +325,8 @@ jobs:
             export GOFLAGS="-buildvcs=false -mod=vendor"
             go build \\
               -ldflags "-s -w -X main.version=v\${pkgver} -X main.commit=aur -X main.date=\$(date -u +%Y-%m-%dT%H:%M:%SZ)" \\
-              -o "\${pkgname}" \\
-              ./cmd/somatui
+              -o "\${_binname}" \\
+              ./cmd/soma
           }
 
           check() {
@@ -337,14 +338,14 @@ jobs:
 
           package() {
             cd "\${pkgname}-\${pkgver}"
-            install -Dm755 "\${pkgname}" "\${pkgdir}/usr/bin/\${pkgname}"
+            install -Dm755 "\${_binname}" "\${pkgdir}/usr/bin/\${_binname}"
             install -Dm644 LICENSE "\${pkgdir}/usr/share/licenses/\${pkgname}/LICENSE"
             install -Dm644 README.md "\${pkgdir}/usr/share/doc/\${pkgname}/README.md"
           }
           EOF
           cat > aur/.SRCINFO <<EOF
-          pkgbase = somatui
-          	pkgdesc = Terminal UI client for streaming SomaFM radio channels
+          pkgbase = somad
+          	pkgdesc = A client for streaming SomaFM radio channels
           	pkgver = ${BARE}
           	pkgrel = 1
           	url = https://github.com/${{ github.repository }}
@@ -354,10 +355,10 @@ jobs:
           	makedepends = go
           	depends = alsa-lib
           	depends = ca-certificates
-          	source = somatui-${BARE}.tar.gz::https://github.com/${{ github.repository }}/archive/refs/tags/v${BARE}.tar.gz
+          	source = somad-${BARE}.tar.gz::https://github.com/${{ github.repository }}/archive/refs/tags/v${BARE}.tar.gz
           	sha256sums = ${SHA256}
 
-          pkgname = somatui
+          pkgname = somad
           EOF
 
       - uses: actions/upload-artifact@v7
@@ -382,7 +383,7 @@ jobs:
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 0600 ~/.ssh/aur
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/somatui.git aur-repo
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/somad.git aur-repo
           cp aur/PKGBUILD aur/.SRCINFO aur-repo/
           cd aur-repo
           if git diff --quiet -- PKGBUILD .SRCINFO; then
@@ -392,5 +393,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO
-          git commit -m "somatui ${{ inputs.version }}"
+          git commit -m "somad ${{ inputs.version }}"
           GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git push

@@ -10,8 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"somatui/internal/protocol"
-	"somatui/internal/state"
+	"somad/internal/protocol"
+	"somad/internal/state"
 )
 
 const (
@@ -38,7 +38,7 @@ var restartWait = 3 * time.Second
 // spawnServer is a variable so tests can fake the server launch.
 var spawnServer = SpawnServer
 
-// SpawnServer starts a detached `somatui server` process using the current
+// SpawnServer starts a detached `soma daemon` process using the current
 // executable, with its stderr appended to the server log file.
 func SpawnServer() error {
 	exe, err := os.Executable()
@@ -47,7 +47,7 @@ func SpawnServer() error {
 	}
 
 	// context.Background: the server must outlive us, so it is never cancelled.
-	cmd := exec.CommandContext(context.Background(), exe, "server") // #nosec G204 -- os.Executable, not user input
+	cmd := exec.CommandContext(context.Background(), exe, "daemon") // #nosec G204 -- os.Executable, not user input
 	// A new session detaches the server from our terminal so it survives the
 	// client (and the terminal) going away.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -59,7 +59,7 @@ func SpawnServer() error {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start somatui server: %w", err)
+		return fmt.Errorf("failed to start soma daemon: %w", err)
 	}
 	return cmd.Process.Release()
 }
@@ -124,7 +124,7 @@ func Restart(c *Client, socketPath, clientVersion string) (*Client, protocol.Hel
 	_ = c.Shutdown()
 	_ = c.Close()
 	if !waitForServerExit(socketPath) {
-		return nil, protocol.HelloResult{}, fmt.Errorf("somatui server did not exit within %s to restart as version %s", restartWait, clientVersion)
+		return nil, protocol.HelloResult{}, fmt.Errorf("soma daemon did not exit within %s to restart as version %s", restartWait, clientVersion)
 	}
 	return connectOrSpawn(socketPath, clientVersion)
 }
@@ -147,7 +147,7 @@ func connectOrSpawn(socketPath, clientVersion string) (*Client, protocol.HelloRe
 				break
 			}
 			if time.Now().After(deadline) {
-				spawnErr := fmt.Errorf("somatui server did not come up on %s: %w", socketPath, err)
+				spawnErr := fmt.Errorf("soma daemon did not come up on %s: %w", socketPath, err)
 				// The failure reason lives in the server's log; without it
 				// the user only learns "did not come up".
 				if tail := serverLogSince(logOffset); tail != "" {
@@ -162,7 +162,7 @@ func connectOrSpawn(socketPath, clientVersion string) (*Client, protocol.HelloRe
 	hr, err := c.Hello(clientVersion)
 	if err != nil {
 		_ = c.Close()
-		return nil, hr, fmt.Errorf("handshake with somatui server failed: %w", err)
+		return nil, hr, fmt.Errorf("handshake with soma daemon failed: %w", err)
 	}
 	return c, hr, nil
 }

@@ -16,7 +16,7 @@ import (
 func testSocketPath(t *testing.T) string {
 	t.Helper()
 	// t.TempDir() can exceed the 104-byte sun_path limit on macOS.
-	dir, err := os.MkdirTemp("", "somatui")
+	dir, err := os.MkdirTemp("", "somad")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, "s.sock")

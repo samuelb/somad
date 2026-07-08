@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-SomaTUI is a terminal client for SomaFM internet radio (Linux and macOS only), written in Go with a client-server architecture: playback runs in a background daemon so music keeps playing after the TUI exits.
+Soma is a client for SomaFM internet radio (Linux and macOS only), written in Go with a client-server architecture: playback runs in a background daemon so music keeps playing after the TUI exits. The project (Go module and package name) is `somad`; the compiled binary/command is `soma`.
 
 ## Commands
 
 ```sh
-make build              # build ./somatui (embeds version via ldflags)
+make build              # build ./soma (embeds version via ldflags)
 make test               # go test -race ./...
 make lint               # golangci-lint run ./... (config in .golangci.yml)
 make check              # lint + test + vet
@@ -23,9 +23,9 @@ go test -race ./internal/server/ -run TestName   # run a single test
 
 ## Architecture
 
-Two processes, one binary. `cmd/somatui/main.go` dispatches subcommands: no args opens the TUI, `server` runs the playback daemon in the foreground, and `play`/`stop`/`status`/etc. are headless CLI clients. The TUI and CLI never touch audio directly — everything goes through the daemon.
+Two processes, one binary. `cmd/soma/main.go` dispatches subcommands: no args opens the TUI, `server` runs the playback daemon in the foreground, and `play`/`stop`/`status`/etc. are headless CLI clients. The TUI and CLI never touch audio directly — everything goes through the daemon.
 
-**Wire protocol** (`internal/protocol`): newline-delimited JSON over a Unix domain socket (`SocketPath()` in `socket.go`; overridable with `$SOMATUI_SOCKET`). Clients send `Request`s, the server replies with ID-correlated `Response`s and pushes `Event`s carrying full state snapshots. `protocol.Version` must match exactly between client and server; bump it on any incompatible wire change.
+**Wire protocol** (`internal/protocol`): newline-delimited JSON over a Unix domain socket (`SocketPath()` in `socket.go`; overridable with `$SOMAD_SOCKET`). Clients send `Request`s, the server replies with ID-correlated `Response`s and pushes `Event`s carrying full state snapshots. `protocol.Version` must match exactly between client and server; bump it on any incompatible wire change.
 
 **Server** (`internal/server`): owns audio playback, the channel catalog, persisted state, MPRIS, and the tray icon. `spawnlock.go` ensures only one daemon runs. The server exits on its own after an idle timeout when playback is stopped and no client is connected.
 

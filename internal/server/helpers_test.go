@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"somatui/internal/audio"
-	"somatui/internal/channels"
-	"somatui/internal/protocol"
-	"somatui/internal/state"
+	"somad/internal/audio"
+	"somad/internal/channels"
+	"somad/internal/protocol"
+	"somad/internal/state"
 
 	"github.com/stretchr/testify/require"
 )

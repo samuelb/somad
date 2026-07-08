@@ -3,8 +3,8 @@ package app
 import (
 	"unicode/utf8"
 
-	"somatui/internal/protocol"
-	"somatui/internal/ui"
+	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"

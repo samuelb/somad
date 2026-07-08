@@ -1,4 +1,4 @@
-// Package server implements the somatui daemon: it owns audio playback, the
+// Package server implements the soma daemon: it owns audio playback, the
 // channel catalog, persisted state, and MPRIS, and serves clients over a
 // Unix domain socket using the internal/protocol wire format.
 package server
@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"somatui/internal/audio"
-	"somatui/internal/channels"
-	"somatui/internal/platform"
-	"somatui/internal/platform/tray"
-	"somatui/internal/protocol"
-	"somatui/internal/state"
+	"somad/internal/audio"
+	"somad/internal/channels"
+	"somad/internal/platform"
+	"somad/internal/platform/tray"
+	"somad/internal/protocol"
+	"somad/internal/state"
 )
 
 // DefaultIdleTimeout is how long the server lingers with no connected
@@ -38,7 +38,7 @@ type Config struct {
 	IdleTimeout time.Duration   // 0 disables idle exit
 }
 
-// Server is the somatui daemon. All mutable fields are guarded by mu; the
+// Server is the soma daemon. All mutable fields are guarded by mu; the
 // audio player and state file are only touched through methods that hold it.
 type Server struct {
 	version     string

@@ -3,7 +3,7 @@ package app
 import (
 	"slices"
 
-	"somatui/internal/ui"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"

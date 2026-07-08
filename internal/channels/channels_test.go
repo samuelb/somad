@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"somatui/internal/security/securitytest"
+	"somad/internal/security/securitytest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -108,7 +108,7 @@ func TestFetchChannelsFromNetwork(t *testing.T) {
 	SomaFMChannelsURL = server.URL
 	t.Cleanup(func() { SomaFMChannelsURL = originalURL })
 
-	channels, err := FetchChannelsFromNetwork("SomaTUI/test")
+	channels, err := FetchChannelsFromNetwork("soma/test")
 	require.NoError(t, err)
 	assert.Equal(t, 2, len(channels.Channels))
 	assert.Equal(t, "groovesalad", channels.Channels[0].ID)
@@ -132,7 +132,7 @@ func TestFetchChannelsFromNetwork_ServerError(t *testing.T) {
 	SomaFMChannelsURL = server.URL
 	t.Cleanup(func() { SomaFMChannelsURL = originalURL })
 
-	channels, err := FetchChannelsFromNetwork("SomaTUI/test")
+	channels, err := FetchChannelsFromNetwork("soma/test")
 	assert.Error(t, err)
 	assert.Nil(t, channels)
 	assert.Contains(t, err.Error(), "500")
@@ -150,7 +150,7 @@ func TestFetchChannelsFromNetwork_InvalidJSON(t *testing.T) {
 	SomaFMChannelsURL = server.URL
 	t.Cleanup(func() { SomaFMChannelsURL = originalURL })
 
-	channels, err := FetchChannelsFromNetwork("SomaTUI/test")
+	channels, err := FetchChannelsFromNetwork("soma/test")
 	assert.Error(t, err)
 	assert.Nil(t, channels)
 }

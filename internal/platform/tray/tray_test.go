@@ -5,7 +5,7 @@ package tray
 import (
 	"testing"
 
-	"somatui/internal/platform"
+	"somad/internal/platform"
 )
 
 func TestPlaybackLabel(t *testing.T) {

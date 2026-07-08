@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"somatui/internal/channels"
+	"somad/internal/channels"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/stretchr/testify/assert"

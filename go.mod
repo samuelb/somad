@@ -1,4 +1,4 @@
-module somatui
+module somad
 
 go 1.25.12
 

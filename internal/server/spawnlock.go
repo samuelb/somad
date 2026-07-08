@@ -8,13 +8,13 @@ import (
 	"os"
 	"syscall"
 
-	"somatui/internal/protocol"
+	"somad/internal/protocol"
 )
 
 // ErrAlreadyRunning reports that another server instance holds the lock.
 // Auto-spawn races resolve through it: the losing server exits cleanly and
 // the clients that spawned both end up connecting to the winner.
-var ErrAlreadyRunning = errors.New("somatui server already running")
+var ErrAlreadyRunning = errors.New("soma daemon already running")
 
 // Listen acquires the single-instance lock and listens on the Unix socket,
 // removing any stale socket file left by a crashed server. The returned

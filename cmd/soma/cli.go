@@ -10,10 +10,10 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"somatui/internal/channels"
-	"somatui/internal/client"
-	"somatui/internal/protocol"
-	"somatui/internal/state"
+	"somad/internal/channels"
+	"somad/internal/client"
+	"somad/internal/protocol"
+	"somad/internal/state"
 )
 
 // catalogWait bounds how long CLI commands wait for a freshly spawned
@@ -21,7 +21,7 @@ import (
 const catalogWait = 15 * time.Second
 
 func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "somatui: "+format+"\n", args...)
+	fmt.Fprintf(os.Stderr, "soma: "+format+"\n", args...)
 	os.Exit(1)
 }
 
@@ -127,7 +127,7 @@ func resolveChannel(catalog []channels.Channel, query string) (channels.Channel,
 
 func runPlay(args []string) {
 	if len(args) > 1 {
-		fail("usage: somatui play [channel-id-or-name]")
+		fail("usage: soma play [channel-id-or-name]")
 	}
 	c := ensureServerForPlayback()
 	defer func() { _ = c.Close() }()
@@ -137,7 +137,7 @@ func runPlay(args []string) {
 	if len(args) == 0 {
 		// Without an argument, resume the last played channel.
 		if payload.LastChannelID == "" {
-			fail("no previously played channel; usage: somatui play <channel-id-or-name>")
+			fail("no previously played channel; usage: soma play <channel-id-or-name>")
 		}
 		var ok bool
 		ch, ok = findChannelByID(payload.Channels, payload.LastChannelID)
@@ -178,7 +178,7 @@ func extractJSONFlag(args []string) (rest []string, jsonOut bool) {
 func runList(args []string) {
 	args, jsonOut := extractJSONFlag(args)
 	if len(args) != 0 {
-		fail("usage: somatui list [--json]")
+		fail("usage: soma list [--json]")
 	}
 
 	c := ensureServer()
@@ -214,7 +214,7 @@ func formatChannelList(payload protocol.ChannelsPayload) string {
 }
 
 // channelListEntry is the machine-readable form of one catalog row for
-// `somatui list --json`.
+// `soma list --json`.
 type channelListEntry struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
@@ -242,7 +242,7 @@ func channelListEntries(payload protocol.ChannelsPayload) []channelListEntry {
 func runFavorite(args []string) {
 	args, jsonOut := extractJSONFlag(args)
 	if len(args) != 1 {
-		fail("usage: somatui favorite [--json] <channel-id-or-name>")
+		fail("usage: soma favorite [--json] <channel-id-or-name>")
 	}
 	c := ensureServer()
 	defer func() { _ = c.Close() }()
@@ -264,7 +264,7 @@ func runFavorite(args []string) {
 }
 
 // favoriteResult is the machine-readable form of a favorite toggle for
-// `somatui favorite --json`.
+// `soma favorite --json`.
 type favoriteResult struct {
 	ChannelID string `json:"channelId"`
 	Title     string `json:"title"`
@@ -311,7 +311,7 @@ func runPlayRelative(delta int) {
 func runPause() {
 	c, serverVersion, running := dialServer()
 	if !running {
-		fmt.Println("somatui: not playing (server not running)")
+		fmt.Println("soma: not playing (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
@@ -346,7 +346,7 @@ func runPause() {
 func runStop() {
 	c, serverVersion, running := dialServer()
 	if !running {
-		fmt.Println("somatui: not playing (server not running)")
+		fmt.Println("soma: not playing (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
@@ -368,7 +368,7 @@ func runStatus(args []string) {
 	case len(args) == 1 && args[0] == "--json":
 		jsonOut = true
 	default:
-		fail("usage: somatui status [--json]")
+		fail("usage: soma status [--json]")
 	}
 
 	c, _, running := dialServer()
@@ -383,7 +383,7 @@ func runStatus(args []string) {
 			printJSON(st)
 			return
 		}
-		fmt.Println("somatui: stopped (server not running)")
+		fmt.Println("soma: stopped (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
@@ -438,7 +438,7 @@ func runVolume(args []string) {
 		return
 	}
 	if len(args) != 1 {
-		fail("usage: somatui volume [<0-100> | +<n> | -<n>]")
+		fail("usage: soma volume [<0-100> | +<n> | -<n>]")
 	}
 	pct, relative, err := parseVolumeArg(args[0])
 	if err != nil {
@@ -497,12 +497,12 @@ func showVolume() {
 func runServerStop() {
 	c, _, running := dialServer()
 	if !running {
-		fmt.Println("somatui: server not running")
+		fmt.Println("soma: server not running")
 		return
 	}
 	defer func() { _ = c.Close() }()
 	if err := c.Shutdown(); err != nil {
 		fail("%v", err)
 	}
-	fmt.Println("somatui: server stopped")
+	fmt.Println("soma: server stopped")
 }

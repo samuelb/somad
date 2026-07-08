@@ -1,6 +1,6 @@
 package protocol
 
-import "somatui/internal/channels"
+import "somad/internal/channels"
 
 // Playback status values for PlaybackState.Status.
 const (

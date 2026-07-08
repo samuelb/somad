@@ -88,18 +88,18 @@ func TestNewScanner_LargeLine(t *testing.T) {
 }
 
 func TestSocketPath_EnvOverride(t *testing.T) {
-	t.Setenv("SOMATUI_SOCKET", "/tmp/custom.sock")
+	t.Setenv("SOMAD_SOCKET", "/tmp/custom.sock")
 	assert.Equal(t, "/tmp/custom.sock", SocketPath())
 }
 
 func TestSocketPath_XDGRuntimeDir(t *testing.T) {
-	t.Setenv("SOMATUI_SOCKET", "")
+	t.Setenv("SOMAD_SOCKET", "")
 	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
-	assert.Equal(t, "/run/user/1000/somatui.sock", SocketPath())
+	assert.Equal(t, "/run/user/1000/somad.sock", SocketPath())
 }
 
 func TestSocketPath_FallbackFitsSunPathLimit(t *testing.T) {
-	t.Setenv("SOMATUI_SOCKET", "")
+	t.Setenv("SOMAD_SOCKET", "")
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	p := SocketPath()
 	assert.NotEmpty(t, p)
@@ -108,12 +108,12 @@ func TestSocketPath_FallbackFitsSunPathLimit(t *testing.T) {
 }
 
 func TestLockPath(t *testing.T) {
-	assert.Equal(t, "/x/somatui.sock.lock", LockPath("/x/somatui.sock"))
+	assert.Equal(t, "/x/somad.sock.lock", LockPath("/x/somad.sock"))
 }
 
 func TestEnsureSocketDir_CreatesPrivateDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "runtime")
-	require.NoError(t, EnsureSocketDir(filepath.Join(dir, "somatui.sock")))
+	require.NoError(t, EnsureSocketDir(filepath.Join(dir, "somad.sock")))
 
 	info, err := os.Stat(dir)
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestEnsureSocketDir_RejectsGroupAccessibleDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "runtime")
 	require.NoError(t, os.Mkdir(dir, 0o755)) // #nosec G301 -- intentionally permissive for rejection test
 
-	err := EnsureSocketDir(filepath.Join(dir, "somatui.sock"))
+	err := EnsureSocketDir(filepath.Join(dir, "somad.sock"))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must not be accessible")

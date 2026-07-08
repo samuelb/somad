@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"somatui/internal/atomicfile"
-	"somatui/internal/security"
+	"somad/internal/atomicfile"
+	"somad/internal/security"
 )
 
 // Playlist represents a single playlist entry for a SomaFM channel.
@@ -43,7 +43,7 @@ type Channels struct {
 
 const (
 	cacheFileName   = "somafm_channels.json"
-	appCacheDirName = "somatui"
+	appCacheDirName = "somad"
 )
 
 // SomaFMChannelsURL is the URL for fetching channels - exported for testing.

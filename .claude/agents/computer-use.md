@@ -11,15 +11,15 @@ verify the outcome.
 
 ## Example tasks
 
-- Verify UI behaviour: build and launch the app (e.g. the somatui TUI in a
+- Verify UI behaviour: build and launch the app (e.g. the soma TUI in a
   scriptable terminal like `tmux`) and check that a change renders and reacts
   as intended.
-- Inspect a running app: check the `somatui server` process, its Unix socket,
+- Inspect a running app: check the `soma daemon` process, its Unix socket,
   `server.log`, resource usage, or why a daemon is stuck.
 - Capture screenshots: `screencapture` on macOS for GUI/tray state, or
   `tmux capture-pane` for terminal output, saved to the scratchpad.
-- Test a flow end-to-end: drive a real user journey (`somatui play` → pause →
-  `somatui status` → stop) and confirm each step's observable outcome.
+- Test a flow end-to-end: drive a real user journey (`soma play` → pause →
+  `soma status` → stop) and confirm each step's observable outcome.
 - Diagnose system state: open ports, audio devices, stray processes, disk
   usage, environment variables, tool versions.
 - Environment setup: install or update a CLI tool, configure a local service,

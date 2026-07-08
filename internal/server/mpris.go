@@ -3,8 +3,8 @@ package server
 import (
 	"errors"
 
-	"somatui/internal/platform"
-	"somatui/internal/protocol"
+	"somad/internal/platform"
+	"somad/internal/protocol"
 )
 
 // mprisSender routes incoming MPRIS commands (desktop media keys, applets)

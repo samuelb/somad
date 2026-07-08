@@ -1,5 +1,5 @@
 {
-  description = "Terminal UI client for streaming SomaFM radio channels";
+  description = "A client for streaming SomaFM radio channels";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -22,7 +22,7 @@
         in
         {
           default = pkgs.buildGoModule {
-            pname = "somatui";
+            pname = "somad";
             version = "0.9.0";
             src = self;
 
@@ -35,7 +35,7 @@
               pkgs.alsa-lib
             ];
 
-            subPackages = [ "cmd/somatui" ];
+            subPackages = [ "cmd/soma" ];
             ldflags = [
               "-s"
               "-w"
@@ -45,10 +45,10 @@
             ];
 
             meta = {
-              description = "Terminal UI client for streaming SomaFM radio channels";
-              homepage = "https://github.com/samuelb/somatui";
+              description = "A client for streaming SomaFM radio channels";
+              homepage = "https://github.com/samuelb/somad";
               license = pkgs.lib.licenses.mit;
-              mainProgram = "somatui";
+              mainProgram = "soma";
               platforms = supportedSystems;
             };
           };
@@ -58,7 +58,7 @@
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/somatui";
+          program = "${self.packages.${system}.default}/bin/soma";
         };
       });
 

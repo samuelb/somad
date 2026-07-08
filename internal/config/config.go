@@ -19,7 +19,7 @@ import (
 
 const (
 	configFileName = "config.yaml"
-	appDirName     = "somatui"
+	appDirName     = "somad"
 )
 
 // Config is the parsed configuration file. Fields are pointers so an
@@ -31,7 +31,7 @@ type Config struct {
 }
 
 // ServerConfig configures the playback server, mirroring the flags of
-// `somatui server`.
+// `soma daemon`.
 type ServerConfig struct {
 	// IdleTimeout is how long the server lingers with no connected clients
 	// and stopped playback before exiting; 0 disables the timeout.
@@ -67,8 +67,8 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 }
 
 // Path returns the configuration file path without requiring it to exist.
-// On Linux: $XDG_CONFIG_HOME/somatui/config.yaml or ~/.config/somatui/config.yaml
-// On macOS: ~/Library/Application Support/somatui/config.yaml
+// On Linux: $XDG_CONFIG_HOME/somad/config.yaml or ~/.config/somad/config.yaml
+// On macOS: ~/Library/Application Support/somad/config.yaml
 func Path() (string, error) {
 	var baseDir string
 
@@ -131,11 +131,11 @@ func Load() (*Config, error) {
 // templateFormat is the generated default config file. Every setting is
 // commented out, so parsing it yields the built-in defaults even when those
 // change in a later release.
-const templateFormat = `# SomaTUI configuration file.
+const templateFormat = `# Soma configuration file.
 #
 # Generated with the built-in defaults, everything commented out; uncomment a
 # setting to change it. Deleting this file is safe: it is recreated, with the
-# then-current defaults, on the next server start. Explicit somatui server
+# then-current defaults, on the next server start. Explicit soma daemon
 # flags take precedence over this file.
 
 #server:

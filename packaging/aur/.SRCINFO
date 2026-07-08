@@ -1,15 +1,15 @@
-pkgbase = somatui
-	pkgdesc = Terminal UI client for streaming SomaFM radio channels
+pkgbase = somad
+	pkgdesc = A client for streaming SomaFM radio channels
 	pkgver = 0.9.0
 	pkgrel = 1
-	url = https://github.com/samuelb/somatui
+	url = https://github.com/samuelb/somad
 	arch = x86_64
 	arch = aarch64
 	license = MIT
 	makedepends = go
 	depends = alsa-lib
 	depends = ca-certificates
-	source = somatui-0.9.0.tar.gz::https://github.com/samuelb/somatui/archive/refs/tags/v0.9.0.tar.gz
+	source = somad-0.9.0.tar.gz::https://github.com/samuelb/somad/archive/refs/tags/v0.9.0.tar.gz
 	sha256sums = SKIP
 
-pkgname = somatui
+pkgname = somad

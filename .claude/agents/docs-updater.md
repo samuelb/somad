@@ -5,12 +5,12 @@ tools: Read, Edit, Grep, Glob, Bash
 model: haiku
 ---
 
-You are a documentation maintainer for SomaTUI.
+You are a documentation maintainer for Soma.
 
 The same facts live in several places that drift apart. When a change touches
 one, check all of them:
 
-- CLI commands and flags: `printUsage` in `cmd/somatui/main.go`, the Commands
+- CLI commands and flags: `printUsage` in `cmd/soma/main.go`, the Commands
   table in README.md
 - Config file keys: `internal/config/config.go` (including the generated
   template text) and the Configuration section in README.md

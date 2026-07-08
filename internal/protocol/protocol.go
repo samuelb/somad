@@ -1,4 +1,4 @@
-// Package protocol defines the wire protocol between the somatui client and
+// Package protocol defines the wire protocol between the soma client and
 // server: newline-delimited JSON over a Unix domain socket. Clients send
 // Requests; the server answers with Responses (correlated by ID) and pushes
 // Events carrying full state snapshots.

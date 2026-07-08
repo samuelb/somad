@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"somatui/internal/channels"
-	"somatui/internal/protocol"
+	"somad/internal/channels"
+	"somad/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,8 +104,8 @@ func TestPrintUsage(t *testing.T) {
 	printUsage(&b)
 	out := b.String()
 	// Every user-facing subcommand should be documented in the usage text.
-	for _, cmd := range []string{"play", "list", "favorite", "next", "prev", "pause", "stop", "status", "volume", "server"} {
-		assert.Containsf(t, out, "somatui "+cmd, "usage missing %q", cmd)
+	for _, cmd := range []string{"play", "list", "favorite", "next", "prev", "pause", "stop", "status", "volume", "daemon"} {
+		assert.Containsf(t, out, "soma "+cmd, "usage missing %q", cmd)
 	}
 }
 

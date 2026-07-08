@@ -12,16 +12,16 @@ import (
 	"syscall"
 	"time"
 
-	"somatui/internal/app"
-	"somatui/internal/audio"
-	"somatui/internal/client"
-	"somatui/internal/config"
-	"somatui/internal/platform"
-	"somatui/internal/platform/tray"
-	"somatui/internal/protocol"
-	"somatui/internal/server"
-	"somatui/internal/state"
-	"somatui/internal/ui"
+	"somad/internal/app"
+	"somad/internal/audio"
+	"somad/internal/client"
+	"somad/internal/config"
+	"somad/internal/platform"
+	"somad/internal/platform/tray"
+	"somad/internal/protocol"
+	"somad/internal/server"
+	"somad/internal/state"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -37,7 +37,7 @@ var (
 )
 
 func userAgent() string {
-	return "SomaTUI/" + version
+	return "soma/" + version
 }
 
 func main() {
@@ -49,10 +49,10 @@ func main() {
 
 	switch args[0] {
 	case "--version", "-v", "version":
-		fmt.Printf("somatui %s (commit: %s, built: %s)\n", version, commit, date)
+		fmt.Printf("soma %s (commit: %s, built: %s)\n", version, commit, date)
 	case "--help", "-h", "help":
 		printUsage(os.Stdout)
-	case "server":
+	case "daemon":
 		if len(args) > 1 && args[1] == "stop" {
 			runServerStop()
 			return
@@ -81,7 +81,7 @@ func main() {
 			runTUI(args)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "somatui: unknown command %q\n\n", args[0])
+		fmt.Fprintf(os.Stderr, "soma: unknown command %q\n\n", args[0])
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
@@ -89,24 +89,24 @@ func main() {
 
 func printUsage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Usage:
-  somatui                        start the TUI (spawns the playback server if needed)
+  soma                        start the TUI (spawns the playback server if needed)
                                  (--shutdown-on-exit stops playback and server on quit)
-  somatui play [channel]         play a channel by ID or name, or resume the
+  soma play [channel]         play a channel by ID or name, or resume the
                                  last played channel (spawns the server if needed)
-  somatui list [--json]          list all channels (favorites first, marked *)
-  somatui favorite [--json] <channel>
+  soma list [--json]          list all channels (favorites first, marked *)
+  soma favorite [--json] <channel>
                                  toggle a channel's favorite flag
-  somatui next                   play the next channel (favorites first, wraps)
-  somatui prev                   play the previous channel
-  somatui pause                  toggle pause (reconnects the live stream on unpause)
-  somatui stop                   stop playback
-  somatui status [--json]        show what is playing
-  somatui volume [<0-100>|+n|-n] show, set, or adjust the playback volume
-  somatui server [flags]         run the playback server in the foreground
+  soma next                   play the next channel (favorites first, wraps)
+  soma prev                   play the previous channel
+  soma pause                  toggle pause (reconnects the live stream on unpause)
+  soma stop                   stop playback
+  soma status [--json]        show what is playing
+  soma volume [<0-100>|+n|-n] show, set, or adjust the playback volume
+  soma daemon [flags]         run the playback server in the foreground
                                  (--no-tray hides the tray / menu-bar icon)
-  somatui server stop            shut down the playback server
-  somatui --version              print version information
-  somatui --help                 show this help
+  soma daemon stop            shut down the playback server
+  soma --version              print version information
+  soma --help                 show this help
 `)
 	if path, err := config.Path(); err == nil {
 		_, _ = fmt.Fprintf(w, `
@@ -145,7 +145,7 @@ func runServer(args []string) {
 	}
 	defaultNoTray := cfg.Server.Tray != nil && !*cfg.Server.Tray
 
-	fs := flag.NewFlagSet("server", flag.ExitOnError)
+	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	idleTimeout := fs.Duration("idle-timeout", defaultIdleTimeout,
 		"exit after this long with no clients and stopped playback (0 disables)")
 	noTray := fs.Bool("no-tray", defaultNoTray,
@@ -160,13 +160,13 @@ func runServer(args []string) {
 	ln, cleanup, err := server.Listen(socketPath)
 	if errors.Is(err, server.ErrAlreadyRunning) {
 		// A concurrent auto-spawn lost the race; the winner serves everyone.
-		log.Print("somatui server already running, exiting")
+		log.Print("soma daemon already running, exiting")
 		return
 	}
 	if err != nil {
 		log.Fatalf("error starting server: %v", err)
 	}
-	log.Printf("somatui server %s listening on %s", version, socketPath)
+	log.Printf("soma daemon %s listening on %s", version, socketPath)
 
 	player, err := audio.NewPlayer(userAgent())
 	if err != nil {
@@ -243,17 +243,17 @@ func runServer(args []string) {
 func runTUI(args []string) {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "somatui: error loading config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "soma: error loading config: %v\n", err)
 		os.Exit(1)
 	}
 	defaultShutdownOnExit := cfg.TUI.ShutdownOnExit != nil && *cfg.TUI.ShutdownOnExit
 
-	fs := flag.NewFlagSet("somatui", flag.ExitOnError)
+	fs := flag.NewFlagSet("soma", flag.ExitOnError)
 	shutdownOnExit := fs.Bool("shutdown-on-exit", defaultShutdownOnExit,
 		"stop playback and shut down the server when the TUI exits")
 	_ = fs.Parse(args)
 	if fs.NArg() != 0 {
-		fmt.Fprintf(os.Stderr, "somatui: unexpected argument %q\n\n", fs.Arg(0))
+		fmt.Fprintf(os.Stderr, "soma: unexpected argument %q\n\n", fs.Arg(0))
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
@@ -261,7 +261,7 @@ func runTUI(args []string) {
 	socketPath := protocol.SocketPath()
 	c, hr, err := client.EnsureServer(socketPath, version)
 	if err != nil {
-		fmt.Printf("Alas, there's been an error reaching the somatui server: %v\n", err)
+		fmt.Printf("Alas, there's been an error reaching the soma daemon: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -393,5 +393,5 @@ func reconnect(socketPath string) (*client.Client, string, error) {
 		}
 		time.Sleep(time.Second)
 	}
-	return nil, "", fmt.Errorf("lost connection to the somatui server and could not restore it: %w", err)
+	return nil, "", fmt.Errorf("lost connection to the soma daemon and could not restore it: %w", err)
 }

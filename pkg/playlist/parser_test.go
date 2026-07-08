@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"somatui/internal/security/securitytest"
+	"somad/internal/security/securitytest"
 )
 
 func TestGetStreamURLFromPlaylist(t *testing.T) {
@@ -85,7 +85,7 @@ Version=2`,
 			}))
 			defer server.Close()
 
-			got, err := GetStreamURLFromPlaylist(server.URL, "SomaTUI/test")
+			got, err := GetStreamURLFromPlaylist(server.URL, "soma/test")
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetStreamURLFromPlaylist() error = %v, wantErr %v", err, tt.wantErr)
@@ -100,7 +100,7 @@ Version=2`,
 }
 
 func TestGetStreamURLFromPlaylistInvalidURL(t *testing.T) {
-	_, err := GetStreamURLFromPlaylist("http://invalid-url-that-does-not-exist.example.com/playlist.pls", "SomaTUI/test")
+	_, err := GetStreamURLFromPlaylist("http://invalid-url-that-does-not-exist.example.com/playlist.pls", "soma/test")
 	if err == nil {
 		t.Error("GetStreamURLFromPlaylist() should return error for invalid URL")
 	}

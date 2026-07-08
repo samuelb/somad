@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"somatui/internal/ui"
+	"somad/internal/ui"
 )
 
 // PrintableRunes returns the printable runes of the input (including space

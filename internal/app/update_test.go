@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"somatui/internal/protocol"
-	"somatui/internal/ui"
+	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -460,7 +460,7 @@ func TestUpdate_ServerGoneMsg_ShowsError(t *testing.T) {
 	require.Error(t, m.Err)
 }
 
-// Mirrors cmd/somatui main.go construction: empty list created at 0x0, then
+// Mirrors cmd/soma main.go construction: empty list created at 0x0, then
 // channels arrive, then a window size, then enter plays the selection.
 func TestUpdate_EnterPlaysAfterStartupFlow(t *testing.T) {
 	m := &Model{

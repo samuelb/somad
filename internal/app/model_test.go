@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"somatui/internal/channels"
-	"somatui/internal/ui"
+	"somad/internal/channels"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/stretchr/testify/assert"

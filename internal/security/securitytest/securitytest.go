@@ -6,7 +6,7 @@ package securitytest
 import (
 	"testing"
 
-	"somatui/internal/security"
+	"somad/internal/security"
 )
 
 // AllowTestHosts allows requests to localhost test servers for the duration of t.

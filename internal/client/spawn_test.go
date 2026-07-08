@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"somatui/internal/state"
+	"somad/internal/state"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

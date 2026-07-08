@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"somatui/internal/channels"
-	"somatui/internal/security/securitytest"
-	"somatui/internal/state"
+	"somad/internal/channels"
+	"somad/internal/security/securitytest"
+	"somad/internal/state"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

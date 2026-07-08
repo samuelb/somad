@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"slices"
 
-	"somatui/internal/atomicfile"
+	"somad/internal/atomicfile"
 )
 
 // State holds application state that persists between sessions.
@@ -77,12 +77,12 @@ func (s *State) ToggleFavorite(id string) {
 
 const (
 	stateFileName = "state.json"
-	appDirName    = "somatui"
+	appDirName    = "somad"
 )
 
 // getStateDir returns the directory for storing application state.
-// On Linux: $XDG_STATE_HOME/somatui or ~/.local/state/somatui
-// On macOS: ~/Library/Application Support/somatui
+// On Linux: $XDG_STATE_HOME/somad or ~/.local/state/somad
+// On macOS: ~/Library/Application Support/somad
 func getStateDir() (string, error) {
 	var baseDir string
 

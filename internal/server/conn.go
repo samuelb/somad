@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"somatui/internal/protocol"
+	"somad/internal/protocol"
 )
 
 // maxConcurrentRequests caps how many of one connection's requests are

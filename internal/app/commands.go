@@ -1,7 +1,7 @@
 package app
 
 import (
-	"somatui/internal/protocol"
+	"somad/internal/protocol"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

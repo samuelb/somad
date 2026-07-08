@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"somatui/internal/channels"
+	"somad/internal/channels"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"

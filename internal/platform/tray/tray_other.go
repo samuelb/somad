@@ -4,7 +4,7 @@
 // server runs without a menu-bar item.
 package tray
 
-import "somatui/internal/platform"
+import "somad/internal/platform"
 
 // Supported reports whether this build has a real tray implementation.
 const Supported = false

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"somatui/internal/security"
+	"somad/internal/security"
 )
 
 const plsFilePrefix = "File1="

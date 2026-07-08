@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"somatui/internal/protocol"
+	"somad/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -198,7 +198,7 @@ func TestView_AboutFooter(t *testing.T) {
 
 	result := m.View()
 
-	assert.Contains(t, result, "SomaTUI")
+	assert.Contains(t, result, "Soma")
 	assert.Contains(t, result, "1.2.3")
 	assert.Contains(t, result, "close")
 }

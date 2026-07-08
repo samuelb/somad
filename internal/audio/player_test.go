@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"somatui/internal/security/securitytest"
+	"somad/internal/security/securitytest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +22,7 @@ import (
 // full Play() path requires hardware and is not testable in CI.
 func newTestPlayer() *AudioPlayer {
 	return &AudioPlayer{
-		userAgent: "SomaTUI/test",
+		userAgent: "soma/test",
 		errChan:   make(chan error, 2),
 		trackChan: make(chan TrackInfo, 1),
 	}
@@ -138,7 +138,7 @@ func TestPlay_SupersededByStop(t *testing.T) {
 func TestFetchStream_Success(t *testing.T) {
 	securitytest.AllowTestHosts(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "SomaTUI/test", r.Header.Get("User-Agent"))
+		assert.Equal(t, "soma/test", r.Header.Get("User-Agent"))
 		_, _ = w.Write([]byte("audio-bytes"))
 	}))
 	defer server.Close()

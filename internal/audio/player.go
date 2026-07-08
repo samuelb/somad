@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"somatui/internal/security"
+	"somad/internal/security"
 
 	"github.com/ebitengine/oto/v3"
 	mp3 "github.com/hajimehoshi/go-mp3"

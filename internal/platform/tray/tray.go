@@ -12,7 +12,7 @@ import (
 
 	"fyne.io/systray"
 
-	"somatui/internal/platform"
+	"somad/internal/platform"
 )
 
 // Supported reports whether this build has a real tray implementation.
@@ -146,7 +146,7 @@ func (t *Tray) build() {
 		systray.SetIcon(iconPNG)
 	}
 	systray.SetTitle("")
-	systray.SetTooltip("SomaTUI")
+	systray.SetTooltip("Soma")
 
 	title := systray.AddMenuItem("Stopped", "")
 	title.Disable()
@@ -158,7 +158,7 @@ func (t *Tray) build() {
 	systray.AddSeparator()
 	channelsTop := systray.AddMenuItem("Channels", "Play a channel")
 	systray.AddSeparator()
-	quit := systray.AddMenuItem("Quit somatui server", "Shut down the playback server")
+	quit := systray.AddMenuItem("Quit soma daemon", "Shut down the playback server")
 
 	t.mu.Lock()
 	t.titleItem = title
@@ -203,7 +203,7 @@ func (t *Tray) applyLocked() {
 		label := playbackLabel(t.station, t.track)
 		t.titleItem.SetTitle("♪ " + label)
 		t.playStop.SetTitle("Stop")
-		systray.SetTooltip("SomaTUI — " + label)
+		systray.SetTooltip("Soma — " + label)
 		t.favItem.Enable()
 		if t.favoriteLocked(t.playingID) {
 			t.favItem.Check()
@@ -213,7 +213,7 @@ func (t *Tray) applyLocked() {
 	} else {
 		t.titleItem.SetTitle("Stopped")
 		t.playStop.SetTitle("Play")
-		systray.SetTooltip("SomaTUI")
+		systray.SetTooltip("Soma")
 		t.favItem.Disable()
 		t.favItem.Uncheck()
 	}

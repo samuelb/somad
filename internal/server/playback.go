@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"somatui/internal/audio"
-	"somatui/internal/channels"
-	"somatui/internal/protocol"
-	"somatui/internal/state"
-	"somatui/pkg/playlist"
+	"somad/internal/audio"
+	"somad/internal/channels"
+	"somad/internal/protocol"
+	"somad/internal/state"
+	"somad/pkg/playlist"
 )
 
 // reconnectMaxDelay caps the exponential backoff between reconnect

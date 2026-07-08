@@ -1,9 +1,9 @@
-# SomaTUI Makefile
-# A terminal UI client for SomaFM internet radio
+# Soma Makefile
+# A client for SomaFM internet radio
 
 # Variables
-BINARY_NAME=somatui
-CMD_PATH=./cmd/somatui
+BINARY_NAME=soma
+CMD_PATH=./cmd/soma
 BUILD_DIR=.
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -193,7 +193,7 @@ dev:
 # Show help
 .PHONY: help
 help:
-	@echo "SomaTUI Makefile"
+	@echo "Soma Makefile"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""

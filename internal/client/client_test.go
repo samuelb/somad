@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"somatui/internal/protocol"
+	"somad/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +18,7 @@ import (
 // testSocketPath returns a socket path short enough for sun_path limits.
 func testSocketPath(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "somatui")
+	dir, err := os.MkdirTemp("", "somad")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, "s.sock")

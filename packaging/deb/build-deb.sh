@@ -10,7 +10,8 @@ version="${1#v}"
 binary="$2"
 arch="${3:-amd64}"
 outdir="${4:-dist}"
-package="somatui"
+package="somad"
+binname="soma"
 
 if [ ! -f "$binary" ]; then
   echo "error: binary is missing: $binary" >&2
@@ -34,7 +35,7 @@ install -d \
   "$root/usr/bin" \
   "$root/usr/share/doc/$package"
 
-install -m 0755 "$binary" "$root/usr/bin/$package"
+install -m 0755 "$binary" "$root/usr/bin/$binname"
 install -m 0644 LICENSE "$root/usr/share/doc/$package/copyright"
 install -m 0644 README.md "$root/usr/share/doc/$package/README.md"
 
@@ -46,12 +47,15 @@ Section: sound
 Priority: optional
 Architecture: $arch
 Maintainer: Samuel B <samuelb@users.noreply.github.com>
-Homepage: https://github.com/samuelb/somatui
+Homepage: https://github.com/samuelb/somad
+Replaces: somatui
+Conflicts: somatui
 Depends: libc6 (>= 2.34), libasound2 | libasound2t64, ca-certificates
 Installed-Size: $installed_size
-Description: Terminal UI client for SomaFM radio
- SomaTUI is a keyboard-driven terminal client for browsing and streaming
- SomaFM radio channels, with background playback and CLI controls.
+Description: Client for SomaFM radio
+ Soma is a client for browsing and streaming SomaFM radio channels, with
+ background playback, a terminal UI, and CLI controls. Installs the "soma"
+ command.
 EOF
 
 install -d "$outdir"

@@ -3,8 +3,8 @@ package app
 import (
 	"errors"
 
-	"somatui/internal/protocol"
-	"somatui/internal/ui"
+	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 

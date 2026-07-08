@@ -1,20 +1,22 @@
-# SomaTUI
+# Soma
 
-[![CI](https://github.com/samuelb/somatui/actions/workflows/ci.yml/badge.svg)](https://github.com/samuelb/somatui/actions/workflows/ci.yml)
+[![CI](https://github.com/samuelb/somad/actions/workflows/ci.yml/badge.svg)](https://github.com/samuelb/somad/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/badge/go-1.25-blue.svg)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **✨ This project was entirely vibe-coded. ✨**
 
-A modern, TUI (Terminal User Interface) client for streaming and exploring SomaFM radio channels. Built for Linux and macOS — other platforms are not supported and may not work.
+A client for streaming and exploring SomaFM radio channels, with a background
+playback daemon, a terminal UI, and headless CLI commands. Built for Linux and
+macOS — other platforms are not supported and may not work.
 
-![SomaTUI Demo](demo.gif)
+![Soma Demo](demo.gif)
 
 ## Features
 
 - Client-server architecture: playback runs in a background server, so you
   can close the TUI and the music keeps playing (opt out with
-  `somatui --shutdown-on-exit`)
+  `soma --shutdown-on-exit`)
 - The server starts automatically when needed and exits on its own once
   playback is stopped and no client is connected
 - After an upgrade, the background server is restarted onto the new version the
@@ -36,65 +38,65 @@ A modern, TUI (Terminal User Interface) client for streaming and exploring SomaF
 - System tray / menu-bar icon (macOS and Linux) — shows the current track,
   lets you pick any channel from a menu, and gives you play/stop, next, and
   previous while the server runs, even with the TUI closed. Disable
-  it with `somatui server --no-tray`.
+  it with `soma daemon --no-tray`.
 
 ## Installation
 
 ### Homebrew (macOS and Linux)
 
 ```sh
-brew tap samuelb/somatui
-brew install somatui
+brew tap samuelb/somad
+brew install somad
 ```
 
-This installs a pre-built binary from the [latest release](https://github.com/samuelb/somatui/releases),
-so no compiler is required. Upgrade later with `brew upgrade somatui`.
+This installs a pre-built binary from the [latest release](https://github.com/samuelb/somad/releases),
+so no compiler is required. Upgrade later with `brew upgrade somad`.
 
 Recent versions of Homebrew ask you to explicitly trust a third-party tap before
 installing from it. If you see an "untrusted tap" error, run
-`brew trust samuelb/somatui` and try again.
+`brew trust samuelb/somad` and try again.
 
 ### Debian/Ubuntu
 
-Download the `.deb` package from the [latest release](https://github.com/samuelb/somatui/releases)
+Download the `.deb` package from the [latest release](https://github.com/samuelb/somad/releases)
 and install it with:
 
 ```sh
-sudo apt install ./somatui_*_linux_$(dpkg --print-architecture).deb
+sudo apt install ./somad_*_linux_$(dpkg --print-architecture).deb
 ```
 
 ### Nix
 
-Run SomaTUI directly from the flake:
+Run Soma directly from the flake:
 
 ```sh
-nix run github:samuelb/somatui
+nix run github:samuelb/somad
 ```
 
 Or install it into your profile:
 
 ```sh
-nix profile install github:samuelb/somatui
+nix profile install github:samuelb/somad
 ```
 
 ### Arch Linux
 
-SomaTUI can be packaged for the AUR from `packaging/aur/`. Once published, install
+Soma can be packaged for the AUR from `packaging/aur/`. Once published, install
 it with an AUR helper such as:
 
 ```sh
-paru -S somatui
+paru -S somad
 ```
 
 ### Pre-built Binaries
 
-1.  Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somatui/releases):
-    - `somatui_darwin_amd64` for Intel Macs
-    - `somatui_darwin_arm64` for Apple Silicon/M-series Macs
-    - `somatui_linux_amd64` for x86_64 Linux
-    - `somatui_linux_arm64` for ARM64 Linux
-2.  Rename it to `somatui` if you want a shorter command.
-3.  Run the `somatui` executable.
+1.  Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somad/releases):
+    - `soma_darwin_amd64` for Intel Macs
+    - `soma_darwin_arm64` for Apple Silicon/M-series Macs
+    - `soma_linux_amd64` for x86_64 Linux
+    - `soma_linux_arm64` for ARM64 Linux
+2.  Rename it to `soma` if you want a shorter command.
+3.  Run the `soma` executable.
 
 #### macOS
 
@@ -103,7 +105,7 @@ After downloading, you may need to grant permission to run the application since
 To do this, open a terminal and run:
 
 ```sh
-xattr -d com.apple.quarantine /path/to/somatui
+xattr -d com.apple.quarantine /path/to/soma
 ```
 
 Alternatively, you can go to `System Preferences > Security & Privacy > General` and click `Open Anyway`.
@@ -113,7 +115,7 @@ Alternatively, you can go to `System Preferences > Security & Privacy > General`
 After downloading, make the binary executable:
 
 ```sh
-chmod +x /path/to/somatui
+chmod +x /path/to/soma
 ```
 
 Then, you can run it from your terminal.
@@ -138,9 +140,9 @@ sudo pacman -S alsa-lib
 Then build:
 
 ```sh
-git clone https://github.com/samuelb/somatui.git
-cd somatui
-go build -o somatui ./cmd/somatui
+git clone https://github.com/samuelb/somad.git
+cd somad
+go build -o soma ./cmd/soma
 ```
 
 ## Usage
@@ -148,7 +150,7 @@ go build -o somatui ./cmd/somatui
 Simply run:
 
 ```sh
-./somatui
+./soma
 ```
 
 This opens the TUI and automatically starts the playback server in the
@@ -158,31 +160,31 @@ background if one isn't running yet.
 
 | Command                    | Description                                              |
 | -------------------------- | -------------------------------------------------------- |
-| `somatui`                  | Start the TUI (spawns the playback server if needed); `--shutdown-on-exit` stops playback and the server on quit |
-| `somatui play [channel]`   | Play a channel by ID or name match, or resume the last played channel when omitted |
-| `somatui list [--json]`    | List all channels (favorites first, marked with `*`)     |
-| `somatui favorite [--json] <channel>` | Toggle a channel's favorite flag (`fav` works too) |
-| `somatui next` / `somatui prev` | Play the next / previous channel (favorites first, wraps around) |
-| `somatui pause`            | Toggle pause (live radio: unpausing rejoins the live stream) |
-| `somatui stop`             | Stop playback                                            |
-| `somatui status [--json]`  | Show what is playing (`--json` for status bars/scripts)  |
-| `somatui volume [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
-| `somatui server`           | Run the playback server in the foreground (`--no-tray` hides the tray icon) |
-| `somatui server stop`      | Shut down the playback server                            |
-| `somatui --version`        | Print version information                                |
+| `soma`                     | Start the TUI (spawns the playback server if needed); `--shutdown-on-exit` stops playback and the server on quit |
+| `soma play [channel]`      | Play a channel by ID or name match, or resume the last played channel when omitted |
+| `soma list [--json]`       | List all channels (favorites first, marked with `*`)     |
+| `soma favorite [--json] <channel>` | Toggle a channel's favorite flag (`fav` works too) |
+| `soma next` / `soma prev`  | Play the next / previous channel (favorites first, wraps around) |
+| `soma pause`               | Toggle pause (live radio: unpausing rejoins the live stream) |
+| `soma stop`                | Stop playback                                            |
+| `soma status [--json]`     | Show what is playing (`--json` for status bars/scripts)  |
+| `soma volume [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
+| `soma daemon`              | Run the playback server in the foreground (`--no-tray` hides the tray icon) |
+| `soma daemon stop`         | Shut down the playback server                            |
+| `soma --version`           | Print version information                                |
 
 ### Background playback
 
-Audio is streamed and decoded by a separate `somatui server` process that the
+Audio is streamed and decoded by a separate `soma daemon` process that the
 TUI (and the CLI commands) talk to over a Unix socket. Quitting the TUI with
-<kbd>q</kbd> leaves the music playing — reopen `somatui` any time to pick the
-session back up, or use `somatui stop` to silence it. If you'd rather have
-quitting take everything down, start the TUI with `somatui --shutdown-on-exit`
+<kbd>q</kbd> leaves the music playing — reopen `soma` any time to pick the
+session back up, or use `soma stop` to silence it. If you'd rather have
+quitting take everything down, start the TUI with `soma --shutdown-on-exit`
 (or set `tui.shutdown_on_exit: true` in the
 [configuration file](#configuration)): quitting then stops playback and shuts
 the server down. By default the server
-keeps running until stopped explicitly (`somatui server stop` or the tray's
-Quit item); set an idle timeout with `somatui server --idle-timeout` or the
+keeps running until stopped explicitly (`soma daemon stop` or the tray's
+Quit item); set an idle timeout with `soma daemon --idle-timeout` or the
 `server.idle_timeout` setting in the [configuration file](#configuration) to
 make it exit on its own once playback is stopped and no client is connected
 for that long.
@@ -192,7 +194,7 @@ tray host is available) with the current track, a "Channels" submenu for
 switching stations (favorites first, marked ★, the playing one marked ▸),
 play/pause, next, previous, and stop controls, and a "★ Favorite" checkbox that
 marks or unmarks the playing channel, plus a "Quit" item that shuts the server
-down. Pass `somatui server --no-tray` (or set `server.tray: false` in
+down. Pass `soma daemon --no-tray` (or set `server.tray: false` in
 the [configuration file](#configuration)) to run without it. On a headless
 host (no display or GUI session) the tray is skipped automatically and the
 server, CLI, and TUI all keep working.
@@ -216,8 +218,8 @@ The server and TUI flags can also be set in a configuration file, which is
 handy because the server is usually auto-spawned by the TUI or a CLI command
 and therefore runs without any flags. It lives at:
 
-- **Linux**: `$XDG_CONFIG_HOME/somatui/config.yaml` (usually `~/.config/somatui/config.yaml`)
-- **macOS**: `~/Library/Application Support/somatui/config.yaml`
+- **Linux**: `$XDG_CONFIG_HOME/somad/config.yaml` (usually `~/.config/somad/config.yaml`)
+- **macOS**: `~/Library/Application Support/somad/config.yaml`
 
 On the first server start the file is created as a template with every
 setting present but commented out, so the defaults stay in effect until you
@@ -250,12 +252,12 @@ a typo never silently falls back to defaults.
 
 ## Data Storage
 
-- **Config**: `~/.config/somatui/` (Linux) or `~/Library/Application Support/somatui/` (macOS)
-- **State**: `~/.local/state/somatui/` (Linux) or `~/Library/Application Support/somatui/` (macOS) —
+- **Config**: `~/.config/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS)
+- **State**: `~/.local/state/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS) —
   also holds `server.log`, the log of the auto-spawned playback server
-- **Cache**: `~/.cache/somatui/` (Linux) or `~/Library/Caches/somatui/` (macOS)
-- **Socket**: `$XDG_RUNTIME_DIR/somatui.sock` (Linux) or a per-user temp
-  directory (macOS); override with `$SOMATUI_SOCKET`
+- **Cache**: `~/.cache/somad/` (Linux) or `~/Library/Caches/somad/` (macOS)
+- **Socket**: `$XDG_RUNTIME_DIR/somad.sock` (Linux) or a per-user temp
+  directory (macOS); override with `$SOMAD_SOCKET`
 
 ## Dependencies
 

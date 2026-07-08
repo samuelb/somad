@@ -5,9 +5,9 @@ import (
 	"math"
 	"strings"
 
-	"somatui/internal/channels"
-	"somatui/internal/protocol"
-	"somatui/internal/ui"
+	"somad/internal/channels"
+	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
@@ -127,9 +127,9 @@ func (m *Model) RenderAboutFooter() string {
 		Render(strings.Repeat("─", width))
 
 	lines := []string{
-		fmt.Sprintf("SomaTUI %s · commit %s · built %s", m.About.Version, m.About.Commit, m.About.Date),
+		fmt.Sprintf("Soma %s · commit %s · built %s", m.About.Version, m.About.Commit, m.About.Date),
 		"A terminal UI for SomaFM internet radio · MIT License",
-		"Author: Samuel Barabas · https://github.com/samuelb/somatui",
+		"Author: Samuel Barabas · https://github.com/samuelb/somad",
 		"Not affiliated with SomaFM. Streams provided by somafm.com.",
 		"press a or esc to close",
 	}
