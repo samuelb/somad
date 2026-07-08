@@ -1,4 +1,4 @@
-# Soma
+# somad
 
 [![CI](https://github.com/samuelb/somad/actions/workflows/ci.yml/badge.svg)](https://github.com/samuelb/somad/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/badge/go-1.25-blue.svg)](https://golang.org/)
@@ -6,11 +6,11 @@
 
 **✨ This project was entirely vibe-coded. ✨**
 
-A client for streaming and exploring SomaFM radio channels, with a background
-playback daemon, a terminal UI, and headless CLI commands. Built for Linux and
-macOS — other platforms are not supported and may not work.
+somad is a client for streaming and exploring SomaFM radio channels, with a
+background playback daemon, a terminal UI, and headless CLI commands. Built for
+Linux and macOS — other platforms are not supported and may not work.
 
-![Soma Demo](demo.gif)
+![somad Demo](demo.gif)
 
 ## Features
 
@@ -67,7 +67,7 @@ sudo apt install ./somad_*_linux_$(dpkg --print-architecture).deb
 
 ### Nix
 
-Run Soma directly from the flake:
+Run somad directly from the flake:
 
 ```sh
 nix run github:samuelb/somad
@@ -81,7 +81,7 @@ nix profile install github:samuelb/somad
 
 ### Arch Linux
 
-Soma can be packaged for the AUR from `packaging/aur/`. Once published, install
+somad can be packaged for the AUR from `packaging/aur/`. Once published, install
 it with an AUR helper such as:
 
 ```sh
