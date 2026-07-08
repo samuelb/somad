@@ -1,6 +1,6 @@
 module somatui
 
-go 1.25.0
+go 1.25.12
 
 require (
 	fyne.io/systray v1.12.2
