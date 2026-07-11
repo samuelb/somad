@@ -108,6 +108,19 @@ func getStateDir() (string, error) {
 	return filepath.Join(baseDir, appDirName), nil
 }
 
+// Dir returns the application state directory, creating it if needed. The
+// server also keeps its auto-generated TLS certificate here.
+func Dir() (string, error) {
+	stateDir, err := getStateDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(stateDir, 0750); err != nil {
+		return "", fmt.Errorf("failed to create state directory: %w", err)
+	}
+	return stateDir, nil
+}
+
 // GetStateFilePath returns the absolute path to the state file.
 func GetStateFilePath() (string, error) {
 	stateDir, err := getStateDir()

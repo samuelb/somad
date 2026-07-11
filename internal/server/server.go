@@ -36,6 +36,11 @@ type Config struct {
 	MPRIS       *platform.MPRIS // may be nil
 	Tray        *tray.Tray      // may be nil
 	IdleTimeout time.Duration   // 0 disables idle exit
+	// PSK, when non-empty, is the pre-shared key every non-local (TCP)
+	// connection must authenticate with before hello. Unix-socket
+	// connections are exempt: the socket directory's permissions already
+	// restrict them to the owning user.
+	PSK string
 }
 
 // Server is the soma daemon. All mutable fields are guarded by mu; the
@@ -48,6 +53,7 @@ type Server struct {
 	mpris       *platform.MPRIS
 	tray        *tray.Tray
 	idleTimeout time.Duration
+	psk         string
 
 	// persist writes user state to disk. It defaults to state.SaveState;
 	// tests override it to avoid fsync-heavy disk writes on every mutation.
@@ -63,7 +69,7 @@ type Server struct {
 	done         chan struct{} // closed by Shutdown
 
 	mu               sync.Mutex
-	ln               net.Listener
+	lns              []net.Listener
 	conns            map[*conn]struct{}
 	closing          bool
 	catalog          []channels.Channel // favorites-first order
@@ -90,6 +96,7 @@ func New(cfg Config) *Server {
 		mpris:       cfg.MPRIS,
 		tray:        cfg.Tray,
 		idleTimeout: cfg.IdleTimeout,
+		psk:         cfg.PSK,
 		persist:     state.SaveState,
 		done:        make(chan struct{}),
 		conns:       make(map[*conn]struct{}),
@@ -112,12 +119,13 @@ func New(cfg Config) *Server {
 	return s
 }
 
-// Run serves connections on ln until Shutdown is called (by a client request,
-// a signal, or the idle timer). It owns the catalog load and the goroutines
-// that watch the audio player.
-func (s *Server) Run(ln net.Listener) error {
+// Run serves connections on the given listeners (typically the Unix socket,
+// plus a TCP listener when remote access is configured) until Shutdown is
+// called (by a client request, a signal, or the idle timer). It owns the
+// catalog load and the goroutines that watch the audio player.
+func (s *Server) Run(lns ...net.Listener) error {
 	s.mu.Lock()
-	s.ln = ln
+	s.lns = lns
 	// If no client ever connects (e.g. the spawning client died), the idle
 	// timer still reaps the server.
 	s.maybeArmIdleLocked()
@@ -128,6 +136,25 @@ func (s *Server) Run(ln net.Listener) error {
 	go s.refreshLoop()
 	s.loadCatalog()
 
+	errCh := make(chan error, len(lns))
+	for _, ln := range lns {
+		go func(ln net.Listener) { errCh <- s.acceptLoop(ln) }(ln)
+	}
+	var firstErr error
+	for range lns {
+		if err := <-errCh; err != nil && firstErr == nil {
+			// One listener failing takes the server down; Shutdown unblocks
+			// the remaining accept loops.
+			firstErr = err
+			s.Shutdown()
+		}
+	}
+	return firstErr
+}
+
+// acceptLoop serves one listener until it closes; the error is nil when the
+// close came from Shutdown.
+func (s *Server) acceptLoop(ln net.Listener) error {
 	for {
 		nc, err := ln.Accept()
 		if err != nil {
@@ -150,7 +177,7 @@ func (s *Server) Shutdown() {
 		s.closing = true
 		s.cancelReconnectLocked()
 		s.disarmIdleLocked()
-		ln := s.ln
+		lns := s.lns
 		open := make([]*conn, 0, len(s.conns))
 		for c := range s.conns {
 			open = append(open, c)
@@ -165,7 +192,7 @@ func (s *Server) Shutdown() {
 			s.tray.Quit()
 		}
 		close(s.done)
-		if ln != nil {
+		for _, ln := range lns {
 			_ = ln.Close()
 		}
 		for _, c := range open {

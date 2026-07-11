@@ -182,7 +182,7 @@ func TestEnsureServer_SpawnsAndRetries(t *testing.T) {
 	}
 	t.Cleanup(func() { spawnServer = prev })
 
-	c, hr, err := EnsureServer(path, "dev")
+	c, hr, err := EnsureServer(UnixEndpoint(path), "dev")
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 	assert.Equal(t, "dev", hr.ServerVersion)
@@ -231,7 +231,7 @@ func TestEnsureServer_KeepsPlayingSkewedServer(t *testing.T) {
 	spawnServer = func() error { spawned = true; return nil }
 	t.Cleanup(func() { spawnServer = prev })
 
-	c, hr, err := EnsureServer(path, "new")
+	c, hr, err := EnsureServer(UnixEndpoint(path), "new")
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
@@ -253,7 +253,7 @@ func TestEnsureServer_RestartsIdleSkewedServer(t *testing.T) {
 	}
 	t.Cleanup(func() { spawnServer = prev })
 
-	c, hr, err := EnsureServer(path, "new")
+	c, hr, err := EnsureServer(UnixEndpoint(path), "new")
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
@@ -279,7 +279,7 @@ func TestEnsureServerForPlayback_RestartsPlayingSkewedServer(t *testing.T) {
 	}
 	t.Cleanup(func() { spawnServer = prev })
 
-	c, hr, err := EnsureServerForPlayback(path, "new")
+	c, hr, err := EnsureServerForPlayback(UnixEndpoint(path), "new")
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
@@ -320,7 +320,7 @@ func TestEnsureServer_ErrorsWhenStaleServerWontExit(t *testing.T) {
 	spawnServer = func() error { return nil }
 	t.Cleanup(func() { spawnServer = prev })
 
-	_, _, err := EnsureServer(path, "new")
+	_, _, err := EnsureServer(UnixEndpoint(path), "new")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not exit")
 }

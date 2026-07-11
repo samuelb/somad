@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"slices"
@@ -29,7 +30,7 @@ func fail(format string, args ...any) {
 // spawns the server if needed but leaves a running, playing one in place even
 // when its version differs from ours, so the music keeps going).
 func ensureServer() *client.Client {
-	c, _, err := client.EnsureServer(protocol.SocketPath(), version)
+	c, _, err := client.EnsureServer(endpoint, version)
 	if err != nil {
 		fail("%v", err)
 	}
@@ -37,10 +38,10 @@ func ensureServer() *client.Client {
 }
 
 // ensureServerForPlayback connects for a command that changes the stream. Since
-// that interrupts playback anyway, an out-of-date server is restarted onto our
-// version first, so the command runs against the up-to-date binary.
+// that interrupts playback anyway, an out-of-date local server is restarted onto
+// our version first, so the command runs against the up-to-date binary.
 func ensureServerForPlayback() *client.Client {
-	c, _, err := client.EnsureServerForPlayback(protocol.SocketPath(), version)
+	c, _, err := client.EnsureServerForPlayback(endpoint, version)
 	if err != nil {
 		fail("%v", err)
 	}
@@ -48,11 +49,16 @@ func ensureServerForPlayback() *client.Client {
 }
 
 // dialServer connects to a running server without spawning one, returning its
-// reported version. The last return value is false when no server is listening.
+// reported version. The last return value is false when no server is listening
+// locally; an unreachable remote server is an error instead, because "not
+// running" is not something this side can know or fix.
 func dialServer() (*client.Client, string, bool) {
-	c, err := client.Dial(protocol.SocketPath())
+	c, err := client.DialEndpoint(endpoint)
 	if err != nil {
-		return nil, "", false
+		if endpoint.IsLocal() {
+			return nil, "", false
+		}
+		fail("cannot reach the soma daemon at %s: %v", endpoint, err)
 	}
 	hr, err := c.Hello(version)
 	if err != nil {
@@ -62,14 +68,16 @@ func dialServer() (*client.Client, string, bool) {
 	return c, hr.ServerVersion, true
 }
 
-// restartForUpgrade restarts an out-of-date server onto our version, for a
-// command that is about to interrupt playback anyway. It returns c unchanged
-// when the server already runs our version.
+// restartForUpgrade restarts an out-of-date local server onto our version, for
+// a command that is about to interrupt playback anyway. It returns c unchanged
+// when the server already runs our version — or is remote, where a version-
+// skewed server is tolerated (the hello handshake already checked that it
+// speaks our protocol version).
 func restartForUpgrade(c *client.Client, serverVersion string) *client.Client {
-	if serverVersion == version {
+	if serverVersion == version || !endpoint.IsLocal() {
 		return c
 	}
-	nc, _, err := client.Restart(c, protocol.SocketPath(), version)
+	nc, _, err := client.Restart(c, endpoint, version)
 	if err != nil {
 		fail("%v", err)
 	}
@@ -159,24 +167,21 @@ func runPlay(args []string) {
 	fmt.Printf("Playing: %s\n", st.ChannelTitle)
 }
 
-// extractJSONFlag reports whether "--json" is present in args, returning the
-// remaining arguments with it removed.
-func extractJSONFlag(args []string) (rest []string, jsonOut bool) {
-	for _, a := range args {
-		if a == "--json" {
-			jsonOut = true
-			continue
-		}
-		rest = append(rest, a)
-	}
-	return rest, jsonOut
+// parseJSONFlag parses a client command's arguments, which may lead with
+// --json for machine-readable output, and returns the positional rest.
+func parseJSONFlag(name, usageLine string, args []string) (rest []string, jsonOut bool) {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
+	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usageLine) }
+	j := fs.Bool("json", false, "print machine-readable JSON")
+	_ = fs.Parse(args)
+	return fs.Args(), *j
 }
 
 // runList prints the channel catalog, favorites first and marked with a
 // star, one channel per line for browsing and scripting. With --json, it
 // prints the same catalog as a JSON array for scripts to parse.
 func runList(args []string) {
-	args, jsonOut := extractJSONFlag(args)
+	args, jsonOut := parseJSONFlag("list", "soma list [--json]", args)
 	if len(args) != 0 {
 		fail("usage: soma list [--json]")
 	}
@@ -240,7 +245,7 @@ func channelListEntries(payload protocol.ChannelsPayload) []channelListEntry {
 // without opening the TUI. With --json, it prints the toggle result instead
 // of the human-readable message.
 func runFavorite(args []string) {
-	args, jsonOut := extractJSONFlag(args)
+	args, jsonOut := parseJSONFlag("favorite", "soma favorite [--json] <channel-id-or-name>", args)
 	if len(args) != 1 {
 		fail("usage: soma favorite [--json] <channel-id-or-name>")
 	}
@@ -316,7 +321,7 @@ func runPause() {
 	}
 	defer func() { _ = c.Close() }()
 
-	if serverVersion != version {
+	if serverVersion != version && endpoint.IsLocal() {
 		// Pausing interrupts playback anyway, so upgrade the server now. The
 		// fresh server starts stopped: if music was playing, that stopped state
 		// *is* the pause; if it was already paused, unpausing means resuming the
@@ -362,12 +367,8 @@ func runStop() {
 // runStatus prints the playback state, as JSON with --json so status bars
 // and scripts don't have to parse the human-readable output.
 func runStatus(args []string) {
-	jsonOut := false
-	switch {
-	case len(args) == 0:
-	case len(args) == 1 && args[0] == "--json":
-		jsonOut = true
-	default:
+	args, jsonOut := parseJSONFlag("status", "soma status [--json]", args)
+	if len(args) != 0 {
 		fail("usage: soma status [--json]")
 	}
 

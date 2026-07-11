@@ -1,10 +1,13 @@
 // Package client implements the soma protocol client used by both the
 // TUI and the headless CLI commands: request/response calls over the Unix
-// socket plus a stream of decoded server events.
+// socket (or, for a remote server, TCP with optional TLS and pre-shared-key
+// authentication) plus a stream of decoded server events.
 package client
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,13 +41,65 @@ type Client struct {
 	events chan any
 }
 
-// Dial connects to the server socket. It does not spawn a server and does
-// not perform the hello handshake.
+// Endpoint describes where and how to reach a soma daemon: the local Unix
+// socket, or a TCP address with optional TLS and pre-shared-key
+// authentication.
+type Endpoint struct {
+	Network string      // "unix" or "tcp"
+	Address string      // socket path, or host:port
+	TLS     *tls.Config // nil for a plaintext connection
+	PSK     string      // non-empty: authenticate after connecting
+}
+
+// UnixEndpoint is the default endpoint: the local Unix socket.
+func UnixEndpoint(socketPath string) Endpoint {
+	return Endpoint{Network: "unix", Address: socketPath}
+}
+
+// IsLocal reports whether the endpoint is the local Unix socket. Only local
+// servers can be auto-spawned or restarted for a version upgrade.
+func (e Endpoint) IsLocal() bool {
+	return e.Network == "unix"
+}
+
+func (e Endpoint) String() string {
+	if e.IsLocal() {
+		return e.Address
+	}
+	return "tcp://" + e.Address
+}
+
+// dialTimeout bounds connecting (and, over TLS, the handshake). Generous
+// because remote endpoints cross real networks.
+const dialTimeout = 5 * time.Second
+
+// Dial connects to the local server socket. It does not spawn a server and
+// does not perform the hello handshake.
 func Dial(socketPath string) (*Client, error) {
-	dialer := net.Dialer{Timeout: 2 * time.Second}
-	nc, err := dialer.DialContext(context.Background(), "unix", socketPath)
+	return DialEndpoint(UnixEndpoint(socketPath))
+}
+
+// DialEndpoint connects to a soma daemon, performing the TLS handshake and
+// pre-shared-key authentication when the endpoint asks for them. It does not
+// spawn a server and does not perform the hello handshake.
+func DialEndpoint(ep Endpoint) (*Client, error) {
+	dialer := net.Dialer{Timeout: dialTimeout}
+	nc, err := dialer.DialContext(context.Background(), ep.Network, ep.Address)
 	if err != nil {
 		return nil, err
+	}
+	if ep.TLS != nil {
+		tc := tls.Client(nc, ep.TLS)
+		// Handshake now, not lazily on first write: a certificate problem
+		// must surface as a connect error, not a mid-request failure.
+		ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+		err := tc.HandshakeContext(ctx)
+		cancel()
+		if err != nil {
+			_ = nc.Close()
+			return nil, fmt.Errorf("TLS handshake with %s failed: %w", ep, err)
+		}
+		nc = tc
 	}
 	c := &Client{
 		nc:      nc,
@@ -52,7 +107,31 @@ func Dial(socketPath string) (*Client, error) {
 		events:  make(chan any, 32),
 	}
 	go c.readLoop()
+	if ep.PSK != "" && !ep.IsLocal() {
+		if err := c.authenticate(ep.PSK); err != nil {
+			_ = c.Close()
+			return nil, fmt.Errorf("authenticating with %s: %w", ep, err)
+		}
+	}
 	return c, nil
+}
+
+// authenticate proves knowledge of the pre-shared key: it requests a
+// challenge nonce and answers with HMAC-SHA256(psk, nonce), so the key never
+// travels over the wire.
+func (c *Client) authenticate(psk string) error {
+	var challenge protocol.AuthChallengeResult
+	if err := c.call(protocol.MethodAuthChallenge, nil, &challenge); err != nil {
+		return err
+	}
+	nonce, err := base64.StdEncoding.DecodeString(challenge.Nonce)
+	if err != nil {
+		return fmt.Errorf("malformed challenge nonce: %w", err)
+	}
+	mac := protocol.ComputeAuthMAC(psk, nonce)
+	return c.call(protocol.MethodAuth, protocol.AuthParams{
+		MAC: base64.StdEncoding.EncodeToString(mac),
+	}, nil)
 }
 
 // Events returns the stream of server-pushed snapshots. The channel is

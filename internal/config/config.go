@@ -27,6 +27,7 @@ const (
 // from an absent key, which falls back to the built-in default.
 type Config struct {
 	Server ServerConfig `yaml:"server"`
+	Client ClientConfig `yaml:"client"`
 	TUI    TUIConfig    `yaml:"tui"`
 }
 
@@ -39,6 +40,44 @@ type ServerConfig struct {
 	// Tray controls the system tray / menu-bar icon (the inverse of the
 	// --no-tray flag, so the file reads positively).
 	Tray *bool `yaml:"tray"`
+	// Listen is a host:port the server additionally listens on over TCP,
+	// for frontends on other machines. Empty keeps the server local-only
+	// (Unix socket).
+	Listen *string `yaml:"listen"`
+	// TLS enables TLS on the TCP listener. Without TLSCert/TLSKey a
+	// self-signed certificate is generated (and reused) in the state dir.
+	TLS *bool `yaml:"tls"`
+	// TLSCert and TLSKey are PEM files for the TCP listener; setting them
+	// implies TLS. They must be set together.
+	TLSCert *string `yaml:"tls_cert"`
+	TLSKey  *string `yaml:"tls_key"`
+	// PSK is the pre-shared key TCP clients must authenticate with; PSKFile
+	// reads it from a file instead, keeping the secret out of this file.
+	// At most one may be set. The Unix socket never requires it.
+	PSK     *string `yaml:"psk"`
+	PSKFile *string `yaml:"psk_file"`
+}
+
+// ClientConfig configures how the TUI and CLI reach the server. It mirrors
+// the global client flags (--server, --tls, --tls-ca, --tls-fingerprint,
+// --psk-file); explicit flags take precedence.
+type ClientConfig struct {
+	// Server is the host:port of a remote soma daemon. Empty means the
+	// local Unix socket (the default).
+	Server *string `yaml:"server"`
+	// TLS forces TLS on; it is implied by TLSCA or TLSFingerprint.
+	TLS *bool `yaml:"tls"`
+	// TLSCA is a PEM file with the certificate (or CA) to trust.
+	TLSCA *string `yaml:"tls_ca"`
+	// TLSFingerprint pins the server certificate by its SHA-256 fingerprint
+	// ("sha256:<hex>", as printed by the server at startup). At most one of
+	// TLSCA and TLSFingerprint may be set; with neither, the system trust
+	// store is used.
+	TLSFingerprint *string `yaml:"tls_fingerprint"`
+	// PSK is the pre-shared key for the server; PSKFile reads it from a
+	// file instead. At most one may be set.
+	PSK     *string `yaml:"psk"`
+	PSKFile *string `yaml:"psk_file"`
 }
 
 // TUIConfig configures the terminal frontend.
@@ -125,7 +164,29 @@ func Load() (*Config, error) {
 	if cfg.Server.IdleTimeout != nil && *cfg.Server.IdleTimeout < 0 {
 		return nil, fmt.Errorf("invalid config file %s: server.idle_timeout must not be negative", path)
 	}
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
+	}
 	return &cfg, nil
+}
+
+// validate rejects contradictory remote-transport settings, so a
+// misconfigured setup fails at startup instead of at connect time.
+func (c *Config) validate() error {
+	set := func(s *string) bool { return s != nil && *s != "" }
+	if set(c.Server.TLSCert) != set(c.Server.TLSKey) {
+		return errors.New("server.tls_cert and server.tls_key must be set together")
+	}
+	if set(c.Server.PSK) && set(c.Server.PSKFile) {
+		return errors.New("server.psk and server.psk_file are mutually exclusive")
+	}
+	if set(c.Client.PSK) && set(c.Client.PSKFile) {
+		return errors.New("client.psk and client.psk_file are mutually exclusive")
+	}
+	if set(c.Client.TLSCA) && set(c.Client.TLSFingerprint) {
+		return errors.New("client.tls_ca and client.tls_fingerprint are mutually exclusive")
+	}
+	return nil
 }
 
 // templateFormat is the generated default config file. Every setting is
@@ -149,6 +210,45 @@ const templateFormat = `# Soma configuration file.
 #  # Show the system tray / menu-bar icon while the server runs.
 #  # "tray: false" is the same as the --no-tray flag.
 #  tray: true
+#
+#  # Also listen for frontends on TCP (host:port), e.g. to control this
+#  # machine's playback from a laptop. Same as the --listen flag. The Unix
+#  # socket stays available either way; empty disables TCP (the default).
+#  listen: "0.0.0.0:5454"
+#
+#  # Encrypt the TCP listener with TLS. Without tls_cert/tls_key a
+#  # self-signed certificate is generated in the state directory and its
+#  # fingerprint printed at startup ("soma daemon --show-cert" reprints it).
+#  tls: true
+#
+#  # Use this PEM certificate/key pair instead (setting them implies TLS).
+#  tls_cert: /path/to/cert.pem
+#  tls_key: /path/to/key.pem
+#
+#  # Require TCP clients to know this pre-shared key (the Unix socket is
+#  # exempt). To keep the secret out of this file, set instead
+#  #   psk_file: /path/to/psk
+#  # (or the --psk-file flag); psk and psk_file are mutually exclusive.
+#  psk: "change-me"
+#
+#client:
+#  # Connect the TUI and CLI to a remote soma daemon instead of the local
+#  # Unix socket. Same as the --server flag or $SOMAD_SERVER.
+#  server: "myserver:5454"
+#
+#  # Use TLS for the connection (implied by tls_ca or tls_fingerprint;
+#  # with neither of those, the system trust store must know the server's
+#  # certificate). Same as the --tls flag.
+#  tls: true
+#
+#  # Trust the server by pinning the SHA-256 fingerprint it prints at
+#  # startup — or, mutually exclusive with that, by certificate/CA file:
+#  #   tls_ca: /path/to/cert.pem
+#  tls_fingerprint: "sha256:..."
+#
+#  # Pre-shared key matching the server's psk setting (or psk_file, see
+#  # above; mutually exclusive).
+#  psk: "change-me"
 #
 #tui:
 #  # Stop playback and shut down the server when closing the TUI.

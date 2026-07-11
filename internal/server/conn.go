@@ -1,11 +1,15 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"somad/internal/protocol"
 )
@@ -46,15 +50,29 @@ func (s *Server) serveConn(nc net.Conn) {
 		channelsCh: make(chan protocol.Event, 1),
 		done:       make(chan struct{}),
 	}
-	if !s.addConn(c) {
-		_ = nc.Close()
-		return
+	// Non-local connections must prove knowledge of the pre-shared key
+	// before anything else; the Unix socket is already restricted to the
+	// owning user by file permissions. Until then the connection stays
+	// unregistered: it receives no state broadcasts and does not keep the
+	// server alive past its idle timeout.
+	authed := s.psk == "" || isLocalConn(nc)
+	registered := false
+	defer func() {
+		if registered {
+			s.removeConn(c)
+		}
+		c.close()
+	}()
+	if authed {
+		if !s.addConn(c) {
+			return
+		}
+		registered = true
 	}
-	defer s.removeConn(c)
-	defer c.close()
 
 	go c.writeLoop()
 
+	var nonce []byte
 	saidHello := false
 	sc := protocol.NewScanner(nc)
 	for sc.Scan() {
@@ -63,22 +81,97 @@ func (s *Server) serveConn(nc net.Conn) {
 			c.respondError(req.ID, fmt.Errorf("malformed request: %w", err))
 			continue
 		}
-		// hello must come first and is handled inline so saidHello is set
+		// auth and hello are handled inline so authed/saidHello are set
 		// before the next request is read.
-		if req.Method == protocol.MethodHello {
+		switch req.Method {
+		case protocol.MethodAuthChallenge:
+			var err error
+			if nonce, err = protocol.NewAuthNonce(); err != nil {
+				c.respondError(req.ID, err)
+				return
+			}
+			c.respond(req.ID, protocol.AuthChallengeResult{Nonce: base64.StdEncoding.EncodeToString(nonce)})
+		case protocol.MethodAuth:
+			ok := c.handleAuth(req, nonce)
+			nonce = nil // single-use: a new attempt needs a new challenge
+			if !ok {
+				// Slow down brute-force attempts before dropping the
+				// connection.
+				time.Sleep(time.Duration(authFailureDelay.Load()))
+				return
+			}
+			authed = true
+			if !registered {
+				if !s.addConn(c) {
+					return // the server is shutting down
+				}
+				registered = true
+			}
+		case protocol.MethodHello:
+			if !authed {
+				c.respondError(req.ID, errors.New("authentication required: this server expects a pre-shared key"))
+				return
+			}
 			saidHello = c.handleHello(req)
-			continue
+		default:
+			if !authed {
+				c.respondError(req.ID, fmt.Errorf("authentication required before %q", req.Method))
+				return
+			}
+			if !saidHello {
+				c.respondError(req.ID, fmt.Errorf("hello required before %q", req.Method))
+				return
+			}
+			c.sem <- struct{}{}
+			go func() {
+				defer func() { <-c.sem }()
+				c.handleRequest(req)
+			}()
 		}
-		if !saidHello {
-			c.respondError(req.ID, fmt.Errorf("hello required before %q", req.Method))
-			return
-		}
-		c.sem <- struct{}{}
-		go func() {
-			defer func() { <-c.sem }()
-			c.handleRequest(req)
-		}()
 	}
+}
+
+// authFailureDelay is how long (in nanoseconds) a failed authentication
+// stalls before the connection closes. Atomic so tests can shrink it without
+// racing lingering connection goroutines.
+var authFailureDelay = func() *atomic.Int64 {
+	d := &atomic.Int64{}
+	d.Store(int64(time.Second))
+	return d
+}()
+
+// isLocalConn reports whether the connection arrived over the Unix socket
+// (as opposed to TCP, possibly TLS-wrapped, whose RemoteAddr network stays
+// "tcp").
+func isLocalConn(nc net.Conn) bool {
+	return nc.RemoteAddr().Network() == "unix"
+}
+
+// handleAuth verifies the client's response to the previously issued
+// challenge nonce. It reports whether the connection is now authenticated.
+func (c *conn) handleAuth(req protocol.Request, nonce []byte) bool {
+	var params protocol.AuthParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.respondError(req.ID, fmt.Errorf("malformed auth params: %w", err))
+		return false
+	}
+	if nonce == nil {
+		c.respondError(req.ID, errors.New("auth requires a preceding authChallenge"))
+		return false
+	}
+	mac, err := base64.StdEncoding.DecodeString(params.MAC)
+	if err != nil {
+		c.respondError(req.ID, fmt.Errorf("malformed auth mac: %w", err))
+		return false
+	}
+	// With no key configured the server does not require authentication, so
+	// an authenticating client simply passes.
+	if c.s.psk != "" && !protocol.VerifyAuthMAC(c.s.psk, nonce, mac) {
+		c.respondError(req.ID, errors.New("authentication failed: pre-shared key mismatch"))
+		return false
+	}
+	c.respond(req.ID, struct{}{})
+	return true
 }
 
 // handleHello verifies protocol compatibility. It reports whether the

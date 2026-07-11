@@ -12,6 +12,8 @@ const Version = 1
 
 // Method names for Request.Method.
 const (
+	MethodAuthChallenge  = "authChallenge"
+	MethodAuth           = "auth"
 	MethodHello          = "hello"
 	MethodStatus         = "status"
 	MethodChannels       = "channels"

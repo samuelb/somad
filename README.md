@@ -24,6 +24,9 @@ Linux and macOS — other platforms are not supported and may not work.
   so music you're listening to keeps playing until you interrupt it yourself
 - Headless CLI commands (`play`, `list`, `stop`, `status`, `volume`) for scripting
   and keybindings without opening the TUI
+- Optional remote control over TCP — run the daemon on the machine wired to
+  the speakers and the TUI/CLI on your laptop, with optional TLS encryption
+  (auto-generated certificate) and pre-shared-key authentication
 - Mark channels as favorites for quick access
 - Browse and filter the full list of SomaFM radio channels
 - Play high-quality MP3 streams directly in your terminal
@@ -169,9 +172,14 @@ background if one isn't running yet.
 | `soma stop`                | Stop playback                                            |
 | `soma status [--json]`     | Show what is playing (`--json` for status bars/scripts)  |
 | `soma volume [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
-| `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon) |
+| `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp)) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma --version`           | Print version information                                |
+
+Every client command also accepts the connection flags described under
+[Remote control over TCP](#remote-control-over-tcp) (`--server`, `--tls`,
+`--tls-ca`, `--tls-fingerprint`, `--psk-file`), given before the command,
+to control a soma daemon running on another machine.
 
 ### Background playback
 
@@ -201,6 +209,50 @@ down. Pass `soma daemon --no-tray` (or set `server.tray: false` in
 the [configuration file](#configuration)) to run without it. On a headless
 host (no display or GUI session) the tray is skipped automatically and the
 server, CLI, and TUI all keep working.
+
+### Remote control over TCP
+
+By default the daemon only listens on a local Unix socket. To control a soma
+daemon on another machine — say, a server wired to the living-room speakers —
+make it additionally listen on TCP:
+
+```sh
+# on the machine with the speakers
+soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk
+```
+
+`--tls` encrypts the connection; when you don't provide a certificate
+(`--tls-cert`/`--tls-key`), a self-signed one is generated once in the state
+directory and reused. The daemon prints its SHA-256 fingerprint at startup,
+and `soma daemon --show-cert` reprints it any time. `--psk-file` points at a
+file holding a pre-shared key (any secret string) that TCP clients must know;
+the key is verified with an HMAC challenge–response, so it never travels over
+the wire. Local Unix-socket clients are exempt from it.
+
+On the laptop, point the frontend at the server, pin the certificate by the
+fingerprint you just read, and hand it the same key:
+
+```sh
+soma --server myserver:5454 --tls-fingerprint sha256:... --psk-file ~/somad-psk
+```
+
+That works with every command (`soma --server ... play groovesalad`,
+`... status`, the plain TUI, even `... daemon stop`), or permanently via
+`$SOMAD_SERVER` and the `client:` section of the
+[configuration file](#configuration). Instead of pinning the fingerprint you
+can trust the certificate file itself (`--tls-ca`, after copying it over) or,
+with a real CA-issued certificate, plain `--tls` using the system trust store.
+
+TLS and the PSK are independent and both optional, but running a TCP listener
+without them means anyone on the network can watch and control your radio —
+the daemon logs a prominent warning in that case. TLS + PSK is the
+recommended setup for anything beyond a trusted LAN.
+
+Two things work differently with a remote server: the client never
+auto-starts one (start `soma daemon` on the server yourself, e.g. under a
+service manager), and a version-skewed remote server is never restarted onto
+the client's binary — mismatched builds keep working together as long as they
+speak the same protocol version.
 
 ### Keyboard Controls
 
@@ -243,6 +295,31 @@ server:
   # Default: true. `tray: false` is the same as --no-tray.
   tray: false
 
+  # Also listen for remote frontends on TCP (see "Remote control over TCP").
+  # Default: unset (Unix socket only). Same as --listen.
+  listen: "0.0.0.0:5454"
+
+  # Encrypt the TCP listener with TLS (auto-generated certificate unless
+  # tls_cert/tls_key point at your own PEM pair). Same as --tls.
+  tls: true
+
+  # Require TCP clients to present this pre-shared key; psk_file reads it
+  # from a file instead (same as --psk-file). Set at most one of the two.
+  psk: "change-me"
+
+client:
+  # Connect the TUI and CLI to a remote soma daemon instead of the local
+  # Unix socket. Same as --server or $SOMAD_SERVER.
+  server: "myserver:5454"
+
+  # Trust the server's certificate by pinned fingerprint (--tls-fingerprint)
+  # or by PEM file (tls_ca; mutually exclusive). Either implies TLS; plain
+  # `tls: true` uses the system trust store.
+  tls_fingerprint: "sha256:..."
+
+  # Pre-shared key matching the server's psk; psk_file reads it from a file.
+  psk: "change-me"
+
 tui:
   # Stop playback and shut down the server when the TUI exits.
   # Default: false. Same as --shutdown-on-exit.
@@ -257,7 +334,8 @@ a typo never silently falls back to defaults.
 
 - **Config**: `~/.config/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS)
 - **State**: `~/.local/state/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS) —
-  also holds `server.log`, the log of the auto-spawned playback daemon
+  also holds `server.log`, the log of the auto-spawned playback daemon, and
+  the auto-generated TLS certificate (`tls-cert.pem`/`tls-key.pem`)
 - **Cache**: `~/.cache/somad/` (Linux) or `~/Library/Caches/somad/` (macOS)
 - **Socket**: `$XDG_RUNTIME_DIR/somad.sock` (Linux) or a per-user temp
   directory (macOS); override with `$SOMAD_SOCKET`

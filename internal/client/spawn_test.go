@@ -130,7 +130,7 @@ func TestEnsureServer_SpawnFailureQuotesServerLog(t *testing.T) {
 	}
 	t.Cleanup(func() { spawnServer = prevSpawn })
 
-	_, _, err := EnsureServer(path, "dev")
+	_, _, err := EnsureServer(UnixEndpoint(path), "dev")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not come up")
 	assert.Contains(t, err.Error(), "server log:")

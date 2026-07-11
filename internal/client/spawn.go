@@ -79,12 +79,16 @@ func openServerLog(path string) (*os.File, error) {
 // only when it is idle, so music that is playing is never cut off just to
 // upgrade the daemon — callers about to interrupt playback anyway use
 // EnsureServerForPlayback instead.
-func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
-	c, hr, err := connectOrSpawn(socketPath, clientVersion)
+//
+// A remote (TCP) endpoint is never spawned or restarted: an unreachable one
+// is an error, and a version-skewed one is left alone (the hello handshake
+// already guarantees it speaks our protocol version).
+func EnsureServer(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	c, hr, err := connectOrSpawn(ep, clientVersion)
 	if err != nil {
 		return nil, hr, err
 	}
-	if hr.ServerVersion == clientVersion {
+	if hr.ServerVersion == clientVersion || !ep.IsLocal() {
 		return c, hr, nil
 	}
 	// Skewed but playing: leave it be. Restarting would interrupt the stream,
@@ -92,7 +96,7 @@ func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResu
 	if st, err := c.Status(); err != nil || st.Status != protocol.StatusStopped {
 		return c, hr, nil
 	}
-	nc, nhr, err := Restart(c, socketPath, clientVersion)
+	nc, nhr, err := Restart(c, ep, clientVersion)
 	if err != nil {
 		return nil, nhr, err
 	}
@@ -101,18 +105,18 @@ func EnsureServer(socketPath, clientVersion string) (*Client, protocol.HelloResu
 
 // EnsureServerForPlayback is EnsureServer for callers about to change, pause,
 // or stop the stream: because that interrupts playback anyway, a version-skewed
-// server is restarted onto our binary even while it is playing. The interrupting
-// command that follows establishes the new playback state, so nothing is
-// resumed here.
-func EnsureServerForPlayback(socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
-	c, hr, err := connectOrSpawn(socketPath, clientVersion)
+// local server is restarted onto our binary even while it is playing. The
+// interrupting command that follows establishes the new playback state, so
+// nothing is resumed here.
+func EnsureServerForPlayback(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	c, hr, err := connectOrSpawn(ep, clientVersion)
 	if err != nil {
 		return nil, hr, err
 	}
-	if hr.ServerVersion == clientVersion {
+	if hr.ServerVersion == clientVersion || !ep.IsLocal() {
 		return c, hr, nil
 	}
-	return Restart(c, socketPath, clientVersion)
+	return Restart(c, ep, clientVersion)
 }
 
 // Restart shuts the connected server down and returns a client to a fresh spawn
@@ -120,20 +124,28 @@ func EnsureServerForPlayback(socketPath, clientVersion string) (*Client, protoco
 // running server is out of date and the operation about to follow interrupts
 // playback anyway; the persisted volume and last-played channel carry across on
 // their own, so the caller need only re-establish the stream it wants.
-func Restart(c *Client, socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
+func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	if !ep.IsLocal() {
+		return nil, protocol.HelloResult{}, fmt.Errorf("cannot restart the remote soma daemon at %s from here", ep)
+	}
 	_ = c.Shutdown()
 	_ = c.Close()
-	if !waitForServerExit(socketPath) {
+	if !waitForServerExit(ep) {
 		return nil, protocol.HelloResult{}, fmt.Errorf("soma daemon did not exit within %s to restart as version %s", restartWait, clientVersion)
 	}
-	return connectOrSpawn(socketPath, clientVersion)
+	return connectOrSpawn(ep, clientVersion)
 }
 
-// connectOrSpawn dials the socket, spawning a server and retrying when
-// nothing answers, then performs the hello handshake.
-func connectOrSpawn(socketPath, clientVersion string) (*Client, protocol.HelloResult, error) {
-	c, err := Dial(socketPath)
+// connectOrSpawn dials the endpoint, spawning a local server and retrying
+// when nothing answers, then performs the hello handshake. Remote endpoints
+// are dialed only; nothing can spawn a server on another machine.
+func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	c, err := DialEndpoint(ep)
 	if err != nil {
+		if !ep.IsLocal() {
+			return nil, protocol.HelloResult{}, fmt.Errorf(
+				"cannot reach the soma daemon at %s (remote servers are not started automatically; run `soma daemon` there): %w", ep, err)
+		}
 		// Remember where the log ends now, so a startup failure can quote
 		// exactly what the new server wrote.
 		logOffset := serverLogSize()
@@ -142,12 +154,12 @@ func connectOrSpawn(socketPath, clientVersion string) (*Client, protocol.HelloRe
 		}
 		deadline := time.Now().Add(spawnWait)
 		for {
-			c, err = Dial(socketPath)
+			c, err = DialEndpoint(ep)
 			if err == nil {
 				break
 			}
 			if time.Now().After(deadline) {
-				spawnErr := fmt.Errorf("soma daemon did not come up on %s: %w", socketPath, err)
+				spawnErr := fmt.Errorf("soma daemon did not come up on %s: %w", ep.Address, err)
 				// The failure reason lives in the server's log; without it
 				// the user only learns "did not come up".
 				if tail := serverLogSince(logOffset); tail != "" {
@@ -221,10 +233,10 @@ func serverLogSince(offset int64) string {
 // waitForServerExit waits until the old server has stopped answering the
 // socket, so a fresh spawn doesn't lose the single-instance race to it. It
 // reports whether the server exited before restartWait elapsed.
-func waitForServerExit(socketPath string) bool {
+func waitForServerExit(ep Endpoint) bool {
 	deadline := time.Now().Add(restartWait)
 	for time.Now().Before(deadline) {
-		c, err := Dial(socketPath)
+		c, err := DialEndpoint(ep)
 		if err != nil {
 			return true
 		}

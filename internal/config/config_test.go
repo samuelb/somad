@@ -165,3 +165,48 @@ func TestEnsureTemplateNeverTouchesAnExistingFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, userContent, string(data))
 }
+
+func TestLoadRemoteTransportConfig(t *testing.T) {
+	writeConfig(t, `server:
+  listen: "0.0.0.0:5454"
+  tls: true
+  tls_cert: /path/cert.pem
+  tls_key: /path/key.pem
+  psk: secret
+client:
+  server: "myserver:5454"
+  tls_fingerprint: "sha256:abc"
+  psk_file: /path/psk
+`)
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Server.Listen)
+	assert.Equal(t, "0.0.0.0:5454", *cfg.Server.Listen)
+	require.NotNil(t, cfg.Server.TLS)
+	assert.True(t, *cfg.Server.TLS)
+	require.NotNil(t, cfg.Server.TLSCert)
+	require.NotNil(t, cfg.Server.TLSKey)
+	require.NotNil(t, cfg.Server.PSK)
+	assert.Equal(t, "secret", *cfg.Server.PSK)
+	require.NotNil(t, cfg.Client.Server)
+	assert.Equal(t, "myserver:5454", *cfg.Client.Server)
+	require.NotNil(t, cfg.Client.TLSFingerprint)
+	require.NotNil(t, cfg.Client.PSKFile)
+}
+
+func TestLoadRejectsContradictoryTransportConfig(t *testing.T) {
+	cases := map[string]string{
+		"cert without key":        "server:\n  tls_cert: /a.pem\n",
+		"key without cert":        "server:\n  tls_key: /a.pem\n",
+		"server psk and psk_file": "server:\n  psk: a\n  psk_file: /b\n",
+		"client psk and psk_file": "client:\n  psk: a\n  psk_file: /b\n",
+		"client tls_ca and pin":   "client:\n  tls_ca: /a.pem\n  tls_fingerprint: \"sha256:x\"\n",
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			writeConfig(t, content)
+			_, err := Load()
+			assert.Error(t, err)
+		})
+	}
+}

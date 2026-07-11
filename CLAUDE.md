@@ -25,11 +25,11 @@ go test -race ./internal/server/ -run TestName   # run a single test
 
 Two processes, one binary. `cmd/soma/main.go` dispatches subcommands: no args opens the TUI, `server` runs the playback daemon in the foreground, and `play`/`stop`/`status`/etc. are headless CLI clients. The TUI and CLI never touch audio directly — everything goes through the daemon.
 
-**Wire protocol** (`internal/protocol`): newline-delimited JSON over a Unix domain socket (`SocketPath()` in `socket.go`; overridable with `$SOMAD_SOCKET`). Clients send `Request`s, the server replies with ID-correlated `Response`s and pushes `Event`s carrying full state snapshots. `protocol.Version` must match exactly between client and server; bump it on any incompatible wire change.
+**Wire protocol** (`internal/protocol`): newline-delimited JSON over a Unix domain socket (`SocketPath()` in `socket.go`; overridable with `$SOMAD_SOCKET`) or, when configured, TCP (`server.listen` / `--listen`, with optional TLS and pre-shared-key auth). Clients send `Request`s, the server replies with ID-correlated `Response`s and pushes `Event`s carrying full state snapshots. `protocol.Version` must match exactly between client and server; bump it on any incompatible wire change. `auth.go` has the HMAC challenge–response used by PSK authentication (TCP connections only; the Unix socket is exempt because file permissions already guard it).
 
-**Server** (`internal/server`): owns audio playback, the channel catalog, persisted state, MPRIS, and the tray icon. `spawnlock.go` ensures only one daemon runs. The server exits on its own after an idle timeout when playback is stopped and no client is connected.
+**Server** (`internal/server`): owns audio playback, the channel catalog, persisted state, MPRIS, and the tray icon. `spawnlock.go` ensures only one daemon runs. The server exits on its own after an idle timeout when playback is stopped and no client is connected. `Run` accepts multiple listeners (Unix socket + optional TLS-wrapped TCP); `conn.go` gates non-local connections behind auth when a PSK is configured.
 
-**Client** (`internal/client`): protocol client shared by TUI and CLI. `spawn.go` auto-spawns the server when none is running and handles version-skew upgrades: a server whose version differs from the client's is restarted onto the new binary, but only at a moment that already interrupts playback (channel change, pause, stop) — never mid-song. Tests shrink `restartWait` to keep this fast.
+**Client** (`internal/client`): protocol client shared by TUI and CLI. Connections are described by an `Endpoint` (Unix socket, or TCP with optional `tls.Config` and PSK; resolved in `cmd/soma/endpoint.go` from `--server`-style flags, `$SOMAD_SERVER`, and the config file). `spawn.go` auto-spawns the server when none is running and handles version-skew upgrades: a server whose version differs from the client's is restarted onto the new binary, but only at a moment that already interrupts playback (channel change, pause, stop) — never mid-song. Tests shrink `restartWait` to keep this fast. Both apply only to local endpoints: a remote server is never spawned or restarted.
 
 **TUI** (`internal/app` + `internal/ui`): standard Bubble Tea Elm architecture (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no playback state of its own — it renders from the latest server snapshot and sends commands over its `Backend` interface. `internal/ui` has the list delegate and lipgloss styles.
 
@@ -39,6 +39,7 @@ Two processes, one binary. `cmd/soma/main.go` dispatches subcommands: no args op
 - `internal/state` — persisted user state (favorites, last channel, volume) in XDG/macOS dirs
 - `internal/config` — optional YAML config file; unknown keys or parse errors are fatal by design (no silent fallback to defaults)
 - `internal/security` — all outbound HTTP must go through `security.NewRequest`/`ValidateURL`, which allowlists SomaFM hosts and re-validates redirects; tests add hosts via `securitytest`
+- `internal/tlsutil` — TLS for the TCP transport: self-signed server certificate generation (persisted in the state dir) and client trust via CA file, pinned SHA-256 fingerprint, or system roots
 - `internal/platform` — OS integration with build-tagged files (`mpris_linux.go` / `mpris_other.go`, `tray/`)
 - `internal/atomicfile` — atomic file writes (temp file + rename), used by state/cache persistence
 - `pkg/playlist` — PLS playlist parsing

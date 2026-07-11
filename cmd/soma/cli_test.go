@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"strings"
 	"testing"
 
@@ -195,16 +196,21 @@ func TestParseVolumeArg(t *testing.T) {
 	}
 }
 
-func TestExtractJSONFlag(t *testing.T) {
-	rest, jsonOut := extractJSONFlag([]string{"--json"})
+func TestParseJSONFlag(t *testing.T) {
+	rest, jsonOut := parseJSONFlag("list", "soma list [--json]", []string{"--json"})
 	assert.Empty(t, rest)
 	assert.True(t, jsonOut)
 
-	rest, jsonOut = extractJSONFlag([]string{"groovesalad"})
+	// The single-dash form works too (standard flag-package behavior).
+	rest, jsonOut = parseJSONFlag("list", "soma list [--json]", []string{"-json"})
+	assert.Empty(t, rest)
+	assert.True(t, jsonOut)
+
+	rest, jsonOut = parseJSONFlag("favorite", "soma favorite [--json] <channel>", []string{"groovesalad"})
 	assert.Equal(t, []string{"groovesalad"}, rest)
 	assert.False(t, jsonOut)
 
-	rest, jsonOut = extractJSONFlag([]string{"--json", "groovesalad"})
+	rest, jsonOut = parseJSONFlag("favorite", "soma favorite [--json] <channel>", []string{"--json", "groovesalad"})
 	assert.Equal(t, []string{"groovesalad"}, rest)
 	assert.True(t, jsonOut)
 }
@@ -233,4 +239,18 @@ func TestFavoriteMessage_ReportsToggleDirection(t *testing.T) {
 	assert.Equal(t, "Favorited: Drone Zone", favoriteMessage([]string{"groovesalad", "dronezone"}, ch))
 	assert.Equal(t, "Unfavorited: Drone Zone", favoriteMessage([]string{"groovesalad"}, ch))
 	assert.Equal(t, "Unfavorited: Drone Zone", favoriteMessage(nil, ch))
+}
+
+func TestPrintFlagDefaults_UsesDoubleDashes(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.String("listen", "", "also listen on this TCP `host:port`")
+	fs.Bool("no-tray", true, "hide the tray icon")
+	var b strings.Builder
+	fs.SetOutput(&b)
+	printFlagDefaults(fs)
+	out := b.String()
+	assert.Contains(t, out, "--listen host:port")
+	assert.Contains(t, out, "--no-tray")
+	assert.Contains(t, out, "(default true)")
+	assert.NotContains(t, out, "\n  -listen", "options must not be shown with a single dash")
 }
