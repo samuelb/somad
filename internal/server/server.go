@@ -381,8 +381,8 @@ func (s *Server) ToggleFavorite(channelID string) ([]string, error) {
 	saveSeq := s.nextSaveSeqLocked()
 	s.catalog = sortChannelsWithFavorites(s.catalog, s.st.FavoriteChannelIDs)
 	s.broadcastChannelsLocked()
-	// Clone: the caller marshals this after the lock is released, but a later
-	// ToggleFavorite mutates the underlying slice in place.
+	// Clone: the caller marshals this after the lock is released; handing out
+	// the live header would couple it to future mutations of s.st.
 	favorites := slices.Clone(s.st.FavoriteChannelIDs)
 	s.mu.Unlock()
 

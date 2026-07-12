@@ -216,6 +216,19 @@ func TestToggleFavorite_AddAndRemove(t *testing.T) {
 	assert.Empty(t, state.FavoriteChannelIDs)
 }
 
+func TestToggleFavorite_DoesNotMutateHandedOutSlices(t *testing.T) {
+	state := &State{FavoriteChannelIDs: []string{"groovesalad", "dronezone", "secretagent"}}
+
+	// A slice header taken before the mutation (a snapshot in flight, e.g.
+	// pending persistence) must keep its contents.
+	before := state.FavoriteChannelIDs
+
+	state.ToggleFavorite("groovesalad") // remove shifts elements
+	assert.Equal(t, []string{"groovesalad", "dronezone", "secretagent"}, before,
+		"mutation corrupted a previously handed-out slice")
+	assert.Equal(t, []string{"dronezone", "secretagent"}, state.FavoriteChannelIDs)
+}
+
 func TestSaveAndLoadState_WithFavorites(t *testing.T) {
 	SetStateDir(t)
 

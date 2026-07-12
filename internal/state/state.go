@@ -64,15 +64,16 @@ func (s *State) IsFavorite(id string) bool {
 	return slices.Contains(s.FavoriteChannelIDs, id)
 }
 
-// ToggleFavorite adds or removes a channel ID from the favorites list.
+// ToggleFavorite adds or removes a channel ID from the favorites list. It is
+// copy-on-write: the old backing array is left untouched, so slice headers
+// handed out before the call (snapshots, clones in flight) never mutate
+// under their holders.
 func (s *State) ToggleFavorite(id string) {
-	for i, fav := range s.FavoriteChannelIDs {
-		if fav == id {
-			s.FavoriteChannelIDs = append(s.FavoriteChannelIDs[:i], s.FavoriteChannelIDs[i+1:]...)
-			return
-		}
+	if i := slices.Index(s.FavoriteChannelIDs, id); i >= 0 {
+		s.FavoriteChannelIDs = slices.Delete(slices.Clone(s.FavoriteChannelIDs), i, i+1)
+		return
 	}
-	s.FavoriteChannelIDs = append(s.FavoriteChannelIDs, id)
+	s.FavoriteChannelIDs = append(slices.Clone(s.FavoriteChannelIDs), id)
 }
 
 const (
