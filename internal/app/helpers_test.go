@@ -24,6 +24,10 @@ type fakeBackend struct {
 	favorites []string
 	status    protocol.PlaybackState
 	payload   protocol.ChannelsPayload
+	// callErr, when set, fails every request method; shutdownErr fails
+	// Shutdown specifically.
+	callErr     error
+	shutdownErr error
 }
 
 func newFakeBackend() *fakeBackend {
@@ -35,18 +39,27 @@ func newFakeBackend() *fakeBackend {
 func (b *fakeBackend) Status() (protocol.PlaybackState, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.PlaybackState{}, b.callErr
+	}
 	return b.status, nil
 }
 
 func (b *fakeBackend) Channels() (protocol.ChannelsPayload, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.ChannelsPayload{}, b.callErr
+	}
 	return b.payload, nil
 }
 
 func (b *fakeBackend) Play(channelID string) (protocol.PlaybackState, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.PlaybackState{}, b.callErr
+	}
 	b.playIDs = append(b.playIDs, channelID)
 	b.status = protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: channelID, Volume: b.status.Volume}
 	return b.status, nil
@@ -55,6 +68,9 @@ func (b *fakeBackend) Play(channelID string) (protocol.PlaybackState, error) {
 func (b *fakeBackend) Stop() (protocol.PlaybackState, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.PlaybackState{}, b.callErr
+	}
 	b.stops++
 	b.status = protocol.PlaybackState{Status: protocol.StatusStopped, Volume: b.status.Volume}
 	return b.status, nil
@@ -63,6 +79,9 @@ func (b *fakeBackend) Stop() (protocol.PlaybackState, error) {
 func (b *fakeBackend) SetVolume(v float64) (protocol.PlaybackState, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.PlaybackState{}, b.callErr
+	}
 	if v < 0 {
 		v = 0
 	}
@@ -78,12 +97,15 @@ func (b *fakeBackend) Shutdown() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.shutdowns++
-	return nil
+	return b.shutdownErr
 }
 
 func (b *fakeBackend) ToggleFavorite(channelID string) ([]string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return nil, b.callErr
+	}
 	if i := slices.Index(b.favorites, channelID); i >= 0 {
 		b.favorites = slices.Delete(b.favorites, i, i+1)
 	} else {

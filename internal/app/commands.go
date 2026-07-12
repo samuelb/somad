@@ -1,6 +1,9 @@
 package app
 
 import (
+	"errors"
+
+	"somad/internal/client"
 	"somad/internal/protocol"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -50,14 +53,47 @@ type ServerGoneMsg struct {
 	Err error
 }
 
+// RequestErrorMsg reports a request that failed while the connection stayed
+// up; the status bar shows it until the server next answers successfully.
+// Connection drops surface as ServerLostMsg instead.
+type RequestErrorMsg struct {
+	Op  string
+	Err error
+}
+
+// RestartFailedMsg reports that shutting down an out-of-date server failed
+// with the connection still up, so no reconnect (and no replay of a pending
+// channel change) will follow.
+type RestartFailedMsg struct {
+	Err error
+}
+
+// FavoritesMsg carries the authoritative favorites list returned by a toggle,
+// reconciling the optimistic local flip.
+type FavoritesMsg struct {
+	Favorites []string
+}
+
+// opLoadChannels marks catalog fetches so Update can escalate a failure
+// during the initial load to the full error screen.
+const opLoadChannels = "loading channels"
+
+// requestErr wraps a failed request as a RequestErrorMsg — except for
+// connection loss, which the event bridge already surfaces as ServerLostMsg.
+func requestErr(op string, err error) tea.Msg {
+	if errors.Is(err, client.ErrDisconnected) {
+		return nil
+	}
+	return RequestErrorMsg{Op: op, Err: err}
+}
+
 // fetchStatus asks the server for the current playback snapshot.
 func (m *Model) fetchStatus() tea.Cmd {
 	b := m.Backend
 	return func() tea.Msg {
 		st, err := b.Status()
 		if err != nil {
-			// Connection failures surface separately via ServerLostMsg.
-			return nil
+			return requestErr("status", err)
 		}
 		return ServerStateMsg{State: st}
 	}
@@ -69,7 +105,7 @@ func (m *Model) fetchChannels() tea.Cmd {
 	return func() tea.Msg {
 		payload, err := b.Channels()
 		if err != nil {
-			return nil
+			return requestErr(opLoadChannels, err)
 		}
 		return ServerChannelsMsg{Payload: payload}
 	}
@@ -82,7 +118,7 @@ func (m *Model) playCmd(channelID string) tea.Cmd {
 	return func() tea.Msg {
 		st, err := b.Play(channelID)
 		if err != nil {
-			return nil
+			return requestErr("play", err)
 		}
 		return ServerStateMsg{State: st}
 	}
@@ -97,8 +133,12 @@ func (m *Model) restartCmd() tea.Cmd {
 	b := m.Backend
 	return func() tea.Msg {
 		// The bridge drives the reconnect off the closed connection, so the
-		// outcome (and any error) surfaces there, not here.
-		_ = b.Shutdown()
+		// outcome normally surfaces there — unless the shutdown request failed
+		// with the connection still up, which would otherwise strand the
+		// restart (and any pending channel change) silently.
+		if err := b.Shutdown(); err != nil && !errors.Is(err, client.ErrDisconnected) {
+			return RestartFailedMsg{Err: err}
+		}
 		return nil
 	}
 }
@@ -126,7 +166,7 @@ func (m *Model) stopCmd() tea.Cmd {
 	return func() tea.Msg {
 		st, err := b.Stop()
 		if err != nil {
-			return nil
+			return requestErr("stop", err)
 		}
 		return ServerStateMsg{State: st}
 	}
@@ -138,7 +178,7 @@ func (m *Model) setVolumeCmd(v float64) tea.Cmd {
 	return func() tea.Msg {
 		st, err := b.SetVolume(v)
 		if err != nil {
-			return nil
+			return requestErr("volume", err)
 		}
 		return ServerStateMsg{State: st}
 	}

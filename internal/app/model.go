@@ -40,9 +40,12 @@ type Model struct {
 	// a version upgrade and the reconnect has delivered a fresh backend.
 	pendingPlayID string
 
-	Loading   bool
-	Err       error
-	ShowAbout bool
+	Loading bool
+	Err     error
+	// RequestErr is the most recent failed-request notice, shown in the
+	// status bar until the server next answers successfully.
+	RequestErr string
+	ShowAbout  bool
 	About     AboutInfo
 	Width     int
 	Height    int
@@ -73,6 +76,7 @@ func (m *Model) skewed() bool {
 // playing marker from it.
 func (m *Model) applySnapshot(st protocol.PlaybackState) {
 	m.Snapshot = st
+	m.RequestErr = ""
 	if st.Status == protocol.StatusPlaying {
 		m.PlayingID = st.ChannelID
 	} else {
@@ -96,6 +100,7 @@ func (m *Model) applyChannels(payload protocol.ChannelsPayload) {
 
 	firstLoad := m.Loading
 	m.Err = nil
+	m.RequestErr = ""
 	m.Loading = false
 	m.Favorites = payload.Favorites
 

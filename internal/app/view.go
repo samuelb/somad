@@ -98,6 +98,12 @@ func (m *Model) RenderStatusBar() string {
 	volumeStyle := lipgloss.NewStyle().Foreground(ui.SubtleColor)
 	parts = append(parts, volumeStyle.Render(fmt.Sprintf("♪ %d%%", int(math.Round(m.Snapshot.Volume*100)))))
 
+	// Surface the last failed request until the server answers successfully.
+	if m.RequestErr != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
+		parts = append(parts, errorStyle.Render(m.RequestErr))
+	}
+
 	// Surface connection trouble without hiding the list.
 	if m.ServerLost {
 		warnStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)

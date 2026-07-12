@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"unicode/utf8"
 
 	"somad/internal/protocol"
@@ -128,6 +129,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ServerChannelsMsg:
 		m.applyChannels(msg.Payload)
+		return m, nil
+
+	case FavoritesMsg:
+		m.applyFavorites(msg.Favorites)
+		return m, nil
+
+	case RequestErrorMsg:
+		if m.Loading && msg.Op == opLoadChannels {
+			// Without a catalog there is nothing to render behind a status
+			// bar notice; show the error screen instead of loading forever.
+			m.Loading = false
+			m.Err = msg.Err
+			return m, nil
+		}
+		m.RequestErr = fmt.Sprintf("%s failed: %v", msg.Op, msg.Err)
+		return m, nil
+
+	case RestartFailedMsg:
+		// No reconnect will follow, so a queued channel change would never
+		// play; drop it and tell the user instead of failing silently.
+		m.pendingPlayID = ""
+		m.RequestErr = fmt.Sprintf("server restart failed: %v", msg.Err)
 		return m, nil
 
 	case ServerLostMsg:

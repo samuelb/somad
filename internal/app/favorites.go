@@ -55,8 +55,27 @@ func (m *Model) ToggleFavorite() tea.Cmd {
 		if b == nil {
 			return nil
 		}
-		_, _ = b.ToggleFavorite(selectedID)
-		return nil
+		favs, err := b.ToggleFavorite(selectedID)
+		if err != nil {
+			return requestErr("favorite", err)
+		}
+		return FavoritesMsg{Favorites: favs}
+	}
+}
+
+// applyFavorites installs the server's authoritative favorites list and
+// re-sorts, keeping the cursor on the selected channel. It reconciles the
+// optimistic flip in ToggleFavorite with what the server actually persisted.
+func (m *Model) applyFavorites(favs []string) {
+	m.Favorites = favs
+	var selectedID string
+	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
+		selectedID = sel.Channel.ID
+	}
+	m.List.SetItems(m.sortItemsWithFavorites(m.List.Items()))
+	m.selectChannelByID(selectedID)
+	if m.SearchQuery != "" {
+		m.UpdateSearchMatches()
 	}
 }
 
