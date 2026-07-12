@@ -362,6 +362,20 @@ func TestToggleFavorite_ViaCommandSender(t *testing.T) {
 	}, time.Second, 5*time.Millisecond, "channel was not unfavorited")
 }
 
+// TestQuit_ViaCommandSender covers the MPRIS Quit action: it must shut the
+// server down like the tray's Quit item, not be a dead menu entry.
+func TestQuit_ViaCommandSender(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+
+	mprisSender{s}.Send(platform.MPRISQuitMsg{})
+
+	select {
+	case <-s.Done():
+	case <-time.After(time.Second):
+		t.Fatal("MPRIS Quit did not shut the server down")
+	}
+}
+
 // TestToggleFavorite_ConcurrentReadIsRaceFree guards the favorites slice
 // handed to clients: ChannelsPayload/ToggleFavorite return values are marshaled
 // after the server lock is released, while ToggleFavorite mutates the backing

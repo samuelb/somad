@@ -61,6 +61,18 @@ func TestMPRIS_MethodsSafeWithoutSender(t *testing.T) {
 	assert.Nil(t, m.onVolumeChange(&prop.Change{Value: 0.5}))
 }
 
+func TestMPRIS_QuitRoutesToSender(t *testing.T) {
+	m := &MPRIS{}
+	s := &recordingSender{}
+	m.SetSender(s)
+	r := &mprisRoot{mpris: m}
+
+	// CanQuit is advertised, so Quit must do something rather than leave
+	// desktop shells with a dead menu item.
+	assert.Nil(t, r.Quit())
+	assert.Equal(t, []any{MPRISQuitMsg{}}, s.messages())
+}
+
 // TestMPRIS_SetSenderConcurrentWithHandlers fails under -race if sender is
 // accessed without synchronization: D-Bus handlers run on godbus goroutines
 // while SetSender is called after the bus objects are exported.

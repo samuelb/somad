@@ -305,6 +305,9 @@ func (r *mprisRoot) Raise() *dbus.Error {
 }
 
 func (r *mprisRoot) Quit() *dbus.Error {
+	// CanQuit is advertised as true, so desktop shells show a Quit action;
+	// route it to the server like the tray's Quit item.
+	r.mpris.send(MPRISQuitMsg{})
 	return nil
 }
 
@@ -329,6 +332,9 @@ type MPRISPrevMsg struct{}
 type MPRISVolumeMsg struct {
 	Volume float64
 }
+
+// MPRISQuitMsg is sent when MPRIS requests the player to quit.
+type MPRISQuitMsg struct{}
 
 func (p *mprisPlayer) Next() *dbus.Error {
 	p.mpris.send(MPRISNextMsg{})

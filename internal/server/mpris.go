@@ -36,6 +36,10 @@ func (m mprisSender) Send(msg any) {
 	case platform.MPRISVolumeMsg:
 		// The MPRIS property is already updated, so don't mirror it back.
 		m.s.SetVolume(v.Volume, false)
+	case platform.MPRISQuitMsg:
+		// Off-goroutine: Shutdown tears down D-Bus among other things and
+		// must not deadlock the dispatcher that delivered this message.
+		go m.s.Shutdown()
 	}
 }
 

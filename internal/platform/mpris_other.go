@@ -51,6 +51,9 @@ type MPRISVolumeMsg struct {
 	Volume float64
 }
 
+// MPRISQuitMsg is sent when MPRIS requests the player to quit.
+type MPRISQuitMsg struct{}
+
 // SetVolume is a no-op on non-Linux platforms.
 func (m *MPRIS) SetVolume(v float64) {}
 
