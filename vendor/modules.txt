@@ -47,11 +47,6 @@ github.com/clipperhouse/uax29/v2/graphemes
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
 github.com/davecgh/go-spew/spew
-# github.com/ebitengine/oto/v3 v3.4.0
-## explicit; go 1.24.0
-github.com/ebitengine/oto/v3
-github.com/ebitengine/oto/v3/internal/mux
-github.com/ebitengine/oto/v3/internal/oboe
 # github.com/ebitengine/purego v0.10.1
 ## explicit; go 1.18
 github.com/ebitengine/purego
@@ -109,6 +104,11 @@ github.com/rivo/uniseg
 # github.com/sahilm/fuzzy v0.1.3
 ## explicit; go 1.24.5
 github.com/sahilm/fuzzy
+# github.com/samuelb/oto/v3 v3.4.1-soma.2
+## explicit; go 1.24.0
+github.com/samuelb/oto/v3
+github.com/samuelb/oto/v3/internal/mux
+github.com/samuelb/oto/v3/internal/oboe
 # github.com/stretchr/testify v1.11.1
 ## explicit; go 1.17
 github.com/stretchr/testify/assert

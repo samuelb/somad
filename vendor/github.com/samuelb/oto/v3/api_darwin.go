@@ -81,6 +81,7 @@ func initializeAPI() error {
 	purego.RegisterLibFunc(&_AudioQueueEnqueueBuffer, toolbox, "AudioQueueEnqueueBuffer")
 	purego.RegisterLibFunc(&_AudioQueueStart, toolbox, "AudioQueueStart")
 	purego.RegisterLibFunc(&_AudioQueuePause, toolbox, "AudioQueuePause")
+	purego.RegisterLibFunc(&_AudioQueueStop, toolbox, "AudioQueueStop")
 	return nil
 }
 
@@ -93,3 +94,5 @@ var _AudioQueueEnqueueBuffer func(inAQ _AudioQueueRef, inBuffer _AudioQueueBuffe
 var _AudioQueueStart func(inAQ _AudioQueueRef, inStartTime *_AudioTimeStamp) uintptr
 
 var _AudioQueuePause func(inAQ _AudioQueueRef) uintptr
+
+var _AudioQueueStop func(inAQ _AudioQueueRef, inImmediate bool) uintptr

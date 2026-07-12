@@ -23,7 +23,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/ebitengine/oto/v3/internal/mux"
+	"github.com/samuelb/oto/v3/internal/mux"
 )
 
 // Avoid goroutines on Windows (hajimehoshi/ebiten#1768).

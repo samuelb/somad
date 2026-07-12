@@ -13,7 +13,11 @@ import (
 
 	"somad/internal/security"
 
-	"github.com/ebitengine/oto/v3"
+	// oto is a personal fork of github.com/ebitengine/oto/v3 that adds
+	// Context.SuspendAndRelease: unlike Suspend (AudioQueuePause), it frees the
+	// OS audio device (AudioQueueStop) so an idle daemon stops driving
+	// coreaudiod. See suspendIfIdle below.
+	oto "github.com/samuelb/oto/v3"
 	mp3 "github.com/hajimehoshi/go-mp3"
 )
 
@@ -83,10 +87,11 @@ type AudioPlayer struct {
 	errChan   chan error
 	trackChan chan TrackInfo
 
-	mu      sync.Mutex
-	current *session // the active session, guarded by mu
-	playGen uint64   // bumped by every Play/Stop so stale connects never commit
-	volume  float64  // target volume in [0, 1], guarded by mu
+	mu        sync.Mutex
+	current   *session // the active session, guarded by mu
+	playGen   uint64   // bumped by every Play/Stop so stale connects never commit
+	volume    float64  // target volume in [0, 1], guarded by mu
+	suspended bool     // true while the OS audio device is released (idle), guarded by mu
 }
 
 // audioReadyTimeout bounds how long NewPlayer waits for the audio device.
@@ -115,12 +120,20 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 		return nil, fmt.Errorf("audio device not ready after %s", audioReadyTimeout)
 	}
 
+	// oto starts driving the OS audio device the moment the context exists,
+	// feeding it silence and keeping the system audio daemon (e.g. coreaudiod)
+	// busy even while nothing plays. Release the device until the first Play so
+	// an idle daemon costs no CPU. A failure here is non-fatal: it just leaves
+	// the device open, which is the pre-optimization behavior.
+	suspended := ctx.SuspendAndRelease() == nil
+
 	return &AudioPlayer{
 		ctx:       ctx,
 		userAgent: userAgent,
 		errChan:   make(chan error, 2),
 		trackChan: make(chan TrackInfo, 1),
 		volume:    1,
+		suspended: suspended,
 	}, nil
 }
 
@@ -172,6 +185,8 @@ func (p *AudioPlayer) Play(url string) error {
 		return ErrSuperseded
 	}
 
+	// Wake the audio device (released while idle) before handing it a player.
+	p.resumeLocked()
 	player := p.ctx.NewPlayer(decodedStream)
 	player.SetVolume(0)
 	player.Play()
@@ -339,6 +354,40 @@ func (p *AudioPlayer) runSession(s *session) {
 		p.holdSession(s)
 	}
 	p.fadeOutAndClose(s)
+	// The session is gone. If nothing replaced it, release the audio device so a
+	// stopped or paused daemon stops driving the hardware.
+	p.suspendIfIdle()
+}
+
+// resumeLocked wakes the process-global audio device so a new session can play.
+// The device is released whenever nothing is playing (see suspendIfIdle), which
+// keeps the daemon from waking the CPU to feed silence to the hardware while
+// stopped. A resume failure is best effort: playback would be silent, but that
+// only happens when the audio backend is already broken. p.mu must be held.
+func (p *AudioPlayer) resumeLocked() {
+	if !p.suspended {
+		return
+	}
+	_ = p.ctx.Resume()
+	p.suspended = false
+}
+
+// suspendIfIdle releases the audio device once no session is active. It is a
+// no-op while a session is playing — including the new session of a channel
+// switch, whose teardown of the old session must not silence it. Because the
+// current-session check and the suspend both happen under p.mu (as does the
+// resume-and-commit in Play), a suspend can never slip in after a new session
+// has been committed.
+func (p *AudioPlayer) suspendIfIdle() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.current != nil || p.suspended {
+		return
+	}
+	if err := p.ctx.SuspendAndRelease(); err != nil {
+		return // leave the device open; the next Play reuses it as-is
+	}
+	p.suspended = true
 }
 
 // holdSession applies volume changes until a stop is requested.

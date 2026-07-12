@@ -34,7 +34,7 @@ Two processes, one binary. `cmd/soma/main.go` dispatches subcommands: no args op
 **TUI** (`internal/app` + `internal/ui`): standard Bubble Tea Elm architecture (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no playback state of its own — it renders from the latest server snapshot and sends commands over its `Backend` interface. `internal/ui` has the list delegate and lipgloss styles.
 
 **Supporting packages**:
-- `internal/audio` — MP3 streaming/decoding (oto + go-mp3), ICY metadata, buffering/reconnection
+- `internal/audio` — MP3 streaming/decoding (oto + go-mp3), ICY metadata, buffering/reconnection. Whenever nothing is playing the oto context is released and it is re-acquired on the next play, so an idle/stopped daemon stops driving the OS audio device instead of feeding it silence (`suspendIfIdle`/`resumeLocked` in `player.go`). This depends on a personal fork, `github.com/samuelb/oto/v3` (branch `soma-audioqueue-stop`, tag `v3.4.1-soma.2`), which *adds* a `Context.SuspendAndRelease` method (darwin `AudioQueueStop`, releasing the device; a `Suspend`-equivalent fallback elsewhere) without changing upstream `Suspend`/`Resume`. Plain `Suspend` (`AudioQueuePause`) does not free the device on macOS — coreaudiod keeps running at ~11%. Re-vendoring keeps the fork because `player.go` imports it directly.
 - `internal/channels` — SomaFM channel catalog fetch/cache and channel selection by ID/name
 - `internal/state` — persisted user state (favorites, last channel, volume) in XDG/macOS dirs
 - `internal/config` — optional YAML config file; unknown keys or parse errors are fatal by design (no silent fallback to defaults)

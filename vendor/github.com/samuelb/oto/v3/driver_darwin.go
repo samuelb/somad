@@ -21,7 +21,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/ebitengine/oto/v3/internal/mux"
+	"github.com/samuelb/oto/v3/internal/mux"
 )
 
 const (
@@ -79,6 +79,7 @@ type context struct {
 
 	toPause  bool
 	toResume bool
+	toStop   bool // soma fork: release the device via AudioQueueStop (see SuspendAndRelease)
 
 	mux *mux.Mux
 	err atomicError
@@ -164,7 +165,7 @@ func (c *context) wait() bool {
 	c.cond.L.Lock()
 	defer c.cond.L.Unlock()
 
-	for len(c.unqueuedBuffers) == 0 && c.err.Load() == nil && !c.toPause && !c.toResume {
+	for len(c.unqueuedBuffers) == 0 && c.err.Load() == nil && !c.toPause && !c.toResume && !c.toStop {
 		c.cond.Wait()
 	}
 	return c.err.Load() == nil
@@ -204,6 +205,15 @@ func (c *context) appendBuffer(buf32 []float32) {
 		return
 	}
 
+	// soma fork: release the OS audio device, not just pause it. See stop().
+	if c.toStop {
+		if err := c.stop(); err != nil {
+			c.err.TryStore(err)
+		}
+		c.toStop = false
+		return
+	}
+
 	buf := c.unqueuedBuffers[0]
 	copy(c.unqueuedBuffers, c.unqueuedBuffers[1:])
 	c.unqueuedBuffers = c.unqueuedBuffers[:len(c.unqueuedBuffers)-1]
@@ -238,7 +248,43 @@ func (c *context) Resume() error {
 	}
 	c.toPause = false
 	c.toResume = true
+	c.toStop = false // cancel a pending SuspendAndRelease
 	c.cond.Signal()
+	return nil
+}
+
+// SuspendAndRelease suspends the entire audio play and releases the underlying
+// OS audio device (via AudioQueueStop), rather than keeping it warm the way
+// Suspend does. On macOS a merely-paused audio queue still keeps coreaudiod
+// driving the hardware, so a process that stays suspended for a long time
+// should prefer this. Resume reactivates playback after either call, at the
+// cost of a slightly slower first sample.
+//
+// This is a soma-fork addition; upstream oto has no equivalent. It is
+// concurrent-safe.
+func (c *Context) SuspendAndRelease() error {
+	return c.context.suspendAndRelease()
+}
+
+func (c *context) suspendAndRelease() error {
+	c.cond.L.Lock()
+	defer c.cond.L.Unlock()
+
+	if err := c.err.Load(); err != nil {
+		return err.(error)
+	}
+	c.toStop = true
+	c.toPause = false
+	c.toResume = false
+	c.cond.Signal()
+	return nil
+}
+
+func (c *context) stop() error {
+	// inImmediate=true stops at once rather than draining enqueued buffers.
+	if osstatus := _AudioQueueStop(c.audioQueue, true); osstatus != noErr {
+		return fmt.Errorf("oto: AudioQueueStop failed: %d", osstatus)
+	}
 	return nil
 }
 
