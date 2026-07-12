@@ -317,7 +317,7 @@ func TestEnsureServerForPlayback_RestartsPlayingSkewedServer(t *testing.T) {
 	}
 }
 
-func TestEnsureServer_ErrorsWhenStaleServerWontExit(t *testing.T) {
+func TestEnsureServer_FallsBackWhenStaleServerWontExit(t *testing.T) {
 	path := testSocketPath(t)
 	// A stubborn old server: answers Shutdown but keeps listening, as if it
 	// ignored the request or is slow to tear down.
@@ -344,7 +344,14 @@ func TestEnsureServer_ErrorsWhenStaleServerWontExit(t *testing.T) {
 	spawnServer = func() error { return nil }
 	t.Cleanup(func() { spawnServer = prev })
 
-	_, _, err := EnsureServer(UnixEndpoint(path), "new")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "did not exit")
+	// The user's command outranks the upgrade: instead of failing, the
+	// restart falls back to the still-running old server.
+	c, hr, err := EnsureServer(UnixEndpoint(path), "new")
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	assert.Equal(t, "old", hr.ServerVersion)
+
+	st, err := c.Status()
+	require.NoError(t, err)
+	assert.Equal(t, protocol.StatusStopped, st.Status)
 }

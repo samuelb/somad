@@ -32,8 +32,9 @@ const (
 var spawnWait = 15 * time.Second
 
 // restartWait is how long an old server gets to exit before a version-skew
-// restart gives up. A variable so tests can shrink it.
-var restartWait = 3 * time.Second
+// restart gives up and falls back to the still-running server. A variable so
+// tests can shrink it.
+var restartWait = 5 * time.Second
 
 // spawnServer is a variable so tests can fake the server launch.
 var spawnServer = SpawnServer
@@ -130,9 +131,13 @@ func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.He
 	}
 	_ = c.Shutdown()
 	_ = c.Close()
-	if !waitForServerExit(ep) {
-		return nil, protocol.HelloResult{}, fmt.Errorf("soma daemon did not exit within %s to restart as version %s", restartWait, clientVersion)
-	}
+	// When the old server is slow to exit (a loaded machine, a long fade-out),
+	// the user's command outranks the upgrade: fall through and talk to
+	// whatever answers — connectOrSpawn reaches the old server while it still
+	// listens (the handshake already guaranteed it speaks our protocol
+	// version) and spawns a fresh one once it is gone. A later interrupting
+	// command retries the upgrade.
+	_ = waitForServerExit(ep)
 	return connectOrSpawn(ep, clientVersion)
 }
 
