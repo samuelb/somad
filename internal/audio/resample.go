@@ -21,8 +21,14 @@ type resampler struct {
 }
 
 // newResampler wraps src (16-bit LE stereo PCM at srcRate) so reads yield the
-// same audio at dstRate.
+// same audio at dstRate. A malformed decoder can report a zero or negative
+// rate; that falls back to a pass-through (step 1) instead of a step of 0,
+// which would repeat the first frame forever — an infinite stream that never
+// errors out to trigger reconnection.
 func newResampler(src io.Reader, srcRate, dstRate int) *resampler {
+	if srcRate <= 0 {
+		srcRate = dstRate
+	}
 	return &resampler{
 		src:  src,
 		step: float64(srcRate) / float64(dstRate),

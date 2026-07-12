@@ -76,6 +76,17 @@ func TestResampler_SameRatePassesThrough(t *testing.T) {
 	assert.Equal(t, src, decodeFrames(t, out))
 }
 
+func TestResampler_ZeroSourceRateTerminates(t *testing.T) {
+	// A malformed decoder reporting rate 0 must not yield an infinite stream
+	// (step 0 would repeat the first frame forever without ever erroring).
+	src := [][2]int16{{1, -1}, {2, -2}, {3, -3}}
+	r := newResampler(bytes.NewReader(encodeFrames(src)), 0, 44100)
+
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Equal(t, src, decodeFrames(t, out), "rate 0 falls back to pass-through")
+}
+
 func TestResampler_EmptySource(t *testing.T) {
 	r := newResampler(bytes.NewReader(nil), 22050, 44100)
 
