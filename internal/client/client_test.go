@@ -168,6 +168,30 @@ func TestClient_EventsChannelClosesOnDisconnect(t *testing.T) {
 	assert.ErrorIs(t, err, ErrDisconnected)
 }
 
+func TestClient_CallTimesOutWithoutResponse(t *testing.T) {
+	path := testSocketPath(t)
+	// A server that reads requests but never answers them.
+	startFakeServer(t, path, func(req protocol.Request, send func(v any)) {})
+
+	prev := callTimeout
+	callTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { callTimeout = prev })
+
+	c, err := Dial(path)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	_, err = c.Status()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out")
+
+	// The timed-out call must not leave its pending entry behind.
+	c.mu.Lock()
+	pending := len(c.pending)
+	c.mu.Unlock()
+	assert.Zero(t, pending, "timed-out call left a pending entry")
+}
+
 func TestEnsureServer_SpawnsAndRetries(t *testing.T) {
 	path := testSocketPath(t)
 

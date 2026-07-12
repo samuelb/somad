@@ -24,7 +24,8 @@ var ErrDisconnected = errors.New("soma daemon connection lost")
 
 // callTimeout bounds a single request/response round trip. Play blocks on
 // the network until the stream is decoding, so this is generous.
-const callTimeout = 30 * time.Second
+// A variable so tests can shrink it.
+var callTimeout = 30 * time.Second
 
 // Client is a connection to the soma daemon. Safe for concurrent use.
 type Client struct {
@@ -246,6 +247,9 @@ func (c *Client) call(method string, params any, result any) error {
 		return fmt.Errorf("%w: %v", ErrDisconnected, err)
 	}
 
+	timeout := time.NewTimer(callTimeout)
+	defer timeout.Stop()
+
 	select {
 	case resp, ok := <-ch:
 		if !ok {
@@ -260,7 +264,7 @@ func (c *Client) call(method string, params any, result any) error {
 			}
 		}
 		return nil
-	case <-time.After(callTimeout):
+	case <-timeout.C:
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
