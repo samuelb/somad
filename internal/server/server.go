@@ -62,8 +62,12 @@ type Server struct {
 	// saveMu serializes persist calls so concurrent saves never interleave on
 	// disk; savedSeq (guarded by saveMu) is the highest mutation sequence
 	// already written, so a slow save can be dropped once a newer one lands.
+	// dirty (also guarded by saveMu) is the newest state whose persist
+	// failed, retried at shutdown so a transient write error with no further
+	// mutation does not lose the state.
 	saveMu   sync.Mutex
 	savedSeq uint64
+	dirty    *state.State
 
 	shutdownOnce sync.Once
 	done         chan struct{} // closed by Shutdown
@@ -198,6 +202,7 @@ func (s *Server) Shutdown() {
 		for _, c := range open {
 			c.close()
 		}
+		s.flushDirtyState()
 	})
 }
 
@@ -402,10 +407,32 @@ func (s *Server) saveState(seq uint64, st *state.State) {
 	if seq <= s.savedSeq {
 		return
 	}
+	// savedSeq advances even when the write below fails: winding it back
+	// would let a slower, older save proceed later and clobber this newer
+	// state. The failed state is kept as dirty for the shutdown retry
+	// instead; any newer successful save supersedes it.
 	s.savedSeq = seq
 	if err := s.persist(st); err != nil {
 		log.Printf("error saving state: %v", err)
+		s.dirty = st
+		return
 	}
+	s.dirty = nil
+}
+
+// flushDirtyState retries the newest state save that failed, so a transient
+// persist error does not carry user state loss across a shutdown.
+func (s *Server) flushDirtyState() {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	if s.dirty == nil {
+		return
+	}
+	if err := s.persist(s.dirty); err != nil {
+		log.Printf("error saving state on shutdown: %v", err)
+		return
+	}
+	s.dirty = nil
 }
 
 // addConn registers a connection; a live client keeps the server alive.

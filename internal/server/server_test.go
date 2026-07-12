@@ -430,6 +430,66 @@ func TestSaveState_DropsStaleWrites(t *testing.T) {
 	assert.Equal(t, "newer", last, "stale save clobbered newer state")
 }
 
+// TestSaveState_FailedSaveRetriedAtShutdown verifies that a persist failure
+// with no further mutation does not lose the state: the failed save is kept
+// dirty and flushed when the server shuts down.
+func TestSaveState_FailedSaveRetriedAtShutdown(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+
+	var mu sync.Mutex
+	var fail bool
+	var saved []string
+	s.persist = func(st *state.State) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if fail {
+			return errors.New("disk full")
+		}
+		saved = append(saved, st.LastSelectedChannelID)
+		return nil
+	}
+
+	mu.Lock()
+	fail = true
+	mu.Unlock()
+	s.saveState(1, &state.State{LastSelectedChannelID: "lost-unless-retried"})
+
+	mu.Lock()
+	fail = false
+	mu.Unlock()
+	s.Shutdown()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"lost-unless-retried"}, saved)
+}
+
+// TestSaveState_SuccessfulSaveClearsDirty verifies a newer successful save
+// supersedes an earlier failed one, so shutdown does not resurrect old state.
+func TestSaveState_SuccessfulSaveClearsDirty(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+
+	var mu sync.Mutex
+	var saved []string
+	s.persist = func(st *state.State) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if st.LastSelectedChannelID == "failing" {
+			return errors.New("disk full")
+		}
+		saved = append(saved, st.LastSelectedChannelID)
+		return nil
+	}
+
+	s.saveState(1, &state.State{LastSelectedChannelID: "failing"})
+	s.saveState(2, &state.State{LastSelectedChannelID: "newer"})
+	s.Shutdown()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"newer"}, saved, "shutdown must not replay a superseded failed save")
+}
+
 func TestTrackUpdate_BroadcastsTitle(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	go s.watchTrackUpdates()
