@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"somad/internal/security/securitytest"
@@ -174,6 +175,33 @@ func TestFetchChannelsFromNetwork_InvalidJSON(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("not json"))
+	}))
+	defer server.Close()
+
+	originalURL := SomaFMChannelsURL
+	SomaFMChannelsURL = server.URL
+	t.Cleanup(func() { SomaFMChannelsURL = originalURL })
+
+	channels, err := FetchChannelsFromNetwork("soma/test")
+	assert.Error(t, err)
+	assert.Nil(t, channels)
+}
+
+func TestFetchChannelsFromNetwork_OversizedBodyRejected(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	SetCacheDir(t)
+
+	// A body larger than the catalog cap must fail the decode instead of
+	// being streamed into memory whole.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"channels":[{"id":"x","title":"`))
+		filler := strings.Repeat("a", 64<<10)
+		for written := 0; written < maxCatalogBytes+(64<<10); written += len(filler) {
+			if _, err := w.Write([]byte(filler)); err != nil {
+				return
+			}
+		}
+		_, _ = w.Write([]byte(`"}]}`))
 	}))
 	defer server.Close()
 

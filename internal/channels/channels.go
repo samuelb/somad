@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -44,6 +45,10 @@ type Channels struct {
 const (
 	cacheFileName   = "somafm_channels.json"
 	appCacheDirName = "somad"
+
+	// maxCatalogBytes caps the channel-catalog download; the real catalog is
+	// a few hundred KB.
+	maxCatalogBytes = 4 << 20 // 4 MiB
 )
 
 // SomaFMChannelsURL is the URL for fetching channels - exported for testing.
@@ -165,8 +170,11 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 		return nil, fmt.Errorf("unexpected status code from network: %d", resp.StatusCode)
 	}
 
+	// The real catalog is well under 1 MB; the cap keeps a misbehaving or
+	// compromised upstream from streaming an arbitrarily large body into
+	// memory (and from there into the cache file).
 	var fetchedChannels Channels
-	if err := json.NewDecoder(resp.Body).Decode(&fetchedChannels); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxCatalogBytes)).Decode(&fetchedChannels); err != nil {
 		return nil, fmt.Errorf("failed to decode network response: %w", err)
 	}
 
