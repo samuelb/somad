@@ -110,7 +110,15 @@ func (m *Model) RenderStatusBar() string {
 		parts = append(parts, warnStyle.Render("server connection lost — reconnecting…"))
 	}
 
-	return ui.StatusBarStyle.Render(strings.Join(parts, "  │  "))
+	style := ui.StatusBarStyle
+	if m.Width > 0 {
+		// Wrap on narrow terminals: the renderer truncates overlong lines,
+		// which would clip exactly the errors this bar exists to show.
+		// UpdateListSize measures the rendered height, so the list shrinks
+		// to make room for the extra lines.
+		style = style.Width(m.Width)
+	}
+	return style.Render(strings.Join(parts, "  │  "))
 }
 
 // RenderAboutFooter renders the about information as an inline footer, styled

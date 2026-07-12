@@ -1,10 +1,12 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"somad/internal/protocol"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -137,6 +139,26 @@ func TestRenderStatusBar_WithStreamError(t *testing.T) {
 
 	assert.Contains(t, result, "connection reset")
 	assert.Contains(t, result, "Stream error")
+}
+
+func TestRenderStatusBar_WrapsOnNarrowTerminals(t *testing.T) {
+	m := newTestModel(t)
+	m.Width = 30
+	m.applySnapshot(protocol.PlaybackState{
+		Status:      protocol.StatusStopped,
+		StreamError: "stream stalled: no data received for thirty long seconds",
+		Volume:      1,
+	})
+
+	result := m.RenderStatusBar()
+
+	// The renderer truncates overlong lines, so an unwrapped bar would clip
+	// exactly the error it exists to show; wrapping keeps the tail visible.
+	assert.Greater(t, lipgloss.Height(result), 2, "long content must wrap, not overflow one line")
+	assert.Contains(t, result, "seconds", "the end of the error must survive wrapping")
+	for _, line := range strings.Split(result, "\n") {
+		assert.LessOrEqual(t, lipgloss.Width(line), 30, "no line may exceed the terminal width")
+	}
 }
 
 func TestRenderStatusBar_ServerLost(t *testing.T) {
