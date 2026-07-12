@@ -122,7 +122,17 @@ func (s *Server) serveConn(nc net.Conn) {
 				c.respondError(req.ID, fmt.Errorf("hello required before %q", req.Method))
 				return
 			}
-			c.sem <- struct{}{}
+			// The blocking send is the intended backpressure on a client
+			// with maxConcurrentRequests in flight — but during teardown
+			// nothing will free a slot, so bail out instead of holding the
+			// read loop until a handler happens to finish.
+			select {
+			case c.sem <- struct{}{}:
+			case <-c.done:
+				return
+			case <-c.s.done:
+				return
+			}
 			go func() {
 				defer func() { <-c.sem }()
 				c.handleRequest(req)
