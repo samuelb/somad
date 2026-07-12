@@ -371,19 +371,13 @@ func runStatus(args []string) {
 	if len(args) != 0 {
 		fail("usage: soma status [--json]")
 	}
+	if jsonOut {
+		printJSON(statusSnapshot())
+		return
+	}
 
 	c, _, running := dialServer()
 	if !running {
-		if jsonOut {
-			// No server means stopped; the persisted volume is what the next
-			// server will use, so the snapshot is complete without one.
-			st := protocol.PlaybackState{Status: protocol.StatusStopped}
-			if s, err := state.LoadState(); err == nil {
-				st.Volume = s.GetVolume()
-			}
-			printJSON(st)
-			return
-		}
 		fmt.Println("soma: stopped (server not running)")
 		return
 	}
@@ -392,10 +386,6 @@ func runStatus(args []string) {
 	st, err := c.Status()
 	if err != nil {
 		fail("%v", err)
-	}
-	if jsonOut {
-		printJSON(st)
-		return
 	}
 	switch st.Status {
 	case protocol.StatusPlaying:
@@ -414,6 +404,49 @@ func runStatus(args []string) {
 		fmt.Printf("Error:   %s\n", st.StreamError)
 	}
 	fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
+}
+
+// statusSnapshot returns the playback state for --json consumers. It never
+// exits on an unreachable server: a polling status bar needs parseable
+// output on every tick, not exit 1 with a message on stderr.
+func statusSnapshot() protocol.PlaybackState {
+	c, err := tryDialServer()
+	if err != nil {
+		st := protocol.PlaybackState{Status: protocol.StatusStopped}
+		if endpoint.IsLocal() {
+			// No local server means stopped; the persisted volume is what
+			// the next server will use, so the snapshot is complete.
+			if s, err := state.LoadState(); err == nil {
+				st.Volume = s.GetVolume()
+			}
+			return st
+		}
+		// An unreachable remote server may be stopped, down, or cut off —
+		// this side cannot tell, so report stopped with the error attached.
+		st.StreamError = err.Error()
+		return st
+	}
+	defer func() { _ = c.Close() }()
+
+	st, err := c.Status()
+	if err != nil {
+		return protocol.PlaybackState{Status: protocol.StatusStopped, StreamError: err.Error()}
+	}
+	return st
+}
+
+// tryDialServer dials and greets a running server, without spawning one and
+// without exiting on failure.
+func tryDialServer() (*client.Client, error) {
+	c, err := client.DialEndpoint(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := c.Hello(version); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	return c, nil
 }
 
 // volumePercent converts a volume fraction in [0, 1] to a rounded percentage
