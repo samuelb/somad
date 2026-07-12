@@ -5,6 +5,7 @@ package platform
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
@@ -27,9 +28,14 @@ type CmdSender interface {
 
 // MPRIS handles D-Bus MPRIS integration for desktop media control.
 type MPRIS struct {
-	conn   *dbus.Conn
-	props  *prop.Properties
-	sender CmdSender
+	conn  *dbus.Conn
+	props *prop.Properties
+
+	// senderMu guards sender: D-Bus method handlers read it from godbus
+	// goroutines while SetSender is called after the bus objects are already
+	// exported.
+	senderMu sync.Mutex
+	sender   CmdSender
 }
 
 // mprisRoot implements org.mpris.MediaPlayer2 interface.
@@ -185,7 +191,19 @@ func NewMPRIS() (*MPRIS, error) {
 
 // SetSender sets the command sender for MPRIS control messages.
 func (m *MPRIS) SetSender(sender CmdSender) {
+	m.senderMu.Lock()
+	defer m.senderMu.Unlock()
 	m.sender = sender
+}
+
+// send forwards a control message to the current sender, if any.
+func (m *MPRIS) send(msg any) {
+	m.senderMu.Lock()
+	sender := m.sender
+	m.senderMu.Unlock()
+	if sender != nil {
+		sender.Send(msg)
+	}
 }
 
 // SetPlaying updates the playback status to playing and sets metadata.
@@ -221,10 +239,8 @@ func (m *MPRIS) SetVolume(v float64) {
 // onVolumeChange forwards D-Bus writes to the Volume property (e.g. from a
 // desktop volume slider) to the application.
 func (m *MPRIS) onVolumeChange(c *prop.Change) *dbus.Error {
-	if m.sender != nil {
-		if v, ok := c.Value.(float64); ok {
-			m.sender.Send(MPRISVolumeMsg{Volume: v})
-		}
+	if v, ok := c.Value.(float64); ok {
+		m.send(MPRISVolumeMsg{Volume: v})
 	}
 	return nil
 }
@@ -315,44 +331,32 @@ type MPRISVolumeMsg struct {
 }
 
 func (p *mprisPlayer) Next() *dbus.Error {
-	if p.mpris.sender != nil {
-		p.mpris.sender.Send(MPRISNextMsg{})
-	}
+	p.mpris.send(MPRISNextMsg{})
 	return nil
 }
 
 func (p *mprisPlayer) Previous() *dbus.Error {
-	if p.mpris.sender != nil {
-		p.mpris.sender.Send(MPRISPrevMsg{})
-	}
+	p.mpris.send(MPRISPrevMsg{})
 	return nil
 }
 
 func (p *mprisPlayer) Pause() *dbus.Error {
-	if p.mpris.sender != nil {
-		p.mpris.sender.Send(MPRISStopMsg{})
-	}
+	p.mpris.send(MPRISStopMsg{})
 	return nil
 }
 
 func (p *mprisPlayer) PlayPause() *dbus.Error {
-	if p.mpris.sender != nil {
-		p.mpris.sender.Send(MPRISPlayPauseMsg{})
-	}
+	p.mpris.send(MPRISPlayPauseMsg{})
 	return nil
 }
 
 func (p *mprisPlayer) Stop() *dbus.Error {
-	if p.mpris.sender != nil {
-		p.mpris.sender.Send(MPRISStopMsg{})
-	}
+	p.mpris.send(MPRISStopMsg{})
 	return nil
 }
 
 func (p *mprisPlayer) Play() *dbus.Error {
-	if p.mpris.sender != nil {
-		p.mpris.sender.Send(MPRISPlayMsg{})
-	}
+	p.mpris.send(MPRISPlayMsg{})
 	return nil
 }
 
