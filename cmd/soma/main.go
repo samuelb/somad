@@ -85,9 +85,13 @@ func main() {
 	// only `soma daemon stop` is a client command and falls through.
 	if len(rest) > 0 && rest[0] == "daemon" && (len(rest) < 2 || rest[1] != "stop") {
 		// The global client flags don't apply to the daemon itself; refuse
-		// rather than silently ignoring them.
-		if fs.NFlag() > 0 {
-			fail("daemon flags go after the subcommand: soma daemon [flags]")
+		// rather than silently ignoring them, naming the offending flag —
+		// "put it after the subcommand" would be wrong advice for the
+		// TUI-only --shutdown-on-exit.
+		var set []string
+		fs.Visit(func(f *flag.Flag) { set = append(set, "--"+f.Name) })
+		if len(set) > 0 {
+			fail("%s does not apply to the daemon; daemon flags go after the subcommand: soma daemon [flags]", strings.Join(set, ", "))
 		}
 		runServer(rest[1:])
 		return
