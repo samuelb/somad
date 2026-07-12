@@ -227,11 +227,12 @@ func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stream stalled")
 
+	// A stall before any data flowed is a connect failure: the pipe (and so
+	// Play's return value) is its only owner, with no async duplicate.
 	select {
 	case reported := <-p.errChan:
-		assert.Contains(t, reported.Error(), "stream stalled")
+		t.Fatalf("connect failure must not also be reported async, got: %v", reported)
 	default:
-		t.Fatal("expected the stall to be reported")
 	}
 }
 
@@ -372,12 +373,12 @@ func TestFetchStream_InvalidURL(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid stream URL")
 
-	// And the same class of error should be reported on the errors channel.
+	// The pipe is the failure's only owner: Play returns it synchronously,
+	// and an async duplicate could kill a later, healthy session.
 	select {
 	case reported := <-p.errChan:
-		assert.Contains(t, reported.Error(), "invalid stream URL")
+		t.Fatalf("connect failure must not also be reported async, got: %v", reported)
 	default:
-		t.Fatal("expected an error to be reported")
 	}
 }
 
@@ -396,11 +397,11 @@ func TestFetchStream_BadStatusCode(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected status code")
 
+	// Synchronous failures own their error exclusively; see above.
 	select {
 	case reported := <-p.errChan:
-		assert.Contains(t, reported.Error(), "500")
+		t.Fatalf("connect failure must not also be reported async, got: %v", reported)
 	default:
-		t.Fatal("expected a status-code error to be reported")
 	}
 }
 

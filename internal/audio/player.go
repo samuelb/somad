@@ -190,7 +190,13 @@ func (p *AudioPlayer) Play(url string) error {
 // fetchStream fetches the stream over HTTP and pipes it to the decoder. It
 // requests interleaved ICY metadata so the same connection carries the
 // now-playing titles, which are demuxed out and reported via TrackUpdates.
-// Network errors are reported asynchronously via the errors channel.
+//
+// Each failure has exactly one owner: before any body bytes flow (request
+// setup, connect, status check) the error travels through the pipe alone —
+// Play is still blocked in the decoder and returns it synchronously, and
+// reporting it here too would leave a stale error queued that could kill a
+// later, healthy session. Once the stream is established, errors are
+// reported asynchronously via the errors channel.
 func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWriter) {
 	defer func() { _ = pw.Close() }()
 
@@ -216,26 +222,20 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 
 	req, err := security.NewRequest(reqCtx, url, p.userAgent)
 	if err != nil {
-		streamErr := fmt.Errorf("invalid stream URL: %w", err)
-		p.reportError(ctx, streamErr)
-		pw.CloseWithError(streamErr)
+		pw.CloseWithError(fmt.Errorf("invalid stream URL: %w", err))
 		return
 	}
 	req.Header.Set("Icy-MetaData", "1") // Request interleaved ICY metadata
 
 	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
-		streamErr := stallErr(fmt.Errorf("failed to fetch stream: %w", err))
-		p.reportError(ctx, streamErr)
-		pw.CloseWithError(streamErr)
+		pw.CloseWithError(stallErr(fmt.Errorf("failed to fetch stream: %w", err)))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		streamErr := fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-		p.reportError(ctx, streamErr)
-		pw.CloseWithError(streamErr)
+		pw.CloseWithError(fmt.Errorf("unexpected status code: %d", resp.StatusCode))
 		return
 	}
 
@@ -395,8 +395,13 @@ func (p *AudioPlayer) fadeOutAndClose(s *session) {
 		time.Sleep(step)
 	}
 	s.player.Pause()
-	_ = s.stream.Close()
+	// Cancel before closing the pipe: with the context already cancelled,
+	// fetchStream suppresses the resulting pipe/read error instead of
+	// reporting a spurious "stream read error" (and triggering an unwanted
+	// reconnect) on a clean stop. Closing second still unblocks a writer
+	// stuck in a pipe write.
 	s.cancel()
+	_ = s.stream.Close()
 }
 
 // Stop halts the current audio playback and cancels any Play call that is
