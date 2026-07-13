@@ -1,0 +1,54 @@
+# nfpm (https://nfpm.goreleaser.com) config for the .deb and .rpm packages.
+# The release workflow sets NFPM_VERSION, NFPM_ARCH (amd64|arm64) and
+# NFPM_BINARY (path to the built soma binary for that arch), then runs
+#   nfpm package -f packaging/nfpm.yaml -p deb|rpm -t dist/<file>
+name: somad
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${NFPM_VERSION}
+section: sound
+priority: optional
+maintainer: Samuel B <samuelb@users.noreply.github.com>
+description: |
+  Client for SomaFM radio
+  Soma is a client for browsing and streaming SomaFM radio channels, with
+  background playback, a terminal UI, and CLI controls. Installs the "soma"
+  command.
+homepage: https://github.com/samuelb/somad
+license: MIT
+replaces:
+  - somatui
+conflicts:
+  - somatui
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.34)
+      - libasound2 | libasound2t64
+      - ca-certificates
+  rpm:
+    depends:
+      - alsa-lib
+      - ca-certificates
+contents:
+  - src: ${NFPM_BINARY}
+    dst: /usr/bin/soma
+    expand: true
+    file_info:
+      mode: 0755
+  - src: README.md
+    dst: /usr/share/doc/somad/README.md
+  - src: LICENSE
+    dst: /usr/share/doc/somad/copyright
+    packager: deb
+  - src: LICENSE
+    dst: /usr/share/licenses/somad/LICENSE
+    packager: rpm
+  - src: cmd/soma/completions/soma.bash
+    dst: /usr/share/bash-completion/completions/soma
+  - src: cmd/soma/completions/soma.zsh
+    dst: /usr/share/zsh/vendor-completions/_soma
+    packager: deb
+  - src: cmd/soma/completions/soma.zsh
+    dst: /usr/share/zsh/site-functions/_soma
+    packager: rpm

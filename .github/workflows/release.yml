@@ -17,9 +17,12 @@ permissions:
   contents: write
 
 jobs:
-  validate:
-    name: Validate
+  # ---------------------------------------------------------------- Prepare
+  prepare:
+    name: Prepare release
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.bump.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
 
@@ -54,9 +57,34 @@ jobs:
         with:
           version: latest
 
+      # Keep the version recorded in flake.nix in sync with the release. On a
+      # dry run the bump is rendered and discarded; on a real run it is
+      # committed to the branch and the release is cut from that commit.
+      - name: Bump version
+        id: bump
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          scripts/bump-version.sh "${VERSION#v}"
+          if git diff --quiet; then
+            echo "Version metadata already at ${VERSION#v}; nothing to bump."
+          elif [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "Dry run: discarding the version bump."
+            git checkout -- .
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "Release $VERSION"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------- Linux
   build:
-    needs: validate
+    name: Linux ${{ matrix.goarch }}
+    needs: prepare
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { goos: linux, goarch: amd64, runner: ubuntu-latest }
@@ -64,19 +92,20 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           check-latest: true
 
-      - name: Install ALSA (Linux only)
-        if: matrix.goos == 'linux'
+      - name: Install ALSA
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: Build
         env:
-          CGO_ENABLED: ${{ matrix.goos == 'linux' && '1' || '0' }}
+          CGO_ENABLED: "1"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
@@ -86,12 +115,17 @@ jobs:
         with:
           name: soma-${{ matrix.goos }}-${{ matrix.goarch }}
           path: soma_${{ matrix.goos }}_${{ matrix.goarch }}
+          if-no-files-found: error
 
+  # ---------------------------------------------------------------- macOS (universal)
   build-darwin:
-    needs: validate
+    name: macOS (universal)
+    needs: prepare
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
 
       - uses: actions/setup-go@v6
         with:
@@ -109,44 +143,41 @@ jobs:
           LDFLAGS="-s -w -X main.version=${{ inputs.version }} -X main.commit=${GITHUB_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           GOARCH=arm64 CC="clang -arch arm64" go build -ldflags "$LDFLAGS" -o soma_darwin_arm64 ./cmd/soma
           GOARCH=amd64 CC="clang -arch x86_64" go build -ldflags "$LDFLAGS" -o soma_darwin_amd64 ./cmd/soma
-          lipo -create -output soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
-          lipo -info soma_darwin_universal
+          mkdir -p dist
+          lipo -create -output dist/soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
+          lipo -info dist/soma_darwin_universal
+
+      - name: Build .dmg
+        run: packaging/macos/build-dmg.sh dist/soma_darwin_universal dist
 
       - uses: actions/upload-artifact@v7
         with:
-          name: soma-darwin-universal
-          path: soma_darwin_universal
+          name: soma-darwin
+          path: dist/*
+          if-no-files-found: error
 
+  # ---------------------------------------------------------------- Publish
   release:
-    needs: [build, build-darwin]
+    name: Publish release
+    needs: [prepare, build, build-darwin]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          # Full history + tags so the notes step can diff against the last tag.
           fetch-depth: 0
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$PREVIOUS_TAG" ]; then
-            echo "Changes since $PREVIOUS_TAG:"
-            COMMITS=$(git log --pretty=format:"- %s (%h)" "$PREVIOUS_TAG"..HEAD)
-          else
-            echo "Initial release"
-            COMMITS=$(git log --pretty=format:"- %s (%h)")
-          fi
-          {
-            echo "body<<EOF"
-            echo "## Changes"
-            echo ""
-            if [ -n "$PREVIOUS_TAG" ]; then
-              echo "Changes since $PREVIOUS_TAG:"
-            fi
-            echo ""
-            echo "$COMMITS"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+      - name: Build release notes
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --unreleased --tag ${{ inputs.version }}
+        env:
+          OUTPUT: release-notes.md
+
+      - name: Show release notes
+        run: cat release-notes.md
 
       - name: Create tag
         if: inputs.dry_run == false
@@ -162,236 +193,93 @@ jobs:
           pattern: soma-*
           merge-multiple: true
 
-      - name: Build Debian package
+      - name: Install nfpm
+        env:
+          NFPM_TOOL_VERSION: "2.43.0"
         run: |
-          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/soma_linux_amd64 amd64 dist
-          packaging/deb/build-deb.sh "${{ inputs.version }}" dist/soma_linux_arm64 arm64 dist
+          curl -fsSL -o /tmp/nfpm.deb \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_TOOL_VERSION}/nfpm_${NFPM_TOOL_VERSION}_amd64.deb"
+          sudo dpkg -i /tmp/nfpm.deb
+
+      - name: Build .deb and .rpm packages
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          export NFPM_VERSION="${VERSION#v}"
+          for arch in amd64 arm64; do
+            rpmarch=$([ "$arch" = amd64 ] && echo x86_64 || echo aarch64)
+            chmod +x "dist/soma_linux_${arch}"
+            NFPM_ARCH="$arch" NFPM_BINARY="dist/soma_linux_${arch}" \
+              nfpm package -f packaging/nfpm.yaml -p deb -t "dist/somad_${NFPM_VERSION}_linux_${arch}.deb"
+            NFPM_ARCH="$arch" NFPM_BINARY="dist/soma_linux_${arch}" \
+              nfpm package -f packaging/nfpm.yaml -p rpm -t "dist/somad-${NFPM_VERSION}-1.${rpmarch}.rpm"
+          done
+
+      - name: Stage source archive and Arch PKGBUILD
+        env:
+          VERSION: ${{ inputs.version }}
+        run: scripts/stage-arch-release.sh "${VERSION#v}" dist
 
       - name: Generate checksums
-        run: cd dist && sha256sum soma_* > checksums.txt
+        run: (cd dist && sha256sum -- * > ../checksums.txt && mv ../checksums.txt .)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: checksums
+          path: dist/checksums.txt
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v7
         if: inputs.dry_run == true
         with:
           name: release-artifacts
-          path: dist/*
+          path: |
+            dist/*
+            release-notes.md
 
       - uses: softprops/action-gh-release@v3
         if: inputs.dry_run == false
         with:
           tag_name: ${{ inputs.version }}
-          body: ${{ steps.changelog.outputs.body }}
+          target_commitish: ${{ needs.prepare.outputs.sha }}
+          body_path: release-notes.md
+          make_latest: true
           files: dist/*
+          fail_on_unmatched_files: true
 
+  # ---------------------------------------------------------------- Homebrew tap
   homebrew:
-    name: Update Homebrew tap
-    needs: release
+    name: Render Homebrew tap files
+    needs: [prepare, release]
     runs-on: ubuntu-latest
-    steps:
-      - name: Download checksums
-        if: inputs.dry_run == false
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download "${{ inputs.version }}" --repo "${{ github.repository }}" --pattern checksums.txt
-
-      - name: Download dry-run release artifacts
-        if: inputs.dry_run == true
-        uses: actions/download-artifact@v8
-        with:
-          name: release-artifacts
-          path: dry-run-release-artifacts
-
-      - name: Copy dry-run checksums
-        if: inputs.dry_run == true
-        run: cp dry-run-release-artifacts/checksums.txt checksums.txt
-
-      - name: Check out tap
-        if: inputs.dry_run == false
-        uses: actions/checkout@v7
-        with:
-          repository: samuelb/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-
-      - name: Render formula
-        run: |
-          VERSION="${{ inputs.version }}"
-          BARE="${VERSION#v}"
-          sha() { grep " $1\$" checksums.txt | awk '{print $1}'; }
-          DARWIN_UNIVERSAL="$(sha soma_darwin_universal)"
-          LINUX_AMD64="$(sha soma_linux_amd64)"
-          LINUX_ARM64="$(sha soma_linux_arm64)"
-          if [ -z "$DARWIN_UNIVERSAL" ] || [ -z "$LINUX_AMD64" ] || [ -z "$LINUX_ARM64" ]; then
-            echo "Error: missing a checksum for one or more binaries" >&2
-            cat checksums.txt >&2
-            exit 1
-          fi
-          mkdir -p tap/Formula
-          cat > tap/Formula/somad.rb <<EOF
-          class Somad < Formula
-            desc "Client for streaming SomaFM radio channels"
-            homepage "https://github.com/samuelb/somad"
-            version "${BARE}"
-            license "MIT"
-
-            on_macos do
-              url "https://github.com/samuelb/somad/releases/download/${VERSION}/soma_darwin_universal"
-              sha256 "${DARWIN_UNIVERSAL}"
-            end
-
-            on_linux do
-              on_arm do
-                url "https://github.com/samuelb/somad/releases/download/${VERSION}/soma_linux_arm64"
-                sha256 "${LINUX_ARM64}"
-              end
-              on_intel do
-                url "https://github.com/samuelb/somad/releases/download/${VERSION}/soma_linux_amd64"
-                sha256 "${LINUX_AMD64}"
-              end
-            end
-
-            def install
-              bin.install Dir["soma_*"].first => "soma"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/soma --version")
-            end
-          end
-          EOF
-
-      - uses: actions/upload-artifact@v7
-        if: inputs.dry_run == true
-        with:
-          name: homebrew-formula
-          path: tap/Formula/somad.rb
-
-      - name: Commit and push
-        if: inputs.dry_run == false
-        run: |
-          cd tap
-          if git diff --quiet -- Formula/somad.rb; then
-            echo "Formula already up to date; nothing to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/somad.rb
-          git commit -m "somad ${{ inputs.version }}"
-          git push
-
-  aur:
-    name: Render AUR package
-    needs: release
-    runs-on: ubuntu-latest
-    env:
-      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
 
-      - name: Render PKGBUILD and .SRCINFO
-        run: |
-          VERSION="${{ inputs.version }}"
-          BARE="${VERSION#v}"
-          URL="https://github.com/${{ github.repository }}/archive/refs/tags/${VERSION}.tar.gz"
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            # Render-only: archive HEAD so a checksum can be computed. This SHA256
-            # will not match the real GitHub tag tarball, so the rendered PKGBUILD
-            # is for inspection, not for building.
-            git archive --format=tar.gz --output source.tar.gz HEAD
-          else
-            curl -fsSL "$URL" -o source.tar.gz
-          fi
-          SHA256="$(sha256sum source.tar.gz | awk '{print $1}')"
-          mkdir -p aur
-          cat > aur/PKGBUILD <<EOF
-          # Maintainer: Samuel B <samuelb@users.noreply.github.com>
-          pkgname=somad
-          _binname=soma
-          pkgver=${BARE}
-          pkgrel=1
-          pkgdesc='A client for streaming SomaFM radio channels'
-          arch=('x86_64' 'aarch64')
-          url='https://github.com/${{ github.repository }}'
-          license=('MIT')
-          depends=('alsa-lib' 'ca-certificates')
-          makedepends=('go')
-          source=("\${pkgname}-\${pkgver}.tar.gz::\${url}/archive/refs/tags/v\${pkgver}.tar.gz")
-          sha256sums=('${SHA256}')
+      - name: Download checksums
+        uses: actions/download-artifact@v8
+        with:
+          name: checksums
 
-          build() {
-            cd "\${pkgname}-\${pkgver}"
-            export CGO_ENABLED=1
-            export GOFLAGS="-buildvcs=false -mod=vendor"
-            go build \\
-              -ldflags "-s -w -X main.version=v\${pkgver} -X main.commit=aur -X main.date=\$(date -u +%Y-%m-%dT%H:%M:%SZ)" \\
-              -o "\${_binname}" \\
-              ./cmd/soma
-          }
-
-          check() {
-            cd "\${pkgname}-\${pkgver}"
-            export CGO_ENABLED=1
-            export GOFLAGS="-buildvcs=false -mod=vendor"
-            go test ./...
-          }
-
-          package() {
-            cd "\${pkgname}-\${pkgver}"
-            install -Dm755 "\${_binname}" "\${pkgdir}/usr/bin/\${_binname}"
-            install -Dm644 LICENSE "\${pkgdir}/usr/share/licenses/\${pkgname}/LICENSE"
-            install -Dm644 README.md "\${pkgdir}/usr/share/doc/\${pkgname}/README.md"
-          }
-          EOF
-          cat > aur/.SRCINFO <<EOF
-          pkgbase = somad
-          	pkgdesc = A client for streaming SomaFM radio channels
-          	pkgver = ${BARE}
-          	pkgrel = 1
-          	url = https://github.com/${{ github.repository }}
-          	arch = x86_64
-          	arch = aarch64
-          	license = MIT
-          	makedepends = go
-          	depends = alsa-lib
-          	depends = ca-certificates
-          	source = somad-${BARE}.tar.gz::https://github.com/${{ github.repository }}/archive/refs/tags/v${BARE}.tar.gz
-          	sha256sums = ${SHA256}
-
-          pkgname = somad
-          EOF
+      - name: Render tap files
+        env:
+          VERSION: ${{ inputs.version }}
+        run: scripts/stage-homebrew.sh "${VERSION#v}" checksums.txt rendered
 
       - uses: actions/upload-artifact@v7
         with:
-          name: aur-package
-          path: aur/
+          name: homebrew-tap-files
+          path: rendered/
+          if-no-files-found: error
 
-      - name: Check AUR publishing credentials
-        id: aur-config
-        run: |
-          if [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "AUR_SSH_PRIVATE_KEY is not set; rendered AUR files are available as an artifact."
-          fi
-
-      - name: Publish to AUR
-        if: inputs.dry_run == false && steps.aur-config.outputs.enabled == 'true'
-        run: |
-          install -d -m 0700 ~/.ssh
-          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
-          chmod 0600 ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git clone ssh://aur@aur.archlinux.org/somad.git aur-repo
-          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
-          cd aur-repo
-          if git diff --quiet -- PKGBUILD .SRCINFO; then
-            echo "AUR package already up to date; nothing to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "somad ${{ inputs.version }}"
-          GIT_SSH_COMMAND="ssh -i ~/.ssh/aur" git push
+  publish-homebrew:
+    name: Publish Homebrew tap
+    needs: homebrew
+    if: inputs.dry_run == false
+    uses: samuelb/homebrew-tap/.github/workflows/publish.yml@main
+    with:
+      artifact_name: homebrew-tap-files
+      commit_message: "somad ${{ inputs.version }}"
+    secrets:
+      tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

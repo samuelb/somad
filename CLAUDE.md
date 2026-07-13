@@ -21,6 +21,13 @@ go test -race ./internal/server/ -run TestName   # run a single test
 - Git hooks via lefthook run `golangci-lint` and `go test -race` on pre-commit and pre-push.
 - CI enforces a minimum total test coverage of 60% (Linux job).
 
+## Commits
+
+Write commit subjects as Conventional Commits — `feat:`, `fix:`, `perf:`,
+`refactor:`, `docs:`, `test:`, `chore:`, `ci:`, `build:` (with `!` for breaking
+changes). Release notes are generated from them by git-cliff (`cliff.toml`);
+unprefixed commits still appear, but only under a generic "Other" heading.
+
 ## Architecture
 
 Two processes, one binary. `cmd/soma/main.go` dispatches subcommands: no args opens the TUI, `server` runs the playback daemon in the foreground, and `play`/`stop`/`status`/etc. are headless CLI clients. The TUI and CLI never touch audio directly — everything goes through the daemon.

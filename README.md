@@ -68,6 +68,15 @@ and install it with:
 sudo apt install ./somad_*_linux_$(dpkg --print-architecture).deb
 ```
 
+### Fedora/RHEL/openSUSE
+
+Download the `.rpm` package from the [latest release](https://github.com/samuelb/somad/releases)
+and install it with:
+
+```sh
+sudo dnf install ./somad-*.$(uname -m).rpm
+```
+
 ### Nix
 
 Run Somad directly from the flake:
@@ -84,8 +93,11 @@ nix profile install github:samuelb/somad
 
 ### Arch Linux
 
-Somad can be packaged for the AUR from `packaging/aur/`. Once published, install
-it with an AUR helper such as:
+Every [release](https://github.com/samuelb/somad/releases) ships a pinned
+`PKGBUILD` (plus the matching source tarball) as release assets — download it
+and run `makepkg -si`. Alternatively, `packaging/arch/PKGBUILD` in this repo
+builds the latest git state directly. Once published to the AUR, install it
+with an AUR helper such as:
 
 ```sh
 paru -S somad
@@ -94,8 +106,9 @@ paru -S somad
 ### Pre-built Binaries
 
 1.  Download the latest release for your platform from the [Releases page](https://github.com/samuelb/somad/releases):
-    - `soma_darwin_amd64` for Intel Macs
-    - `soma_darwin_arm64` for Apple Silicon/M-series Macs
+    - `soma-macos.dmg` for macOS (universal: Intel and Apple Silicon) — mount
+      it and copy `soma` somewhere on your `PATH`
+    - `soma_darwin_universal` for macOS as a bare binary (same universal build)
     - `soma_linux_amd64` for x86_64 Linux
     - `soma_linux_arm64` for ARM64 Linux
 2.  Rename it to `soma` if you want a shorter command.
