@@ -47,7 +47,7 @@ github.com/clipperhouse/uax29/v2/graphemes
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
 github.com/davecgh/go-spew/spew
-# github.com/ebitengine/oto/v3 v3.4.0
+# github.com/ebitengine/oto/v3 v3.4.1
 ## explicit; go 1.24.0
 github.com/ebitengine/oto/v3
 github.com/ebitengine/oto/v3/internal/mux
