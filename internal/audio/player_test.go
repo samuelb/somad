@@ -94,6 +94,12 @@ func (c *fakeAudioContext) setResumeError(err error) {
 
 func newLifecycleTestPlayer(t *testing.T) (*AudioPlayer, *fakeAudioContext, *atomic.Int32) {
 	t.Helper()
+	// The streaming test server sends less than the prefill and then holds
+	// the connection, so without this every Play would wait out the full
+	// prefill deadline.
+	origWait := streamBufferPrefillWait
+	streamBufferPrefillWait = 10 * time.Millisecond
+	t.Cleanup(func() { streamBufferPrefillWait = origWait })
 	p, err := NewPlayer("soma/test")
 	require.NoError(t, err)
 	ctx := &fakeAudioContext{}

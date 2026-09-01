@@ -30,6 +30,20 @@ const (
 // reconnection. A variable so tests can shrink it.
 var streamStallTimeout = 30 * time.Second
 
+// Stream buffering (see streamBuffer): at SomaFM's usual 128 kbps the
+// capacity holds about half a minute of audio and the prefill about two
+// seconds — a head start that rides out ordinary delivery jitter. Icecast
+// bursts an initial chunk on connect, so the prefill normally fills
+// instantly; the deadline bounds the wait on servers that trickle instead.
+const (
+	streamBufferSize    = 512 << 10
+	streamBufferPrefill = 32 << 10
+)
+
+// streamBufferPrefillWait is the prefill deadline. A variable so tests can
+// shrink it.
+var streamBufferPrefillWait = time.Second
+
 // ErrSuperseded is returned by Play when a newer Play or Stop request arrived
 // while this one was still connecting; the newer request owns the audio state.
 var ErrSuperseded = errors.New("playback superseded by a newer request")
@@ -344,9 +358,21 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 		return
 	}
 
+	// Buffer between the network and the decoder so delivery jitter is
+	// absorbed here instead of reaching playback. The buffer's fill error
+	// (EOF included) surfaces on the read side after the buffered bytes
+	// drain, so the error handling below is unchanged. When fetchStream
+	// returns, the deferred cancelReq unblocks the fill goroutine's network
+	// read; Close alone could not.
+	raw := &watchdogReader{r: resp.Body, timer: watchdog, timeout: streamStallTimeout}
+	buf := newStreamBuffer(raw, streamBufferSize, streamBufferPrefill, streamBufferPrefillWait)
+	defer buf.Close()
+
 	// If the server honored the metadata request, demux titles out of the
 	// stream; otherwise the body is pure audio and passes through untouched.
-	var body io.Reader = &watchdogReader{r: resp.Body, timer: watchdog, timeout: streamStallTimeout}
+	// The demuxer consumes the buffer's output, so titles surface roughly
+	// when their audio is decoded, not when the network delivered them.
+	var body io.Reader = buf
 	if icyInt, err := strconv.Atoi(resp.Header.Get("icy-metaint")); err == nil && icyInt > 0 {
 		body = newICYDemuxer(body, icyInt, func(title string) {
 			p.reportTrack(ctx, TrackInfo{Title: title})
