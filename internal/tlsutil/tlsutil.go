@@ -122,7 +122,9 @@ func ServerTLSConfig(certPath, keyPath string) (*tls.Config, string, error) {
 	}
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
+		// Both ends of this transport are the soma binary, so there is no
+		// legacy peer to accommodate: require the newest TLS outright.
+		MinVersion: tls.VersionTLS13,
 	}
 	return cfg, Fingerprint(cert.Certificate[0]), nil
 }
@@ -151,7 +153,9 @@ func ClientTLSConfig(caPath, fingerprint, serverName string) (*tls.Config, error
 	}
 	cfg := &tls.Config{
 		ServerName: serverName,
-		MinVersion: tls.VersionTLS12,
+		// Matches the server's floor (see ServerTLSConfig): soma only ever
+		// talks to soma, so nothing needs TLS 1.2 compatibility.
+		MinVersion: tls.VersionTLS13,
 	}
 	switch {
 	case caPath != "":
