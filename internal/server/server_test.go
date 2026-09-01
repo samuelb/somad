@@ -91,17 +91,79 @@ func TestPlay_UnknownChannel(t *testing.T) {
 	assert.Equal(t, protocol.StatusStopped, s.Snapshot().Status)
 }
 
-func TestPlay_NoMP3PlaylistDoesNotRetry(t *testing.T) {
-	s, _ := newTestServer(t, Config{})
+func TestPlay_NoPlayableStreamDoesNotRetry(t *testing.T) {
+	s, _ := newTestServer(t, Config{}) // pinned to MP3-only; see newTestServer
+
 	c := connect(t, s)
 	c.hello()
 
 	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "aacchannel"})
 
-	assert.Contains(t, resp.Error, "no MP3 playlist")
+	assert.Contains(t, resp.Error, "no playable stream")
 	snap := s.Snapshot()
 	assert.Equal(t, protocol.StatusStopped, snap.Status)
-	assert.Contains(t, snap.StreamError, "no MP3 playlist")
+	assert.Contains(t, snap.StreamError, "no playable stream")
+}
+
+func TestPlay_PrefersAACWhenSupported(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	supportedFormats = func() []string { return []string{audio.FormatAAC, audio.FormatMP3} }
+
+	c := connect(t, s)
+	c.hello()
+
+	// Both formats available: the AAC playlist wins.
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "bothformats"}))
+
+	player.mu.Lock()
+	assert.Equal(t, []string{"http://somafm.com/both130.pls#stream"}, player.playURLs)
+	assert.Equal(t, []string{audio.FormatAAC}, player.playFormats)
+	player.mu.Unlock()
+}
+
+func TestPlay_StopDuringFallbackDoesNotStartNextCandidate(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	supportedFormats = func() []string { return []string{audio.FormatAAC, audio.FormatMP3} }
+	player.mu.Lock()
+	// The AAC candidate fails, and while it was "connecting" a Stop arrived:
+	// the MP3 fallback must not start stale audio afterwards.
+	player.failFormats = map[string]bool{audio.FormatAAC: true}
+	player.onPlay = func(format string) {
+		if format == audio.FormatAAC {
+			s.Stop()
+		}
+	}
+	player.mu.Unlock()
+
+	c := connect(t, s)
+	c.hello()
+
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "bothformats"})
+
+	assert.NotEmpty(t, resp.Error, "the superseded play must not report success")
+	assert.Equal(t, protocol.StatusStopped, s.Snapshot().Status)
+	player.mu.Lock()
+	assert.Empty(t, player.playURLs, "no candidate may start after the stop")
+	player.mu.Unlock()
+}
+
+func TestPlay_FallsBackToMP3WhenAACFails(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	supportedFormats = func() []string { return []string{audio.FormatAAC, audio.FormatMP3} }
+	player.mu.Lock()
+	player.failFormats = map[string]bool{audio.FormatAAC: true}
+	player.mu.Unlock()
+
+	c := connect(t, s)
+	c.hello()
+
+	st := decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "bothformats"}))
+
+	assert.Equal(t, protocol.StatusPlaying, st.Status)
+	player.mu.Lock()
+	assert.Equal(t, []string{"http://somafm.com/both.pls#stream"}, player.playURLs)
+	assert.Equal(t, []string{audio.FormatMP3}, player.playFormats)
+	player.mu.Unlock()
 }
 
 func TestStreamDrop_ReconnectsAndRecovers(t *testing.T) {
@@ -238,7 +300,8 @@ func TestPlayRelative_NextPrevAndWrap(t *testing.T) {
 	c := connect(t, s)
 	c.hello()
 
-	// Catalog order: groovesalad, dronezone, aacchannel (no favorites).
+	// Catalog order: groovesalad, dronezone, bothformats, aacchannel (no
+	// favorites).
 	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
 
 	st := decodeState(t, c.call(protocol.MethodPlayRelative, protocol.PlayRelativeParams{Delta: 1}))
@@ -248,9 +311,10 @@ func TestPlayRelative_NextPrevAndWrap(t *testing.T) {
 	assert.Equal(t, "groovesalad", st.ChannelID)
 
 	// Wraps around backwards to the end of the catalog; the AAC-only channel
-	// there cannot play, which also proves the wrap targeted it.
+	// there cannot play (tests pin MP3-only), which also proves the wrap
+	// targeted it.
 	resp := c.call(protocol.MethodPlayRelative, protocol.PlayRelativeParams{Delta: -1})
-	assert.Contains(t, resp.Error, "no MP3 playlist available for AAC Only")
+	assert.Contains(t, resp.Error, "no playable stream for AAC Only")
 }
 
 func TestPlayRelative_FromStoppedUsesLastPlayed(t *testing.T) {

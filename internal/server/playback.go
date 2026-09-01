@@ -3,6 +3,8 @@ package server
 import (
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"somad/internal/audio"
@@ -40,6 +42,10 @@ func reconnectDelay(attempt int) time.Duration {
 // resolveStreamURL resolves a playlist URL to a stream URL. A variable so
 // tests can avoid the network.
 var resolveStreamURL = playlist.GetStreamURLFromPlaylist
+
+// supportedFormats lists the stream formats this build decodes, most
+// preferred first. A variable so tests can pin it regardless of platform.
+var supportedFormats = audio.PreferredFormats
 
 // Play starts playback of the given channel. It blocks until the stream is
 // connected and decoding (or has failed), so callers get synchronous
@@ -85,35 +91,57 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		s.saveState(saveSeq, stateToSave)
 	}
 
-	playlistURL := channels.SelectMP3PlaylistURL(playlists)
-	if playlistURL == "" {
+	// Try the playable playlists in preference order (AAC before MP3 where
+	// this build decodes it), falling back to the next when one fails to
+	// connect or decode.
+	formats := supportedFormats()
+	candidates := channels.SelectPlaylists(playlists, formats)
+	if len(candidates) == 0 {
 		// Reconnecting cannot conjure up a playlist, so never retry this.
-		return s.failConnect(gen, fmt.Errorf("no MP3 playlist available for %s", title), false)
+		return s.failConnect(gen, fmt.Errorf("no playable stream for %s (supported formats: %s)",
+			title, strings.Join(formats, ", ")), false)
 	}
 
-	streamURL, err := resolveStreamURL(playlistURL, s.userAgent)
-	if err != nil {
-		return s.failConnect(gen, fmt.Errorf("failed to get stream URL: %w", err), true)
-	}
-
-	if err := s.player.Play(streamURL); err != nil {
-		if errors.Is(err, audio.ErrSuperseded) {
-			// A newer play/stop request won; it owns the state now.
-			return s.Snapshot(), err
+	var lastErr error
+	for _, cand := range candidates {
+		// A stop or newer play may have arrived while an earlier candidate
+		// was resolving or connecting. The newer request owns the state, so
+		// back out instead of starting stale audio.
+		s.mu.Lock()
+		superseded := gen != s.playGen
+		s.mu.Unlock()
+		if superseded {
+			return s.Snapshot(), audio.ErrSuperseded
 		}
-		return s.failConnect(gen, fmt.Errorf("failed to start playback: %w", err), true)
-	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if gen != s.playGen {
-		return s.snapshotLocked(), audio.ErrSuperseded
+		streamURL, err := resolveStreamURL(cand.URL, s.userAgent)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to get stream URL: %w", err)
+			continue
+		}
+
+		if err := s.player.Play(streamURL, cand.Format); err != nil {
+			if errors.Is(err, audio.ErrSuperseded) {
+				// A newer play/stop request won; it owns the state now.
+				return s.Snapshot(), err
+			}
+			lastErr = fmt.Errorf("failed to start playback: %w", err)
+			continue
+		}
+
+		log.Printf("playing %s (%s)", title, cand.Format)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if gen != s.playGen {
+			return s.snapshotLocked(), audio.ErrSuperseded
+		}
+		s.status = protocol.StatusPlaying
+		s.reconnectAttempt = 0 // connected: a later drop starts a fresh backoff
+		s.updateMPRISLocked()
+		s.broadcastStateLocked()
+		return s.snapshotLocked(), nil
 	}
-	s.status = protocol.StatusPlaying
-	s.reconnectAttempt = 0 // connected: a later drop starts a fresh backoff
-	s.updateMPRISLocked()
-	s.broadcastStateLocked()
-	return s.snapshotLocked(), nil
+	return s.failConnect(gen, lastErr, true)
 }
 
 // failConnect records a connect failure for the play attempt identified by

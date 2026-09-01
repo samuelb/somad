@@ -29,7 +29,9 @@ Linux and macOS — other platforms are not supported and may not work.
   (auto-generated certificate) and pre-shared-key authentication
 - Mark channels as favorites for quick access
 - Browse and filter the full list of SomaFM radio channels
-- Play high-quality MP3 streams directly in your terminal
+- Plays each channel's best stream directly in your terminal — AAC on
+  macOS (via the system decoder), MP3 elsewhere, falling back to MP3
+  automatically if the AAC stream fails
 - View real-time track information (artist/title) from ICY metadata
 - Buffered streaming with automatic reconnection on network issues
 - Styled UI with color-coded playback states and visual indicators
@@ -397,6 +399,7 @@ a typo never silently falls back to defaults.
 - [ansi](https://github.com/charmbracelet/x/ansi) (ANSI parsing)
 - [oto/v3](https://github.com/ebitengine/oto) (audio output)
 - [go-mp3](https://github.com/hajimehoshi/go-mp3) (MP3 decoding)
+- AudioToolbox (macOS system framework, AAC decoding)
 
 See `go.mod` for the full dependency list.
 

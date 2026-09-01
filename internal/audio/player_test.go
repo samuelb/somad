@@ -137,7 +137,7 @@ func TestPlayStop_ResumesAndSuspendsAudioDevice(t *testing.T) {
 	server := newStreamingTestServer(t)
 	t.Cleanup(p.Stop)
 
-	require.NoError(t, p.Play(server.URL))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
 	assert.EqualValues(t, 1, created.Load())
 	assert.EqualValues(t, 1, ctx.players.Load())
 	assert.Zero(t, ctx.resumes.Load(), "a new context is already active")
@@ -148,7 +148,7 @@ func TestPlayStop_ResumesAndSuspendsAudioDevice(t *testing.T) {
 		return ctx.suspends.Load() == 1
 	}, time.Second, 10*time.Millisecond)
 
-	require.NoError(t, p.Play(server.URL))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
 	assert.EqualValues(t, 1, ctx.resumes.Load())
 	assert.EqualValues(t, 2, ctx.players.Load())
 	p.Stop()
@@ -185,14 +185,14 @@ func TestPlay_ResumeErrorDoesNotCommitSession(t *testing.T) {
 	server := newStreamingTestServer(t)
 	t.Cleanup(p.Stop)
 
-	require.NoError(t, p.Play(server.URL))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
 	p.Stop()
 	require.Eventually(t, func() bool {
 		return ctx.suspends.Load() == 1
 	}, time.Second, 10*time.Millisecond)
 
 	ctx.setResumeError(errors.New("resume failed"))
-	err := p.Play(server.URL)
+	err := p.Play(server.URL, FormatMP3)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to resume audio device")
 	assert.EqualValues(t, 1, ctx.players.Load())
@@ -202,7 +202,7 @@ func TestPlay_ResumeErrorDoesNotCommitSession(t *testing.T) {
 	p.mu.Unlock()
 
 	ctx.setResumeError(nil)
-	require.NoError(t, p.Play(server.URL))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
 }
 
 func TestPlaySwitch_DoesNotSuspendReplacementSession(t *testing.T) {
@@ -210,8 +210,8 @@ func TestPlaySwitch_DoesNotSuspendReplacementSession(t *testing.T) {
 	server := newStreamingTestServer(t)
 	t.Cleanup(p.Stop)
 
-	require.NoError(t, p.Play(server.URL))
-	require.NoError(t, p.Play(server.URL))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
 	require.Eventually(t, func() bool {
 		return ctx.pauses.Load() == 1
 	}, time.Second, 10*time.Millisecond)
@@ -232,8 +232,8 @@ func TestStopDuringCrossfade_WaitsForBothSessionsBeforeSuspend(t *testing.T) {
 	server := newStreamingTestServer(t)
 	t.Cleanup(p.Stop)
 
-	require.NoError(t, p.Play(server.URL))
-	require.NoError(t, p.Play(server.URL))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
+	require.NoError(t, p.Play(server.URL, FormatMP3))
 	p.Stop()
 
 	require.Eventually(t, func() bool {
@@ -343,7 +343,7 @@ func TestPlay_SupersededByStop(t *testing.T) {
 	p := newTestPlayer()
 
 	playErr := make(chan error, 1)
-	go func() { playErr <- p.Play(server.URL) }()
+	go func() { playErr <- p.Play(server.URL, FormatMP3) }()
 
 	<-requestArrived
 	p.Stop() // supersedes the in-flight Play

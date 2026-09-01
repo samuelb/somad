@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -17,15 +18,23 @@ import (
 
 // mockPlayer is a race-safe test double for the audio.Player interface.
 type mockPlayer struct {
-	mu        sync.Mutex
-	playing   bool
-	playErr   error
-	playURLs  []string
-	volume    float64
-	errChan   chan error
-	trackChan chan audio.TrackInfo
+	mu       sync.Mutex
+	playing  bool
+	playErr  error
+	playURLs []string
+	// playFormats records the format of every Play call, parallel to playURLs.
+	playFormats []string
+	// failFormats makes Play fail for the given formats only, for exercising
+	// the AAC-to-MP3 fallback.
+	failFormats map[string]bool
+	volume      float64
+	errChan     chan error
+	trackChan   chan audio.TrackInfo
 	// blockPlay, when non-nil, makes Play wait until the channel is closed.
 	blockPlay chan struct{}
+	// onPlay, when non-nil, runs at the start of every Play call (outside
+	// the mock's lock), e.g. to inject a concurrent Stop.
+	onPlay func(format string)
 }
 
 func newMockPlayer() *mockPlayer {
@@ -36,10 +45,14 @@ func newMockPlayer() *mockPlayer {
 	}
 }
 
-func (p *mockPlayer) Play(url string) error {
+func (p *mockPlayer) Play(url, format string) error {
 	p.mu.Lock()
 	block := p.blockPlay
+	onPlay := p.onPlay
 	p.mu.Unlock()
+	if onPlay != nil {
+		onPlay(format)
+	}
 	if block != nil {
 		<-block
 	}
@@ -48,8 +61,12 @@ func (p *mockPlayer) Play(url string) error {
 	if p.playErr != nil {
 		return p.playErr
 	}
+	if p.failFormats[format] {
+		return errors.New("mock cannot play " + format)
+	}
 	p.playing = true
 	p.playURLs = append(p.playURLs, url)
+	p.playFormats = append(p.playFormats, format)
 	return nil
 }
 
@@ -95,6 +112,16 @@ func testChannels() []channels.Channel {
 			Playlists: []channels.Playlist{{URL: "http://somafm.com/dronezone.pls", Format: "mp3"}},
 		},
 		{
+			ID:    "bothformats",
+			Title: "Both Formats",
+			Playlists: []channels.Playlist{
+				{URL: "http://somafm.com/both.pls", Format: "mp3", Quality: "highest"},
+				{URL: "http://somafm.com/both130.pls", Format: "aac", Quality: "highest"},
+			},
+		},
+		// Kept last: the wrap-around test relies on the catalog ending in a
+		// channel that cannot play under the pinned MP3-only formats.
+		{
 			ID:        "aacchannel",
 			Title:     "AAC Only",
 			Playlists: []channels.Playlist{{URL: "http://somafm.com/aac.pls", Format: "aac"}},
@@ -122,6 +149,12 @@ func newTestServer(t *testing.T, cfg Config) (*Server, *mockPlayer) {
 		return playlistURL + "#stream", nil
 	}
 	t.Cleanup(func() { resolveStreamURL = prevResolve })
+
+	// Pin the format capability to MP3-only so tests behave the same on
+	// every platform (on macOS the real build also plays AAC).
+	prevFormats := supportedFormats
+	supportedFormats = func() []string { return []string{audio.FormatMP3} }
+	t.Cleanup(func() { supportedFormats = prevFormats })
 
 	s := New(cfg)
 	s.setCatalog(testChannels())

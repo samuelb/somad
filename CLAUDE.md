@@ -44,7 +44,7 @@ Two processes, one binary. `cmd/soma/main.go` dispatches subcommands: no args op
 **TUI** (`internal/app` + `internal/ui`): standard Bubble Tea Elm architecture (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no playback state of its own — it renders from the latest server snapshot and sends commands over its `Backend` interface. `internal/ui` has the list delegate and lipgloss styles.
 
 **Supporting packages**:
-- `internal/audio` — MP3 streaming/decoding (oto + go-mp3), ICY metadata, buffering/reconnection
+- `internal/audio` — stream playback (oto): MP3 via go-mp3 everywhere, AAC via the macOS AudioToolbox framework (build-tagged `aac_darwin.go` / `aac_other.go`), format preference in `PreferredFormats`, ICY metadata, jitter buffering/reconnection
 - `internal/channels` — SomaFM channel catalog fetch/cache and channel selection by ID/name
 - `internal/state` — persisted user state (favorites, last channel, volume) in XDG/macOS dirs
 - `internal/config` — optional YAML config file; unknown keys or parse errors are fatal by design (no silent fallback to defaults)

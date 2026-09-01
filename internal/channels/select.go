@@ -1,28 +1,45 @@
 package channels
 
-// mp3QualityRank orders SomaFM playlist quality levels, best first.
-var mp3QualityRank = map[string]int{"highest": 0, "high": 1, "low": 2}
+// qualityRank orders SomaFM playlist quality levels, best first.
+var qualityRank = map[string]int{"highest": 0, "high": 1, "low": 2}
 
-// SelectMP3PlaylistURL returns the best-quality MP3 playlist URL from a
-// channel's playlists (highest > high > low > unknown), or "" if none.
-func SelectMP3PlaylistURL(playlists []Playlist) string {
-	bestURL := ""
+// SelectPlaylists returns the playlists to try, in playback-preference
+// order: for each format in formats (most preferred first, e.g. AAC before
+// MP3 where the platform decodes it) the best-quality playlist of that
+// format. The caller works through the result until one connects, so a
+// format whose stream fails still falls back to the next.
+func SelectPlaylists(playlists []Playlist, formats []string) []Playlist {
+	selected := make([]Playlist, 0, len(formats))
+	for _, format := range formats {
+		if pl, ok := selectBestQuality(playlists, format); ok {
+			selected = append(selected, pl)
+		}
+	}
+	return selected
+}
+
+// selectBestQuality returns the best-quality playlist of the given format
+// (highest > high > low > unknown), or false if the format is absent.
+func selectBestQuality(playlists []Playlist, format string) (Playlist, bool) {
+	var best Playlist
+	found := false
 	// The seed must exceed the unknown-quality rank below, or a channel
 	// whose playlists all have unrecognized quality labels would select
 	// nothing at all instead of falling back to its first entry.
-	bestRank := len(mp3QualityRank) + 1
+	bestRank := len(qualityRank) + 1
 	for _, playlist := range playlists {
-		if playlist.Format != "mp3" {
+		if playlist.Format != format {
 			continue
 		}
-		rank, ok := mp3QualityRank[playlist.Quality]
+		rank, ok := qualityRank[playlist.Quality]
 		if !ok {
-			rank = len(mp3QualityRank)
+			rank = len(qualityRank)
 		}
 		if rank < bestRank {
-			bestURL = playlist.URL
+			best = playlist
 			bestRank = rank
+			found = true
 		}
 	}
-	return bestURL
+	return best, found
 }

@@ -14,7 +14,6 @@ import (
 	"somad/internal/security"
 
 	"github.com/ebitengine/oto/v3"
-	mp3 "github.com/hajimehoshi/go-mp3"
 )
 
 const (
@@ -51,7 +50,9 @@ var ErrSuperseded = errors.New("playback superseded by a newer request")
 // Player is the interface for audio playback operations.
 // This allows mocking the player in tests.
 type Player interface {
-	Play(url string) error
+	// Play streams the URL, decoding it as the given format (one of the
+	// formats listed by PreferredFormats).
+	Play(url, format string) error
 	Stop()
 	Errors() <-chan error
 	TrackUpdates() <-chan TrackInfo
@@ -207,13 +208,13 @@ func (p *AudioPlayer) ensureContext() error {
 	return nil
 }
 
-// Play starts streaming and playing audio from the given URL. It blocks until
-// the stream is decoding and playback has begun; the previous session (if any)
-// fades out and tears down asynchronously. Play is safe to call concurrently:
-// if another Play or Stop arrives while this one is still connecting, the
-// newer request wins and this one returns ErrSuperseded without touching the
-// audio state.
-func (p *AudioPlayer) Play(url string) error {
+// Play starts streaming and playing audio from the given URL, decoded as
+// format. It blocks until the stream is decoding and playback has begun; the
+// previous session (if any) fades out and tears down asynchronously. Play is
+// safe to call concurrently: if another Play or Stop arrives while this one
+// is still connecting, the newer request wins and this one returns
+// ErrSuperseded without touching the audio state.
+func (p *AudioPlayer) Play(url, format string) error {
 	p.mu.Lock()
 	p.playGen++
 	gen := p.playGen
@@ -231,12 +232,12 @@ func (p *AudioPlayer) Play(url string) error {
 
 	go p.fetchStream(ctx, url, pw)
 
-	// Decode the MP3 stream from the pipe reader. This is the only synchronous
+	// Decode the stream from the pipe reader. This is the only synchronous
 	// failure mode, so the new session is not committed until decoding succeeds.
-	decoder, err := mp3.NewDecoder(pr)
+	decoder, err := newDecoder(format, pr)
 	if err != nil {
 		discard()
-		return fmt.Errorf("failed to decode mp3: %w", err)
+		return fmt.Errorf("failed to decode %s stream: %w", format, err)
 	}
 
 	// The oto context runs at a fixed rate; resample if the stream differs.
