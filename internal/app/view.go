@@ -78,7 +78,7 @@ func (m *Model) RenderStatusBar() string {
 
 	// Add the channel name if playing, connecting, or awaiting a reconnect
 	if m.Snapshot.ChannelTitle != "" {
-		channelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+		channelStyle := lipgloss.NewStyle().Foreground(ui.TextColor)
 		parts = append(parts, channelStyle.Render(m.Snapshot.ChannelTitle))
 	}
 

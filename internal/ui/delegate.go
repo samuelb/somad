@@ -44,7 +44,7 @@ func NewStyledDelegate(playingID *string, matchChecker func(int) bool, favoriteC
 
 	// Normal item styles
 	d.Styles.NormalTitle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#FFFFFF")).
+		Foreground(TextColor).
 		Padding(0, 0, 0, 2)
 
 	d.Styles.NormalDesc = lipgloss.NewStyle().
@@ -62,7 +62,7 @@ func NewStyledDelegate(playingID *string, matchChecker func(int) bool, favoriteC
 	d.Styles.SelectedDesc = lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(PrimaryColor).
-		Foreground(lipgloss.Color("#CCCCCC")).
+		Foreground(MutedTextColor).
 		Padding(0, 0, 0, 1)
 
 	return StyledDelegate{DefaultDelegate: d, PlayingID: playingID, MatchChecker: matchChecker, FavoriteChecker: favoriteChecker}
@@ -100,7 +100,7 @@ func (d StyledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		Align(lipgloss.Right)
 
 	listenerSelectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#CCCCCC")).
+		Foreground(MutedTextColor).
 		Width(listenerColWidth).
 		Align(lipgloss.Right)
 
