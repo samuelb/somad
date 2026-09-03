@@ -18,16 +18,6 @@ needs a decision.
 
 Ordered roughly by value ÷ effort.
 
-- [ ] **Search improvements** [M] (`internal/app/search.go`,
-      `internal/app/update.go:85`). `UpdateSearchMatches` only collects
-      indices and jumps; the list's own filtering is disabled at
-      `cmd/soma/main.go:556`, so there is no matches-only view although the
-      README says "Filter channels". Matching is lowercase substring.
-      `sahilm/fuzzy` is in `vendor/` only transitively via bubbles'
-      `DefaultFilter` (which this project switches off), so it is available
-      at zero dependency cost. `/` resets the query instead of pre-filling
-      it. The matches-only view is the real work: the delegate and
-      `SearchMatches` index arithmetic assume a stable full list.
 - [ ] **Split `cmd/soma/main.go`** [M] (658 lines). `runServer` has ten
       `log.Fatal*` calls; the five in option resolution (config load,
       tls-cert/key pairing, cert prep, cert load, PSK file) are what block a
@@ -53,9 +43,6 @@ Small hygiene fixes first, then features, then code quality.
 
 ### Features
 
-- [ ] Favorites-only view toggle in the TUI. `sortItemsWithFavorites`
-      (`internal/app/favorites.go:81`) only partitions favorites first;
-      nothing filters. [S–M, shares the matches-only plumbing with search]
 ### Code quality
 
 ## Not planned
