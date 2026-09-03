@@ -259,6 +259,7 @@ func (c *conn) handleHello(req protocol.Request) bool {
 // goroutine, so a blocking play never stalls other requests from the same
 // client.
 func (c *conn) handleRequest(req protocol.Request) {
+	reply := c.replier(req.ID)
 	switch req.Method {
 	case protocol.MethodStatus:
 		c.respond(req.ID, c.s.Snapshot())
@@ -267,103 +268,49 @@ func (c *conn) handleRequest(req protocol.Request) {
 		c.respond(req.ID, c.s.ChannelsPayload())
 
 	case protocol.MethodPlay:
-		var params protocol.PlayParams
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			c.respondError(req.ID, fmt.Errorf("malformed play params: %w", err))
-			return
+		if params, ok := decodeParams[protocol.PlayParams](c, req); ok {
+			reply(c.s.Play(params.ChannelID))
 		}
-		snap, err := c.s.Play(params.ChannelID)
-		if err != nil {
-			c.respondError(req.ID, err)
-			return
-		}
-		c.respond(req.ID, snap)
 
 	case protocol.MethodPlayPause:
-		snap, err := c.s.PlayPause()
-		if err != nil {
-			c.respondError(req.ID, err)
-			return
-		}
-		c.respond(req.ID, snap)
+		reply(c.s.PlayPause())
 
 	case protocol.MethodPlayRelative:
-		var params protocol.PlayRelativeParams
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			c.respondError(req.ID, fmt.Errorf("malformed playRelative params: %w", err))
-			return
+		if params, ok := decodeParams[protocol.PlayRelativeParams](c, req); ok {
+			reply(c.s.PlayRelative(params.Delta))
 		}
-		snap, err := c.s.PlayRelative(params.Delta)
-		if err != nil {
-			c.respondError(req.ID, err)
-			return
-		}
-		c.respond(req.ID, snap)
 
 	case protocol.MethodStop:
 		var params protocol.StopParams
-		if len(req.Params) > 0 {
-			if err := json.Unmarshal(req.Params, &params); err != nil {
-				c.respondError(req.ID, fmt.Errorf("malformed stop params: %w", err))
+		if len(req.Params) > 0 { // a bare stop carries no params at all
+			var ok bool
+			if params, ok = decodeParams[protocol.StopParams](c, req); !ok {
 				return
 			}
 		}
-		switch {
-		case params.Cancel:
-			c.respond(req.ID, c.s.CancelPendingStop())
-		case params.In != "":
-			d, err := time.ParseDuration(params.In)
-			if err != nil {
-				c.respondError(req.ID, fmt.Errorf("malformed stop \"in\" duration: %w", err))
-				return
-			}
-			if d <= 0 {
-				c.respondError(req.ID, errors.New(`stop "in" duration must be positive`))
-				return
-			}
-			c.respond(req.ID, c.s.StopIn(d))
-		default:
-			c.respond(req.ID, c.s.Stop())
-		}
+		reply(c.stop(params))
 
 	case protocol.MethodSetVolume:
-		var params protocol.SetVolumeParams
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			c.respondError(req.ID, fmt.Errorf("malformed setVolume params: %w", err))
-			return
+		if params, ok := decodeParams[protocol.SetVolumeParams](c, req); ok {
+			c.respond(req.ID, c.s.SetVolume(params.Volume, true))
 		}
-		c.respond(req.ID, c.s.SetVolume(params.Volume, true))
 
 	case protocol.MethodToggleMute:
 		c.respond(req.ID, c.s.ToggleMute())
 
 	case protocol.MethodToggleFavorite:
-		var params protocol.ToggleFavoriteParams
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			c.respondError(req.ID, fmt.Errorf("malformed toggleFavorite params: %w", err))
-			return
+		if params, ok := decodeParams[protocol.ToggleFavoriteParams](c, req); ok {
+			favorites, err := c.s.ToggleFavorite(params.ChannelID)
+			reply(protocol.FavoritesResult{Favorites: favorites}, err)
 		}
-		favorites, err := c.s.ToggleFavorite(params.ChannelID)
-		if err != nil {
-			c.respondError(req.ID, err)
-			return
-		}
-		c.respond(req.ID, protocol.FavoritesResult{Favorites: favorites})
 
 	case protocol.MethodHistory:
-		var params protocol.HistoryParams
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			c.respondError(req.ID, fmt.Errorf("malformed history params: %w", err))
-			return
+		if params, ok := decodeParams[protocol.HistoryParams](c, req); ok {
+			c.respond(req.ID, protocol.HistoryResult{Entries: c.s.History(params.ChannelID, params.Limit)})
 		}
-		c.respond(req.ID, protocol.HistoryResult{Entries: c.s.History(params.ChannelID, params.Limit)})
 
 	case protocol.MethodReloadLastfm:
-		if err := c.s.ReloadLastfm(); err != nil {
-			c.respondError(req.ID, err)
-			return
-		}
-		c.respond(req.ID, struct{}{})
+		reply(struct{}{}, c.s.ReloadLastfm())
 
 	case protocol.MethodShutdown:
 		c.respond(req.ID, struct{}{})
@@ -371,6 +318,51 @@ func (c *conn) handleRequest(req protocol.Request) {
 
 	default:
 		c.respondError(req.ID, fmt.Errorf("unknown method: %q", req.Method))
+	}
+}
+
+// stop maps the stop request's three forms (stop now, arm a sleep timer,
+// cancel a pending one) onto the server, validating the wire's duration
+// string on the way.
+func (c *conn) stop(params protocol.StopParams) (protocol.PlaybackState, error) {
+	switch {
+	case params.Cancel:
+		return c.s.CancelPendingStop(), nil
+	case params.In != "":
+		d, err := time.ParseDuration(params.In)
+		if err != nil {
+			return protocol.PlaybackState{}, fmt.Errorf("malformed stop \"in\" duration: %w", err)
+		}
+		if d <= 0 {
+			return protocol.PlaybackState{}, errors.New(`stop "in" duration must be positive`)
+		}
+		return c.s.StopIn(d), nil
+	default:
+		return c.s.Stop(), nil
+	}
+}
+
+// decodeParams unmarshals req.Params as a T. On failure it answers the
+// request with a malformed-params error itself and reports false.
+func decodeParams[T any](c *conn, req protocol.Request) (T, bool) {
+	var params T
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.respondError(req.ID, fmt.Errorf("malformed %s params: %w", req.Method, err))
+		return params, false
+	}
+	return params, true
+}
+
+// replier returns the answer for request id: result, or err when the call
+// failed. Bound to the id so a (value, error) call can be passed straight
+// through, e.g. reply(c.s.Play(id)).
+func (c *conn) replier(id int64) func(result any, err error) {
+	return func(result any, err error) {
+		if err != nil {
+			c.respondError(id, err)
+			return
+		}
+		c.respond(id, result)
 	}
 }
 

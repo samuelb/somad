@@ -54,28 +54,48 @@ func ensureServerForPlayback() *client.Client {
 // locally; an unreachable remote server is an error instead, because "not
 // running" is not something this side can know or fix.
 func dialServer() (*client.Client, string, bool) {
-	c, err := client.DialEndpoint(endpoint)
-	if err != nil {
+	c, hr, err := tryDialServer()
+	var nse noServerError
+	if errors.As(err, &nse) {
 		if endpoint.IsLocal() {
 			return nil, "", false
 		}
 		fail("cannot reach the soma daemon at %s: %v", endpoint, err)
 	}
-	hr, err := c.Hello(version)
 	if err != nil {
-		_ = c.Close()
 		fail("%v", err)
 	}
 	return c, hr.ServerVersion, true
 }
 
+// noServerError reports that nothing answered at the endpoint, as opposed
+// to a server that answered but failed the handshake.
+type noServerError struct{ err error }
+
+func (e noServerError) Error() string { return e.err.Error() }
+func (e noServerError) Unwrap() error { return e.err }
+
+// tryDialServer dials and greets a running server, without spawning one and
+// without exiting on failure. A dial failure is a noServerError.
+func tryDialServer() (*client.Client, protocol.HelloResult, error) {
+	c, err := client.DialEndpoint(endpoint)
+	if err != nil {
+		return nil, protocol.HelloResult{}, noServerError{err}
+	}
+	hr, err := c.Hello(version)
+	if err != nil {
+		_ = c.Close()
+		return nil, hr, err
+	}
+	return c, hr, nil
+}
+
 // restartForUpgrade restarts an out-of-date local server onto our version, for
 // a command that is about to interrupt playback anyway. It returns c unchanged
-// when the server already runs our version — or is remote, where a version-
-// skewed server is tolerated (the hello handshake already checked that it
-// speaks our protocol version).
+// when the server already runs our version, or is remote (see
+// client.NeedsRestart).
 func restartForUpgrade(c *client.Client, serverVersion string) *client.Client {
-	if !client.VersionSkewed(version, serverVersion) || !endpoint.IsLocal() {
+	if !client.NeedsRestart(endpoint, version, serverVersion) {
 		return c
 	}
 	nc, _, err := client.Restart(c, endpoint, version)
@@ -166,11 +186,7 @@ func runPlay(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
-	if jsonOut {
-		printJSON(st)
-		return
-	}
-	fmt.Printf("Playing: %s\n", st.ChannelTitle)
+	printState(jsonOut, st, playingLine(st))
 }
 
 // parseJSONFlag parses a client command's arguments, which may lead with
@@ -335,11 +351,7 @@ func runPlayRelative(delta int, name string, args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
-	if jsonOut {
-		printJSON(st)
-		return
-	}
-	fmt.Printf("Playing: %s\n", st.ChannelTitle)
+	printState(jsonOut, st, playingLine(st))
 }
 
 // runPause toggles between stopped and playing. Live radio has no real
@@ -354,16 +366,12 @@ func runPause(args []string) {
 
 	c, serverVersion, running := dialServer()
 	if !running {
-		if jsonOut {
-			printJSON(statusSnapshot())
-			return
-		}
-		fmt.Println("soma: not playing (server not running)")
+		printNotRunning(jsonOut, "soma: not playing (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
 
-	if client.VersionSkewed(version, serverVersion) && endpoint.IsLocal() {
+	if client.NeedsRestart(endpoint, version, serverVersion) {
 		// Pausing interrupts playback anyway, so upgrade the server now. The
 		// fresh server starts stopped: if music was playing, that stopped state
 		// *is* the pause; if it was already paused, unpausing means resuming the
@@ -374,15 +382,11 @@ func runPause(args []string) {
 		}
 		c = restartForUpgrade(c, serverVersion)
 		if wasPlaying {
-			if jsonOut {
-				st, err := c.Status()
-				if err != nil {
-					fail("%v", err)
-				}
-				printJSON(st)
-				return
+			st, err := c.Status()
+			if err != nil {
+				fail("%v", err)
 			}
-			fmt.Println("Paused")
+			printState(jsonOut, st, "Paused")
 			return
 		}
 	}
@@ -391,15 +395,11 @@ func runPause(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
-	if jsonOut {
-		printJSON(st)
-		return
+	human := "Paused"
+	if st.Status != protocol.StatusStopped {
+		human = playingLine(st)
 	}
-	if st.Status == protocol.StatusStopped {
-		fmt.Println("Paused")
-	} else {
-		fmt.Printf("Playing: %s\n", st.ChannelTitle)
-	}
+	printState(jsonOut, st, human)
 }
 
 // runStop stops playback, or with --in <duration> arms a sleep timer that
@@ -432,11 +432,7 @@ func runStop(args []string) {
 
 	c, serverVersion, running := dialServer()
 	if !running {
-		if *jsonOut {
-			printJSON(statusSnapshot())
-			return
-		}
-		fmt.Println("soma: not playing (server not running)")
+		printNotRunning(*jsonOut, "soma: not playing (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
@@ -460,18 +456,14 @@ func runStop(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
-	if *jsonOut {
-		printJSON(st)
-		return
-	}
+	human := "Stopped"
 	switch {
 	case *cancel:
-		fmt.Println("Sleep timer canceled")
+		human = "Sleep timer canceled"
 	case *in != "":
-		fmt.Printf("Stopping in %s\n", *in)
-	default:
-		fmt.Println("Stopped")
+		human = "Stopping in " + *in
 	}
+	printState(*jsonOut, st, human)
 }
 
 // parseStopInDuration parses and validates the --in flag of soma stop: a
@@ -528,7 +520,7 @@ func runStatus(args []string) {
 	if st.StreamError != "" {
 		fmt.Printf("Error:   %s\n", st.StreamError)
 	}
-	fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
+	fmt.Println(volumeLine(st.Volume))
 	if line := sleepTimerLine(st.StopAt); line != "" {
 		fmt.Print(line)
 	}
@@ -560,7 +552,7 @@ func sleepTimerLine(stopAt string) string {
 // exits on an unreachable server: a polling status bar needs parseable
 // output on every tick, not exit 1 with a message on stderr.
 func statusSnapshot() protocol.PlaybackState {
-	c, err := tryDialServer()
+	c, _, err := tryDialServer()
 	if err != nil {
 		st := protocol.PlaybackState{Status: protocol.StatusStopped}
 		if endpoint.IsLocal() {
@@ -585,20 +577,6 @@ func statusSnapshot() protocol.PlaybackState {
 	return st
 }
 
-// tryDialServer dials and greets a running server, without spawning one and
-// without exiting on failure.
-func tryDialServer() (*client.Client, error) {
-	c, err := client.DialEndpoint(endpoint)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := c.Hello(version); err != nil {
-		_ = c.Close()
-		return nil, err
-	}
-	return c, nil
-}
-
 // volumePercent converts a volume fraction in [0, 1] to a rounded percentage
 // for display.
 func volumePercent(v float64) int {
@@ -612,6 +590,35 @@ func printJSON(v any) {
 		fail("%v", err)
 	}
 	fmt.Println(string(out))
+}
+
+// printState is the tail of every state-returning command: the snapshot as
+// JSON with --json, else the human-readable line.
+func printState(jsonOut bool, st protocol.PlaybackState, human string) {
+	if jsonOut {
+		printJSON(st)
+		return
+	}
+	fmt.Println(human)
+}
+
+// printNotRunning answers a command that found no local server: a complete
+// stopped snapshot with --json (a polling status bar still needs parseable
+// output), else msg.
+func printNotRunning(jsonOut bool, msg string) {
+	if jsonOut {
+		printJSON(statusSnapshot())
+		return
+	}
+	fmt.Println(msg)
+}
+
+func playingLine(st protocol.PlaybackState) string {
+	return "Playing: " + st.ChannelTitle
+}
+
+func volumeLine(v float64) string {
+	return fmt.Sprintf("Volume:  %d%%", volumePercent(v))
 }
 
 // runVolume shows the volume when called without an argument, sets it for an
@@ -652,11 +659,7 @@ func runVolume(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
-	if jsonOut {
-		printJSON(st)
-		return
-	}
-	fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
+	printState(jsonOut, st, volumeLine(st.Volume))
 }
 
 // runVolumeMute toggles mute, restoring the pre-mute level (or a sensible
@@ -669,15 +672,11 @@ func runVolumeMute(jsonOut bool) {
 	if err != nil {
 		fail("%v", err)
 	}
-	if jsonOut {
-		printJSON(st)
-		return
+	human := "Muted"
+	if st.Volume != 0 {
+		human = volumeLine(st.Volume)
 	}
-	if st.Volume == 0 {
-		fmt.Println("Muted")
-	} else {
-		fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
-	}
+	printState(jsonOut, st, human)
 }
 
 // parseVolumeArg parses a volume argument: an absolute percentage in [0, 100],
@@ -694,28 +693,21 @@ func parseVolumeArg(arg string) (pct int, relative bool, err error) {
 // showVolume prints the current volume without spawning a server: with no
 // server running, the persisted state has the volume the next one will use.
 func showVolume(jsonOut bool) {
+	var st protocol.PlaybackState
 	if c, _, running := dialServer(); running {
 		defer func() { _ = c.Close() }()
-		st, err := c.Status()
+		var err error
+		if st, err = c.Status(); err != nil {
+			fail("%v", err)
+		}
+	} else {
+		saved, err := state.LoadState()
 		if err != nil {
 			fail("%v", err)
 		}
-		if jsonOut {
-			printJSON(st)
-			return
-		}
-		fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
-		return
+		st = protocol.PlaybackState{Status: protocol.StatusStopped, Volume: saved.GetVolume()}
 	}
-	st, err := state.LoadState()
-	if err != nil {
-		fail("%v", err)
-	}
-	if jsonOut {
-		printJSON(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: st.GetVolume()})
-		return
-	}
-	fmt.Printf("Volume:  %d%%\n", volumePercent(st.GetVolume()))
+	printState(jsonOut, st, volumeLine(st.Volume))
 }
 
 // historyDefaultLimit is how many entries `soma history` prints when -n is

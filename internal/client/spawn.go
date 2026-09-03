@@ -85,23 +85,7 @@ func openServerLog(path string) (*os.File, error) {
 // is an error, and a version-skewed one is left alone (the hello handshake
 // already guarantees it speaks our protocol version).
 func EnsureServer(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
-	c, hr, err := connectOrSpawn(ep, clientVersion)
-	if err != nil {
-		return nil, hr, err
-	}
-	if !VersionSkewed(clientVersion, hr.ServerVersion) || !ep.IsLocal() {
-		return c, hr, nil
-	}
-	// Skewed but playing: leave it be. Restarting would interrupt the stream,
-	// and the running binary still speaks our protocol version.
-	if st, err := c.Status(); err != nil || st.Status != protocol.StatusStopped {
-		return c, hr, nil
-	}
-	nc, nhr, err := Restart(c, ep, clientVersion)
-	if err != nil {
-		return nil, nhr, err
-	}
-	return nc, nhr, nil
+	return ensureServer(ep, clientVersion, false)
 }
 
 // EnsureServerForPlayback is EnsureServer for callers about to change, pause,
@@ -110,14 +94,33 @@ func EnsureServer(ep Endpoint, clientVersion string) (*Client, protocol.HelloRes
 // interrupting command that follows establishes the new playback state, so
 // nothing is resumed here.
 func EnsureServerForPlayback(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	return ensureServer(ep, clientVersion, true)
+}
+
+func ensureServer(ep Endpoint, clientVersion string, restartWhilePlaying bool) (*Client, protocol.HelloResult, error) {
 	c, hr, err := connectOrSpawn(ep, clientVersion)
 	if err != nil {
 		return nil, hr, err
 	}
-	if !VersionSkewed(clientVersion, hr.ServerVersion) || !ep.IsLocal() {
+	if !NeedsRestart(ep, clientVersion, hr.ServerVersion) {
 		return c, hr, nil
 	}
+	if !restartWhilePlaying {
+		// Skewed but playing: leave it be. Restarting would interrupt the
+		// stream, and the running binary still speaks our protocol version.
+		if st, err := c.Status(); err != nil || st.Status != protocol.StatusStopped {
+			return c, hr, nil
+		}
+	}
 	return Restart(c, ep, clientVersion)
+}
+
+// NeedsRestart reports whether a connected server should be restarted onto
+// this binary: only a local one, and only when the versions differ. A remote
+// server is never restarted, and a version-skewed one is tolerated (the
+// hello handshake already checked that it speaks our protocol version).
+func NeedsRestart(ep Endpoint, clientVersion, serverVersion string) bool {
+	return ep.IsLocal() && VersionSkewed(clientVersion, serverVersion)
 }
 
 // Restart shuts the connected server down and returns a client to a fresh spawn

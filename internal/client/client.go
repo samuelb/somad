@@ -290,7 +290,9 @@ func (c *Client) call(method string, params any, result any) error {
 	}
 }
 
-// callTimeoutFor returns the round-trip bound for a method.
+// callTimeoutFor returns the round-trip bound for a method. The play-ish
+// methods block on the server's synchronous Play (see server.playChannel),
+// which waits for the stream to connect, so they get the longer bound.
 func callTimeoutFor(method string) time.Duration {
 	switch method {
 	case protocol.MethodPlay, protocol.MethodPlayPause, protocol.MethodPlayRelative:
@@ -310,85 +312,71 @@ func (c *Client) Hello(clientVersion string) (protocol.HelloResult, error) {
 	return result, err
 }
 
+// callAs issues method with params and decodes the result as a T.
+func callAs[T any](c *Client, method string, params any) (T, error) {
+	var result T
+	err := c.call(method, params, &result)
+	return result, err
+}
+
 // Status returns the current playback snapshot.
 func (c *Client) Status() (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodStatus, nil, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodStatus, nil)
 }
 
 // Channels returns the catalog with favorites and the last-played channel.
 func (c *Client) Channels() (protocol.ChannelsPayload, error) {
-	var payload protocol.ChannelsPayload
-	err := c.call(protocol.MethodChannels, nil, &payload)
-	return payload, err
+	return callAs[protocol.ChannelsPayload](c, protocol.MethodChannels, nil)
 }
 
 // Play starts a channel, blocking until it is connected or has failed.
 func (c *Client) Play(channelID string) (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: channelID}, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodPlay, protocol.PlayParams{ChannelID: channelID})
 }
 
 // PlayPause toggles between stopped and playing (live radio has no real
 // pause: unpausing reconnects to the live stream).
 func (c *Client) PlayPause() (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodPlayPause, nil, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodPlayPause, nil)
 }
 
 // PlayRelative plays the channel delta positions away from the current (or
 // last played) one in catalog order: +1 for next, -1 for previous.
 func (c *Client) PlayRelative(delta int) (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodPlayRelative, protocol.PlayRelativeParams{Delta: delta}, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodPlayRelative, protocol.PlayRelativeParams{Delta: delta})
 }
 
 // Stop halts playback immediately and cancels any pending sleep timer.
 func (c *Client) Stop() (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodStop, nil, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodStop, nil)
 }
 
 // StopIn arms a sleep timer that stops playback after d instead of
 // immediately, replacing any timer already pending. The daemon owns the
 // timer, so it fires even after this client disconnects.
 func (c *Client) StopIn(d time.Duration) (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodStop, protocol.StopParams{In: d.String()}, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodStop, protocol.StopParams{In: d.String()})
 }
 
 // CancelStop cancels a pending sleep timer without stopping playback.
 func (c *Client) CancelStop() (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodStop, protocol.StopParams{Cancel: true}, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodStop, protocol.StopParams{Cancel: true})
 }
 
 // SetVolume applies a volume in [0, 1] (the server clamps).
 func (c *Client) SetVolume(v float64) (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodSetVolume, protocol.SetVolumeParams{Volume: v}, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodSetVolume, protocol.SetVolumeParams{Volume: v})
 }
 
 // ToggleMute mutes playback, remembering the current volume to restore, or
 // restores it (or a sensible default) when already muted.
 func (c *Client) ToggleMute() (protocol.PlaybackState, error) {
-	var st protocol.PlaybackState
-	err := c.call(protocol.MethodToggleMute, nil, &st)
-	return st, err
+	return callAs[protocol.PlaybackState](c, protocol.MethodToggleMute, nil)
 }
 
 // ToggleFavorite flips a channel's favorite flag and returns the new list.
 func (c *Client) ToggleFavorite(channelID string) ([]string, error) {
-	var result protocol.FavoritesResult
-	err := c.call(protocol.MethodToggleFavorite, protocol.ToggleFavoriteParams{ChannelID: channelID}, &result)
+	result, err := callAs[protocol.FavoritesResult](c, protocol.MethodToggleFavorite, protocol.ToggleFavoriteParams{ChannelID: channelID})
 	return result.Favorites, err
 }
 
@@ -397,8 +385,7 @@ func (c *Client) ToggleFavorite(channelID string) ([]string, error) {
 // non-empty one filters to it and lets the server backfill from SomaFM's own
 // song history. limit <= 0 uses the server's default.
 func (c *Client) History(channelID string, limit int) ([]protocol.HistoryEntry, error) {
-	var result protocol.HistoryResult
-	err := c.call(protocol.MethodHistory, protocol.HistoryParams{ChannelID: channelID, Limit: limit}, &result)
+	result, err := callAs[protocol.HistoryResult](c, protocol.MethodHistory, protocol.HistoryParams{ChannelID: channelID, Limit: limit})
 	return result.Entries, err
 }
 

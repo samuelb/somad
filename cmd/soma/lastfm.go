@@ -133,7 +133,7 @@ func runLastfmLogout(args []string) {
 // never fails the caller: no daemon running, or one that is unreachable,
 // is not an error here — state was already persisted successfully.
 func reloadRunningDaemon() {
-	c, err := tryDialServer()
+	c, _, err := tryDialServer()
 	if err != nil {
 		return
 	}
