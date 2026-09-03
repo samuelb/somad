@@ -32,9 +32,7 @@ needs a decision.
       read error through `reportError` with the *session's* ctx (so a
       fading-out session cannot kill the newer one). Also decide what a
       decoder `io.EOF` should mean — today only the network side reports
-      "stream ended unexpectedly". Re-arming the watchdog on buffer
-      *consumption* is a separate, optional guard that would also catch a
-      wedged audio device. No test covers a post-`Play` decoder error;
+      "stream ended unexpectedly". No test covers a post-`Play` decoder error;
       `fakeAudioContext` has no player-side `Err`.
 - [ ] **Stop-vs-play supersede window, and the crossfade title leak that
       shares its fix** [M] (`internal/server/playback.go`,
@@ -112,14 +110,11 @@ needs a decision.
       - No cap on total connections: `acceptLoop` does an unconditional
         `go s.serveConn(nc)`; `maxConcurrentRequests = 32` is per
         connection, not a connection cap.
-      - **Auth throttling is per-connection only** (`conn.go:100`): the 1 s
-        failure delay is a plain sleep before the connection is closed, so
-        any new connection bypasses it and N parallel connections give N
-        attempts per second. Realistic severity is bounded by the
-        HMAC-SHA256 single-use-nonce challenge; resource exhaustion is the
-        actual threat, not key guessing. A limiter keyed on remote address
-        only bites once the connection cap exists, and the limiter map must
-        itself be bounded.
+      - The 1 s auth failure delay (`conn.go:100`) is per connection and
+        bypassed by simply opening another one, but the HMAC-SHA256
+        single-use-nonce challenge makes online key guessing unrealistic;
+        resource exhaustion is the actual threat, which the cap and
+        deadlines below address. No shared per-address limiter (decided).
       - **Pre-auth line size**: the server's one scanner is created before
         auth with `MaxLineBytes = 4 MiB` (`internal/protocol/codec.go:11`),
         so peak transient allocation is ~6 MiB per unauthenticated
@@ -135,8 +130,8 @@ needs a decision.
       against a buggy local client): ~10 s pre-auth handshake deadline, an
       idle deadline after auth re-armed on every `Scan` and long enough not
       to drop an idle TUI (or add a ping), `netutil.LimitListener` around
-      the TCP listener as the smallest possible cap, then the shared auth
-      limiter. Unauthenticated conns are already unregistered (no
+      the TCP listener as the smallest possible cap. Unauthenticated
+      conns are already unregistered (no
       broadcasts, do not hold off idle exit), so do not over-scope. No
       deadline or cap test exists.
 
@@ -144,15 +139,15 @@ needs a decision.
 
 Ordered roughly by value ÷ effort.
 
-- [ ] **Version-skew restart fires on "different", not "newer"** [S for
-      exempting `dev`, M for semver] (`internal/client/spawn.go:90` and
+- [ ] **Version-skew restart fires on "different", not "newer"** [S]
+      (`internal/client/spawn.go:90` and
       `:110`, `cmd/soma/cli.go:75` and `:324`, `Model.skewed` in
       `internal/app/model.go:71`). All four sites are plain string
       inequality, no semver import exists, and `version = "dev"` gets no
       exemption. Two installations on one machine (a `go build` dev binary
       and the brew one) restart the daemon onto each other on every channel
-      change, and `EnsureServer` silently *downgrades* too. Compare semver
-      and only restart onto a newer client, or at least exempt `dev`.
+      change. Exempt `dev` from the restart at all four sites; full semver
+      ordering is not planned (the silent-downgrade case has never bitten).
 - [ ] **Enter on the already-playing channel tears the stream down** [S]
       (`internal/app/update.go:55`, and `playChannel` in
       `internal/server/playback.go:60`). Neither side compares against the
@@ -344,10 +339,6 @@ Small hygiene fixes first, then features, then code quality.
       `SetMetadata`). More than the "~5 lines" first estimated. [S]
 - [ ] Mouse support: sole `tea.NewProgram` call at `cmd/soma/main.go:571`
       uses only `WithAltScreen`. [S]
-- [ ] Protocol min/max version range in hello so remote pairs need not
-      upgrade in lockstep. `protocol.Version = 1` is an exact match
-      (`conn.go:199`); `HelloParams`/`HelloResult` carry one scalar, so this
-      is a wire change to both structs. Only matters once there is a v2. [M]
 
 ### Code quality
 
@@ -358,20 +349,10 @@ Small hygiene fixes first, then features, then code quality.
       `cli.go:233`, `server.go:300`, `server.go:517`), and a byte-identical
       `str(*string)` closure ×2 in package `main` (`endpoint.go:35`,
       `main.go:270`). [S]
-- [ ] Hoist per-frame lipgloss styles in `internal/ui/delegate.go:98`:
-      four listener styles are built on every `Render` for every visible
-      row though only one is used, plus two more inside the switch. The
-      listener styles depend on `m.Width()`, so use a width-keyed cache or
-      apply `.Width(n)` to a hoisted base. Make `Model.IsMatch`
-      (`search.go:76`, called once per rendered row per frame) a set
-      lookup instead of a linear scan. [S]
 - [ ] Fuzz targets: none exist (`func Fuzz` has zero hits). Candidates:
       `parseICYMetadata`/`icyDemuxer` (`internal/audio/metadata.go`), the
       ADTS reader (`internal/audio/adts.go`), `pkg/playlist`. [S]
-- [ ] Repo hygiene: `SECURITY.md` (ships a network listener), CONTRIBUTING,
-      committed CHANGELOG via git-cliff (`cliff.toml` already exists). [S]
-- [ ] Coverage gate: raise CI `THRESHOLD` from 60 toward actual (73.1 % on
-      2026-09-03). [S]
+- [ ] Add `SECURITY.md` (the daemon ships a network listener). [S]
 
 ## Not planned (decided 2026-09-03)
 
@@ -384,3 +365,19 @@ Small hygiene fixes first, then features, then code quality.
   user-configurable theme.
 - **Channel detail pane.** Descriptions are short; there is not much to show.
 - **Sort options.** API order with favorites hoisted is enough.
+- **Protocol min/max version range in hello.** `protocol.Version` is 1 and
+  there is no v2; revisit only when an incompatible wire change is actually
+  made.
+- **Shared per-address auth limiter.** The challenge-response makes online
+  guessing unrealistic; the TCP connection cap and deadlines bound the
+  resource cost instead.
+- **Semver comparison for version-skew restarts.** Exempting `dev` fixes
+  the real problem (two local installs fighting).
+- **Hoisting per-frame lipgloss styles / set-based `IsMatch`.** A few dozen
+  rows per frame; nothing measured it as slow.
+- **CONTRIBUTING.md and a committed CHANGELOG.** Solo trunk-based project
+  with AGENTS.md; git-cliff generates release notes at release time.
+- **Raising the CI coverage gate.** Adds friction on every commit for no
+  concrete gain.
+- **Re-arming the stall watchdog on buffer consumption.** The decoder-error
+  reader wrapper is the fix; this was only an optional extra guard.
