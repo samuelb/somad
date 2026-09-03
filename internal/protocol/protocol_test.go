@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"os"
@@ -85,6 +86,21 @@ func TestNewScanner_LargeLine(t *testing.T) {
 	sc := NewScanner(&buf)
 	require.True(t, sc.Scan(), "scanner should handle a 1 MiB line")
 	require.NoError(t, sc.Err())
+}
+
+func TestNewRequestScanner_CapsLineSize(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, WriteLine(&buf, Request{ID: 1, Method: MethodStatus}))
+	sc := NewRequestScanner(&buf)
+	require.True(t, sc.Scan(), "an ordinary request fits")
+	require.NoError(t, sc.Err())
+
+	buf.Reset()
+	big := strings.Repeat("x", MaxRequestBytes+1)
+	require.NoError(t, WriteLine(&buf, Request{ID: 2, Method: big}))
+	sc = NewRequestScanner(&buf)
+	require.False(t, sc.Scan(), "a line over MaxRequestBytes is refused")
+	require.ErrorIs(t, sc.Err(), bufio.ErrTooLong)
 }
 
 func TestSocketPath_EnvOverride(t *testing.T) {

@@ -14,47 +14,6 @@ needs a decision.
 
 ## P1 — correctness and security
 
-- [ ] **TCP hardening bundle** [M] (`internal/server/conn.go`,
-      `server.go` `acceptLoop`, `cmd/soma/main.go` `listenTCP`). Exposure
-      exists only when the operator opts into `--listen`, and
-      `checkTCPSecurity` already warns about open configurations, but once
-      enabled:
-      - No `SetDeadline`/`SetReadDeadline`/`SetWriteDeadline` anywhere.
-        An unauthenticated peer holds an fd, the `serveConn` goroutine
-        (parked in `Scan`), the `writeLoop` goroutine (started before
-        auth), and the scanner buffer forever. With TLS the handshake
-        happens lazily inside the first `Read`, so a peer can also stall
-        mid-handshake forever. No write deadline either: a stuck reader
-        blocks `c.write` while holding `writeMu` (goroutine/fd leak, not a
-        server stall — broadcasts use latest-wins channels).
-      - No cap on total connections: `acceptLoop` does an unconditional
-        `go s.serveConn(nc)`; `maxConcurrentRequests = 32` is per
-        connection, not a connection cap.
-      - The 1 s auth failure delay (`conn.go:100`) is per connection and
-        bypassed by simply opening another one, but the HMAC-SHA256
-        single-use-nonce challenge makes online key guessing unrealistic;
-        resource exhaustion is the actual threat, which the cap and
-        deadlines below address. No shared per-address limiter (decided).
-      - **Pre-auth line size**: the server's one scanner is created before
-        auth with `MaxLineBytes = 4 MiB` (`internal/protocol/codec.go:11`),
-        so peak transient allocation is ~6 MiB per unauthenticated
-        connection. The 4 MiB budget exists for the server→client catalog
-        event; every client→server line is tiny. Better than a
-        pre-auth/post-auth switch (a `bufio.Scanner` cannot be resized and
-        a second scanner would drop buffered bytes): cap the *server's read
-        side* unconditionally at ~64 KiB and leave `MaxLineBytes` to the
-        client's scanner. `TestNewScanner_LargeLine` pins the current
-        behaviour and needs a companion.
-      **Fix:** scope deadlines to the TCP listener only (the Unix socket
-      dir is already `0700` and owner-checked, so a cap there guards only
-      against a buggy local client): ~10 s pre-auth handshake deadline, an
-      idle deadline after auth re-armed on every `Scan` and long enough not
-      to drop an idle TUI (or add a ping), `netutil.LimitListener` around
-      the TCP listener as the smallest possible cap. Unauthenticated
-      conns are already unregistered (no
-      broadcasts, do not hold off idle exit), so do not over-scope. No
-      deadline or cap test exists.
-
 ## P2 — features and hardening
 
 Ordered roughly by value ÷ effort.

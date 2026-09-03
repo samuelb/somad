@@ -20,6 +20,31 @@ import (
 // unbounded goroutines.
 const maxConcurrentRequests = 32
 
+// Deadlines for TCP connections (in nanoseconds; atomics so tests can shrink
+// them without racing lingering connection goroutines). The Unix socket is
+// exempt: its directory is already restricted to the owning user, so a
+// deadline there would only guard against a buggy local client.
+//
+// handshakeTimeout bounds everything up to a successful hello, including a
+// lazy TLS handshake and the PSK exchange, so an unauthenticated peer cannot
+// hold a connection, its goroutines, and its scanner buffer indefinitely.
+// After hello, reads are unbounded: an idle TUI legitimately sits on the
+// connection for hours without sending anything, and dead peers are reaped
+// by TCP keepalive (on by default for accepted connections).
+//
+// writeTimeout bounds each write so a peer that stops reading cannot park
+// the writer holding writeMu forever; the connection is dropped instead.
+var (
+	handshakeTimeout = newDurationAtomic(10 * time.Second)
+	writeTimeout     = newDurationAtomic(30 * time.Second)
+)
+
+func newDurationAtomic(d time.Duration) *atomic.Int64 {
+	a := &atomic.Int64{}
+	a.Store(int64(d))
+	return a
+}
+
 // conn is one client connection. Requests are dispatched concurrently up to
 // maxConcurrentRequests; responses and events share a write mutex so lines
 // never interleave. Events are delivered through single-slot latest-wins
@@ -28,6 +53,9 @@ const maxConcurrentRequests = 32
 type conn struct {
 	s  *Server
 	nc net.Conn
+	// remote is true for TCP connections, which get deadlines; the Unix
+	// socket does not.
+	remote bool
 
 	writeMu sync.Mutex
 	sem     chan struct{}
@@ -45,17 +73,23 @@ func (s *Server) serveConn(nc net.Conn) {
 	c := &conn{
 		s:          s,
 		nc:         nc,
+		remote:     !isLocalConn(nc),
 		sem:        make(chan struct{}, maxConcurrentRequests),
 		stateCh:    make(chan protocol.Event, 1),
 		channelsCh: make(chan protocol.Event, 1),
 		done:       make(chan struct{}),
+	}
+	if c.remote {
+		// Covers the (lazy) TLS handshake, authentication, and hello;
+		// cleared once hello succeeds. See handshakeTimeout.
+		_ = nc.SetReadDeadline(time.Now().Add(time.Duration(handshakeTimeout.Load())))
 	}
 	// Non-local connections must prove knowledge of the pre-shared key
 	// before anything else; the Unix socket is already restricted to the
 	// owning user by file permissions. Until then the connection stays
 	// unregistered: it receives no state broadcasts and does not keep the
 	// server alive past its idle timeout.
-	authed := s.psk == "" || isLocalConn(nc)
+	authed := !c.remote || s.psk == ""
 	registered := false
 	defer func() {
 		if registered {
@@ -74,7 +108,10 @@ func (s *Server) serveConn(nc net.Conn) {
 
 	var nonce []byte
 	saidHello := false
-	sc := protocol.NewScanner(nc)
+	// The request scanner is far smaller than the client's: every
+	// client-to-server line is tiny, and this bounds what a peer can make
+	// the server buffer before it is authenticated.
+	sc := protocol.NewRequestScanner(nc)
 	for sc.Scan() {
 		var req protocol.Request
 		if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
@@ -116,6 +153,9 @@ func (s *Server) serveConn(nc net.Conn) {
 				return
 			}
 			saidHello = c.handleHello(req)
+			if saidHello && c.remote {
+				_ = nc.SetReadDeadline(time.Time{})
+			}
 		default:
 			if !authed {
 				c.respondError(req.ID, fmt.Errorf("authentication required before %q", req.Method))
@@ -332,9 +372,13 @@ func (c *conn) writeLoop() {
 	}
 }
 
-// write sends one protocol line; a failed write tears the connection down.
+// write sends one protocol line; a failed write (a TCP peer that stops
+// reading for writeTimeout included) tears the connection down.
 func (c *conn) write(v any) {
 	c.writeMu.Lock()
+	if c.remote {
+		_ = c.nc.SetWriteDeadline(time.Now().Add(time.Duration(writeTimeout.Load())))
+	}
 	err := protocol.WriteLine(c.nc, v)
 	c.writeMu.Unlock()
 	if err != nil {

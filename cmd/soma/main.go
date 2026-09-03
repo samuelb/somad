@@ -491,6 +491,12 @@ func isLoopbackAddr(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// maxTCPConns caps simultaneously open TCP connections; beyond it new peers
+// wait in the listen backlog. Resource exhaustion, not key guessing, is the
+// realistic threat on an exposed listener (the HMAC challenge–response makes
+// online guessing impractical), and this bounds it.
+const maxTCPConns = 64
+
 // listenTCP binds the remote-frontend listener, wrapping it in TLS when
 // enabled, and logs what protections it runs with — including prominent
 // warnings for the combinations that leave it open.
@@ -498,10 +504,15 @@ func listenTCP(addr string, useTLS bool, certPath, keyPath, psk string, insecure
 	if err := checkTCPSecurity(addr, useTLS, psk, insecure); err != nil {
 		return nil, err
 	}
+	// The zero ListenConfig enables TCP keepalive on accepted connections,
+	// which is what reaps dead peers after hello (see server.handshakeTimeout).
 	tcpLn, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
+	// Cap open TCP connections before TLS so unfinished handshakes count
+	// too; a handful of frontends is the realistic load.
+	tcpLn = server.LimitListener(tcpLn, maxTCPConns)
 	if useTLS {
 		tlsCfg, fingerprint, err := tlsutil.ServerTLSConfig(certPath, keyPath)
 		if err != nil {

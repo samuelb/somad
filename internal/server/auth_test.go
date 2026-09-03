@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -224,5 +225,83 @@ func TestAuth_UnauthenticatedConnsDoNotBlockIdleExit(t *testing.T) {
 	case <-s.Done():
 	case <-time.After(2 * time.Second):
 		t.Fatal("an unauthenticated connection must not keep the server alive past its idle timeout")
+	}
+}
+
+// shrinkHandshakeTimeout makes handshake-deadline tests fast.
+func shrinkHandshakeTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := handshakeTimeout.Load()
+	handshakeTimeout.Store(int64(d))
+	t.Cleanup(func() { handshakeTimeout.Store(prev) })
+}
+
+func TestConn_HandshakeDeadlineDropsSilentRemotePeer(t *testing.T) {
+	shrinkHandshakeTimeout(t, 50*time.Millisecond)
+	s, _ := newTestServer(t, Config{PSK: "secret"})
+	c := connect(t, s) // net.Pipe: not a Unix socket, so it counts as remote
+
+	// Say nothing at all: the server must not wait for us forever.
+	c.waitClosed("silent peer past the handshake deadline")
+}
+
+func TestConn_HandshakeDeadlineDropsPeerStuckBeforeHello(t *testing.T) {
+	shrinkHandshakeTimeout(t, 50*time.Millisecond)
+	s, _ := newTestServer(t, Config{PSK: "secret"})
+	c := connect(t, s)
+
+	// Authenticated but never says hello: still within the handshake.
+	resp := c.authenticate("secret")
+	require.Empty(t, resp.Error)
+	c.waitClosed("authenticated peer that never says hello")
+}
+
+func TestConn_HelloClearsHandshakeDeadline(t *testing.T) {
+	shrinkHandshakeTimeout(t, 50*time.Millisecond)
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+
+	// An idle client after hello (a TUI waiting for events) must stay
+	// connected well past the handshake deadline.
+	time.Sleep(150 * time.Millisecond)
+	resp := c.call(protocol.MethodStatus, nil)
+	assert.Empty(t, resp.Error)
+}
+
+func TestConn_OversizedRequestLineClosesConnection(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+
+	line := bytes.Repeat([]byte{'x'}, protocol.MaxRequestBytes+1)
+	line = append(line, '\n')
+	// The server stops reading once the line exceeds its cap, so this write
+	// may fail partway through on the pipe; either way the connection ends.
+	_, _ = c.nc.Write(line)
+	c.waitClosed("request line over MaxRequestBytes")
+}
+
+func TestConn_WriteDeadlineDropsPeerThatStopsReading(t *testing.T) {
+	prev := writeTimeout.Load()
+	writeTimeout.Store(int64(50 * time.Millisecond))
+	t.Cleanup(func() { writeTimeout.Store(prev) })
+	s, _ := newTestServer(t, Config{})
+
+	clientSide, serverSide := net.Pipe()
+	t.Cleanup(func() { _ = clientSide.Close() })
+	done := make(chan struct{})
+	go func() {
+		s.serveConn(serverSide)
+		close(done)
+	}()
+
+	// Send a request and never read the response: on a pipe the server's
+	// write blocks until we read, so only the deadline can end it.
+	require.NoError(t, protocol.WriteLine(clientSide, protocol.Request{ID: 1, Method: protocol.MethodStatus}))
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server kept the connection despite the stuck write")
 	}
 }
