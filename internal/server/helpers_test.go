@@ -175,6 +175,14 @@ func newTestServer(t *testing.T, cfg Config) (*Server, *mockPlayer) {
 	supportedFormats = func() []string { return []string{audio.FormatMP3} }
 	t.Cleanup(func() { supportedFormats = prevFormats })
 
+	// A history request for a channel whose in-memory ring is short (true of
+	// nearly every test) triggers a songs.json backfill fetch by default;
+	// point it at a disallowed host so security.NewRequest rejects it before
+	// any network I/O happens, unless a test opts in via withSongsServer.
+	prevSongsURL := songsURLFormat
+	songsURLFormat = "http://songs.invalid.test/%s.json"
+	t.Cleanup(func() { songsURLFormat = prevSongsURL })
+
 	s := New(cfg)
 	s.setCatalog(testChannels())
 	t.Cleanup(s.Shutdown)

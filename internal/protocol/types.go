@@ -1,6 +1,10 @@
 package protocol
 
-import "somad/internal/channels"
+import (
+	"time"
+
+	"somad/internal/channels"
+)
 
 // Playback status values for PlaybackState.Status.
 const (
@@ -87,4 +91,27 @@ type ToggleFavoriteParams struct {
 // FavoritesResult is the favorites list after a toggle.
 type FavoritesResult struct {
 	Favorites []string `json:"favorites"`
+}
+
+// HistoryParams requests recent now-playing history. ChannelID, when set,
+// filters to one channel and allows the server to backfill from SomaFM's own
+// song history for it; empty returns the most recent entries across every
+// channel played this daemon lifetime. Limit bounds the number of entries
+// returned; <= 0 uses the server's default.
+type HistoryParams struct {
+	ChannelID string `json:"channelId,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// HistoryEntry is one now-playing title change.
+type HistoryEntry struct {
+	ChannelID    string    `json:"channelId"`
+	ChannelTitle string    `json:"channelTitle"`
+	Title        string    `json:"title"`
+	Time         time.Time `json:"time"`
+}
+
+// HistoryResult is the answer to a history request, newest entry first.
+type HistoryResult struct {
+	Entries []HistoryEntry `json:"entries"`
 }

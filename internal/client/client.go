@@ -392,6 +392,16 @@ func (c *Client) ToggleFavorite(channelID string) ([]string, error) {
 	return result.Favorites, err
 }
 
+// History returns recent now-playing titles, newest first. channelID empty
+// returns entries across every channel played this daemon lifetime; a
+// non-empty one filters to it and lets the server backfill from SomaFM's own
+// song history. limit <= 0 uses the server's default.
+func (c *Client) History(channelID string, limit int) ([]protocol.HistoryEntry, error) {
+	var result protocol.HistoryResult
+	err := c.call(protocol.MethodHistory, protocol.HistoryParams{ChannelID: channelID, Limit: limit}, &result)
+	return result.Entries, err
+}
+
 // Shutdown asks the server to stop playback and exit.
 func (c *Client) Shutdown() error {
 	return c.call(protocol.MethodShutdown, nil, nil)

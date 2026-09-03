@@ -125,9 +125,9 @@ per-user temp dir on macOS.
 
 **RPC methods** (`internal/protocol/protocol.go`): `authChallenge`, `auth`,
 `hello`, `status`, `channels`, `play`, `playPause`, `playRelative`, `stop`,
-`setVolume`, `toggleMute`, `toggleFavorite`, `shutdown`. Events: `state`,
-`channels`. `protocol.Version` (currently 2) must match exactly between
-client and server; bump it on any incompatible wire change.
+`setVolume`, `toggleMute`, `toggleFavorite`, `history`, `shutdown`. Events:
+`state`, `channels`. `protocol.Version` (currently 2) must match exactly
+between client and server; bump it on any incompatible wire change.
 
 **Test helpers**: `internal/server/helpers_test.go` has `newTestServer`,
 `newMockPlayer`, `connect` (a raw wire client with `call`, `hello`,
@@ -156,6 +156,12 @@ persisted state, MPRIS, and the tray icon. `spawnlock.go` ensures a single
 instance. It runs until stopped explicitly unless `--idle-timeout` /
 `server.idle_timeout` is set. `Run` accepts multiple listeners; `conn.go`
 gates non-local connections behind auth when a PSK is configured.
+`history.go` keeps an in-memory ring (default 50) of now-playing titles
+across the daemon's lifetime, appended on every ICY title change
+(`handleTrackUpdate` in `playback.go`); a `history` request for one channel
+backfills short results from `https://somafm.com/songs/<channel>.json`
+(cached a few minutes per channel), best-effort — a failed backfill never
+fails the request.
 
 **Client** (`internal/client`): protocol client shared by TUI and CLI. An
 `Endpoint` (Unix socket, or TCP with optional `tls.Config` and PSK) is

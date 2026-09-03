@@ -24,6 +24,7 @@ const (
 	MethodSetVolume      = "setVolume"
 	MethodToggleMute     = "toggleMute"
 	MethodToggleFavorite = "toggleFavorite"
+	MethodHistory        = "history"
 	MethodShutdown       = "shutdown"
 )
 

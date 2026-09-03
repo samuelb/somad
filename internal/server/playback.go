@@ -397,6 +397,7 @@ func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {
 		return
 	}
 	s.trackTitle = ti.Title
+	s.recordHistoryLocked(s.channelID, s.channelTitle, ti.Title)
 	s.updateMPRISLocked()
 	s.broadcastStateLocked()
 	s.notifyTrackLocked()

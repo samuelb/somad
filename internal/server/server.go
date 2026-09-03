@@ -118,6 +118,14 @@ type Server struct {
 	stopTimer *time.Timer
 	stopAt    time.Time
 	stopGen   uint64
+
+	history          []historyEntry // ring of recent now-playing titles, oldest first
+
+	// songsCacheMu guards songsCache; it is separate from mu because filling a
+	// cache miss makes a blocking network call, which must not hold up
+	// unrelated playback state changes.
+	songsCacheMu sync.Mutex
+	songsCache   map[string]songsCacheEntry
 }
 
 // New creates a Server and applies the persisted volume to the player.

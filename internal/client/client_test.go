@@ -81,6 +81,12 @@ func defaultHandler(serverVersion string) func(req protocol.Request, send func(v
 			respond(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
 		case protocol.MethodPlay:
 			respond(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1})
+		case protocol.MethodHistory:
+			var p protocol.HistoryParams
+			_ = json.Unmarshal(req.Params, &p)
+			respond(protocol.HistoryResult{Entries: []protocol.HistoryEntry{
+				{ChannelID: p.ChannelID, ChannelTitle: "Groove Salad", Title: "Some Track"},
+			}})
 		default:
 			send(protocol.Response{ID: req.ID, Error: "unknown method"})
 		}
@@ -105,6 +111,23 @@ func TestClient_CallCorrelation(t *testing.T) {
 
 	_, err = c.ToggleFavorite("x")
 	assert.ErrorContains(t, err, "unknown method")
+}
+
+func TestClient_History(t *testing.T) {
+	path := testSocketPath(t)
+	startFakeServer(t, path, defaultHandler("dev"))
+
+	c, err := Dial(path)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	_, err = c.Hello("dev")
+	require.NoError(t, err)
+
+	entries, err := c.History("groovesalad", 5)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "groovesalad", entries[0].ChannelID)
+	assert.Equal(t, "Some Track", entries[0].Title)
 }
 
 func TestClient_EventsDeliveredAndDecoded(t *testing.T) {

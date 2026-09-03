@@ -341,6 +341,14 @@ func (c *conn) handleRequest(req protocol.Request) {
 		}
 		c.respond(req.ID, protocol.FavoritesResult{Favorites: favorites})
 
+	case protocol.MethodHistory:
+		var params protocol.HistoryParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			c.respondError(req.ID, fmt.Errorf("malformed history params: %w", err))
+			return
+		}
+		c.respond(req.ID, protocol.HistoryResult{Entries: c.s.History(params.ChannelID, params.Limit)})
+
 	case protocol.MethodShutdown:
 		c.respond(req.ID, struct{}{})
 		c.s.Shutdown()
