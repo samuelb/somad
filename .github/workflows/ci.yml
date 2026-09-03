@@ -88,3 +88,54 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.13.2
+
+  # linux/arm64 and the darwin universal binary are release targets that
+  # `test` (linux/amd64) and `test-macos` (host arch only) never compile.
+  # CGO_ENABLED=1 rules out a free GOARCH= cross build, so arm64 needs a
+  # real arm runner. These mirror release.yml's build steps (env vars, CC
+  # flags) without the version-stamping ldflags or packaging, which don't
+  # apply to a plain compile check.
+  build-linux-arm64:
+    name: Build linux/arm64 (compile only)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install Linux audio dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Build
+        env:
+          CGO_ENABLED: "1"
+          GOOS: linux
+          GOARCH: arm64
+        run: go build -o soma_linux_arm64 ./cmd/soma
+
+  build-darwin-universal:
+    name: Build darwin universal (compile only)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build universal binary
+        # CGO is required for the Cocoa menu-bar tray. The runner is Apple
+        # Silicon, so the amd64 slice is a cgo cross-compile via clang's
+        # -arch, same as release.yml's build-darwin job.
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+        run: |
+          GOARCH=arm64 CC="clang -arch arm64" go build -o soma_darwin_arm64 ./cmd/soma
+          GOARCH=amd64 CC="clang -arch x86_64" go build -o soma_darwin_amd64 ./cmd/soma
+          lipo -create -output soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
+          lipo -info soma_darwin_universal

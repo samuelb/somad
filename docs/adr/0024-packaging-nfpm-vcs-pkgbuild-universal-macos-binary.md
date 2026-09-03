@@ -1,7 +1,7 @@
 # ADR-0024: Package with nfpm, keep the PKGBUILD as a VCS build, ship a universal macOS binary in a plain DMG
 
 - **Status:** Accepted
-- **Date:** 2026-07-13 (universal binary 2026-07-06)
+- **Date:** 2026-07-13 (universal binary 2026-07-06, compile-only CI 2026-09-03)
 - **Sources:** bcc819e, de2e067, c82d8fc, 3a60bcd; `packaging/nfpm.yaml`, `packaging/arch/PKGBUILD`, `packaging/macos/build-dmg.sh`, `scripts/stage-arch-release.sh`
 
 ## Context
@@ -31,8 +31,10 @@ specific binaries.
 
 ## Consequences
 
-- linux/arm64 and the universal build are exercised only on release day
-  (a compile-only CI matrix is an open item).
+- linux/arm64 and the darwin universal binary are now compile-checked on
+  every push and PR too, not only on release day: `ci.yml`'s
+  `build-linux-arm64` and `build-darwin-universal` jobs mirror the build
+  steps `release.yml` runs, without the packaging around them.
 - The binary is unsigned; signing and notarization are planned and need an
   Apple Developer ID first (TODO.md).
 - No service unit is packaged yet although the README recommends a service
