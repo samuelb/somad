@@ -120,3 +120,22 @@ func NewRequest(ctx context.Context, rawURL, userAgent string) (*http.Request, e
 	}
 	return req, nil
 }
+
+// NewFormRequest creates a validated HTTP POST request with an
+// application/x-www-form-urlencoded body, for APIs (like Last.fm's) that
+// take parameters as POST form fields rather than a query string. Returns
+// an error if the URL fails host validation or request creation fails.
+func NewFormRequest(ctx context.Context, rawURL, userAgent string, form url.Values) (*http.Request, error) {
+	if err := ValidateURL(rawURL); err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
+	return req, nil
+}

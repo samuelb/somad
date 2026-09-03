@@ -30,6 +30,7 @@ type Config struct {
 	Server ServerConfig `yaml:"server"`
 	Client ClientConfig `yaml:"client"`
 	TUI    TUIConfig    `yaml:"tui"`
+	Lastfm LastfmConfig `yaml:"lastfm"`
 }
 
 // ServerConfig configures the playback server, mirroring the flags of
@@ -98,6 +99,24 @@ type ClientConfig struct {
 type TUIConfig struct {
 	// ShutdownOnExit stops playback and shuts down the server when the TUI exits.
 	ShutdownOnExit *bool `yaml:"shutdown_on_exit"`
+}
+
+// LastfmConfig configures Last.fm now-playing updates and scrobbling
+// (opt-in: leaving APIKey/APISecret unset disables the feature entirely).
+// See "soma lastfm login" and the README's "Last.fm" section.
+type LastfmConfig struct {
+	// APIKey and APISecret identify this application to Last.fm; create a
+	// pair at https://www.last.fm/api/account/create. Both must be set
+	// together.
+	APIKey    *string `yaml:"api_key"`
+	APISecret *string `yaml:"api_secret"`
+	// SessionKey authorizes now-playing updates and scrobbling for one
+	// Last.fm account. Normally left unset here: "soma lastfm login" writes
+	// it to a separate state file (internal/state's LastfmSession /
+	// lastfm.json) instead, so logging in never edits this config file.
+	// Setting it here overrides the state file — e.g. to roll out the same
+	// session via config management — and requires APIKey/APISecret too.
+	SessionKey *string `yaml:"session_key"`
 }
 
 // Duration wraps time.Duration so the YAML file can use Go duration syntax
@@ -209,6 +228,12 @@ func (c *Config) validate() error {
 	if set(c.Client.TLSCA) && set(c.Client.TLSFingerprint) {
 		return errors.New("client.tls_ca and client.tls_fingerprint are mutually exclusive")
 	}
+	if set(c.Lastfm.APIKey) != set(c.Lastfm.APISecret) {
+		return errors.New("lastfm.api_key and lastfm.api_secret must be set together")
+	}
+	if set(c.Lastfm.SessionKey) && !set(c.Lastfm.APIKey) {
+		return errors.New("lastfm.session_key requires lastfm.api_key and lastfm.api_secret to be set")
+	}
 	return nil
 }
 
@@ -295,6 +320,19 @@ const templateFormat = `# Soma configuration file.
 #  # Stop playback and shut down the server when closing the TUI.
 #  # Same as the --shutdown-on-exit flag.
 #  shutdown_on_exit: false
+#
+#lastfm:
+#  # Now-playing updates and scrobbling on Last.fm, off unless api_key and
+#  # api_secret are both set. Create a key/secret pair at
+#  # https://www.last.fm/api/account/create.
+#  api_key: your-api-key
+#  api_secret: your-api-secret
+#
+#  # The session key "soma lastfm login" obtains is written to a separate
+#  # state file, not here, so logging in never edits this file. Set this
+#  # only to override that (e.g. to roll out one session via config
+#  # management); it requires api_key/api_secret above.
+#  session_key: your-session-key
 `
 
 // EnsureTemplate writes the commented-out default template to Path() when no

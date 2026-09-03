@@ -25,6 +25,7 @@ const (
 	MethodToggleMute     = "toggleMute"
 	MethodToggleFavorite = "toggleFavorite"
 	MethodHistory        = "history"
+	MethodReloadLastfm   = "reloadLastfm"
 	MethodShutdown       = "shutdown"
 )
 

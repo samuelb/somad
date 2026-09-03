@@ -402,6 +402,14 @@ func (c *Client) History(channelID string, limit int) ([]protocol.HistoryEntry, 
 	return result.Entries, err
 }
 
+// ReloadLastfm asks the daemon to re-read the Last.fm session key (the
+// config's lastfm.session_key override, else internal/state's persisted
+// lastfm.json), so a session obtained by "soma lastfm login" takes effect
+// without restarting the daemon.
+func (c *Client) ReloadLastfm() error {
+	return c.call(protocol.MethodReloadLastfm, nil, nil)
+}
+
 // Shutdown asks the server to stop playback and exit.
 func (c *Client) Shutdown() error {
 	return c.call(protocol.MethodShutdown, nil, nil)

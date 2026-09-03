@@ -112,23 +112,28 @@ like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`
 **Config keys** (`internal/config`, YAML, all optional pointers; unknown keys
 and parse errors are fatal by design): `server.{idle_timeout, tray, quality,
 notify, listen, tls, tls_cert, tls_key, psk, psk_file, insecure}`, `client.{server,
-tls, tls_ca, tls_fingerprint, psk, psk_file}`, `tui.shutdown_on_exit`.
-`server.quality` is one of `highest`/`high`/`low` (validated); a channel
-lacking that exact quality falls back to the nearest one it has. Config
-supplies flag defaults; explicit flags win.
+tls, tls_ca, tls_fingerprint, psk, psk_file}`, `tui.shutdown_on_exit`,
+`lastfm.{api_key, api_secret, session_key}` (api_key/api_secret must be set
+together; session_key requires them too, and is normally left to `soma
+lastfm login`, which persists it outside this file instead — see
+Directories). `server.quality` is one of `highest`/`high`/`low` (validated);
+a channel lacking that exact quality falls back to the nearest one it has.
+Config supplies flag defaults; explicit flags win.
 
 **Directories**: config `~/.config/somad/` (Linux) or
 `~/Library/Application Support/somad/` (macOS); state (favorites, last
-channel, volume, `server.log`, generated `tls-cert.pem`/`tls-key.pem`)
+channel, volume, `server.log`, generated `tls-cert.pem`/`tls-key.pem`,
+`lastfm.json` holding the Last.fm session key from `soma lastfm login`, 0600)
 `~/.local/state/somad/` or the same macOS dir; cache `~/.cache/somad/` or
 `~/Library/Caches/somad/`; socket `$XDG_RUNTIME_DIR/somad.sock` or a
 per-user temp dir on macOS.
 
 **RPC methods** (`internal/protocol/protocol.go`): `authChallenge`, `auth`,
 `hello`, `status`, `channels`, `play`, `playPause`, `playRelative`, `stop`,
-`setVolume`, `toggleMute`, `toggleFavorite`, `history`, `shutdown`. Events:
-`state`, `channels`. `protocol.Version` (currently 2) must match exactly
-between client and server; bump it on any incompatible wire change.
+`setVolume`, `toggleMute`, `toggleFavorite`, `history`, `reloadLastfm`,
+`shutdown`. Events: `state`, `channels`. `protocol.Version` (currently 2)
+must match exactly between client and server; bump it on any incompatible
+wire change.
 
 **Test helpers**: `internal/server/helpers_test.go` has `newTestServer`,
 `newMockPlayer`, `connect` (a raw wire client with `call`, `hello`,
@@ -162,7 +167,12 @@ across the daemon's lifetime, appended on every ICY title change
 (`handleTrackUpdate` in `playback.go`); a `history` request for one channel
 backfills short results from `https://somafm.com/songs/<channel>.json`
 (cached a few minutes per channel), best-effort — a failed backfill never
-fails the request.
+fails the request. `lastfm.go` (opt-in, `Config.Scrobbler`) sends a Last.fm
+now-playing update on every title change and scrobbles the previous track
+when it ends (next title change, stop, or channel switch) if it played at
+least 30 s; submissions run off `mu` on a goroutine with one bounded retry,
+never blocking playback. The `reloadLastfm` RPC re-reads the session key so
+`soma lastfm login` takes effect without a daemon restart.
 
 **Client** (`internal/client`): protocol client shared by TUI and CLI. An
 `Endpoint` (Unix socket, or TCP with optional `tls.Config` and PSK) is
@@ -185,11 +195,18 @@ delegate and lipgloss styles.
   `aac_other.go`), format preference in `PreferredFormats`, ICY metadata,
   jitter buffer, stall watchdog, reconnection
 - `internal/channels` — SomaFM catalog fetch/cache, selection by ID or name
-- `internal/state` — persisted user state; atomic writes, corrupt-file quarantine
+- `internal/state` — persisted user state; atomic writes, corrupt-file
+  quarantine; `lastfm.go` persists the Last.fm session key the same way, in
+  its own `lastfm.json` so `soma lastfm login` never touches config.yaml
 - `internal/config` — strict YAML config file, supplies flag defaults
 - `internal/security` — all outbound HTTP goes through
-  `security.NewRequest` / `ValidateURL`, which allowlist SomaFM hosts and
-  re-validate redirects; tests add hosts via `securitytest`
+  `security.NewRequest`/`NewFormRequest` / `ValidateURL`, which allowlist
+  SomaFM hosts (`http`/`https`) and, as a separate explicit entry,
+  `ws.audioscrobbler.com` (`https` only) for Last.fm; both re-validate
+  redirects; tests add hosts via `securitytest`
+- `internal/lastfm` — Last.fm API 2.0 client (auth.getToken/getSession,
+  track.updateNowPlaying/scrobble): POST form requests, the `api_sig` MD5
+  signature, JSON responses and error decoding
 - `internal/tlsutil` — self-signed cert generation (persisted in the state
   dir) and client trust via CA file, pinned SHA-256 fingerprint, or system roots
 - `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_other.go`), `tray/`,

@@ -56,6 +56,17 @@ type Config struct {
 	// title has no artist) body. Defaults to notify.New().Notify; tests
 	// inject a stub so they never touch D-Bus or osascript.
 	Notifier func(title, body string)
+	// Scrobbler is the Last.fm now-playing/scrobble sink (see lastfm.go);
+	// nil (the default) disables the feature entirely, regardless of
+	// ReloadLastfmSession. Normally internal/lastfm.New(...); tests inject
+	// a fake.
+	Scrobbler Scrobbler
+	// ReloadLastfmSession resolves the current Last.fm session key (the
+	// config's lastfm.session_key override, else internal/state's
+	// persisted lastfm.json) for the reloadLastfm RPC, which "soma lastfm
+	// login" calls so a freshly obtained session takes effect without
+	// restarting the daemon. Ignored when Scrobbler is nil.
+	ReloadLastfmSession func() (string, error)
 }
 
 // Server is the soma daemon. All mutable fields are guarded by mu; the
@@ -74,6 +85,19 @@ type Server struct {
 	// false); otherwise it coalesces desktop-notification requests off the
 	// hot path, see notify.go.
 	notifyPipe *notifyPipeline
+
+	// scrobbler is nil when Last.fm scrobbling is not configured; otherwise
+	// see lastfm.go. reloadLastfmSession backs the reloadLastfm RPC.
+	scrobbler           Scrobbler
+	reloadLastfmSession func() (string, error)
+	// lastfmTrack is the now-playing track a future scrobble is pending
+	// for, or nil; guarded by mu like the rest of the playback state.
+	lastfmTrack *lastfmTrack
+	// lastfmLogMu guards lastfmLogged, the "log this failure kind once"
+	// bookkeeping for the scrobble/now-playing submission goroutines
+	// (lastfm.go); separate from mu since those run off it entirely.
+	lastfmLogMu  sync.Mutex
+	lastfmLogged map[string]bool
 
 	// persist writes user state to disk. It defaults to state.SaveState;
 	// tests override it to avoid fsync-heavy disk writes on every mutation.
@@ -152,6 +176,8 @@ func New(cfg Config) *Server {
 		}
 		s.notifyPipe = newNotifyPipeline(send)
 	}
+	s.scrobbler = cfg.Scrobbler
+	s.reloadLastfmSession = cfg.ReloadLastfmSession
 	s.player.SetVolume(cfg.State.GetVolume())
 	// MPRIS Play with no prior play in this process targets the last-played
 	// channel from the previous session.

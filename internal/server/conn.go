@@ -354,6 +354,13 @@ func (c *conn) handleRequest(req protocol.Request) {
 		}
 		c.respond(req.ID, protocol.HistoryResult{Entries: c.s.History(params.ChannelID, params.Limit)})
 
+	case protocol.MethodReloadLastfm:
+		if err := c.s.ReloadLastfm(); err != nil {
+			c.respondError(req.ID, err)
+			return
+		}
+		c.respond(req.ID, struct{}{})
+
 	case protocol.MethodShutdown:
 		c.respond(req.ID, struct{}{})
 		c.s.Shutdown()

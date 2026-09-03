@@ -90,6 +90,11 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 	s.cancelReconnectLocked()
 	s.disarmIdleLocked()
 	s.status = protocol.StatusConnecting
+	// Ends the outgoing channel's pending scrobble (if it played long
+	// enough); see lastfm.go. Also fires on a same-channel reconnect, which
+	// is fine: the stream did drop, and a resumed title starts a fresh
+	// now-playing entry via handleTrackUpdate.
+	s.endLastfmTrackLocked()
 	s.channelID = ch.ID
 	s.channelTitle = ch.Title
 	s.channelArtURL = channelArtURL(ch)
@@ -288,6 +293,7 @@ func (s *Server) Stop() protocol.PlaybackState {
 	s.trackTitle = ""
 	s.streamErr = ""
 	s.reconnectAttempt = 0
+	s.endLastfmTrackLocked()
 	s.updateMPRISLocked()
 	s.maybeArmIdleLocked()
 	s.broadcastStateLocked()
@@ -414,6 +420,9 @@ func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {
 	s.updateMPRISLocked()
 	s.broadcastStateLocked()
 	s.notifyTrackLocked()
+	// Ends the previous title's pending scrobble (if it played long enough)
+	// and starts tracking/now-playing the new one; see lastfm.go.
+	s.updateLastfmLocked(ti.Title)
 }
 
 // notifyTrackLocked queues a desktop notification for the just-updated

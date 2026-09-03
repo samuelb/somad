@@ -248,12 +248,15 @@ func TestLoadRejectsUnknownQuality(t *testing.T) {
 }
 
 func TestLoadRejectsContradictoryTransportConfig(t *testing.T) {
-	cases := map[string]string{
-		"cert without key":        "server:\n  tls_cert: /a.pem\n",
-		"key without cert":        "server:\n  tls_key: /a.pem\n",
-		"server psk and psk_file": "server:\n  psk: a\n  psk_file: /b\n",
-		"client psk and psk_file": "client:\n  psk: a\n  psk_file: /b\n",
-		"client tls_ca and pin":   "client:\n  tls_ca: /a.pem\n  tls_fingerprint: \"sha256:x\"\n",
+	cases := map[string]string{ // #nosec G101 -- fixture YAML snippets, not real credentials
+		"cert without key":                "server:\n  tls_cert: /a.pem\n",
+		"key without cert":                "server:\n  tls_key: /a.pem\n",
+		"server psk and psk_file":         "server:\n  psk: a\n  psk_file: /b\n",
+		"client psk and psk_file":         "client:\n  psk: a\n  psk_file: /b\n",
+		"client tls_ca and pin":           "client:\n  tls_ca: /a.pem\n  tls_fingerprint: \"sha256:x\"\n",
+		"lastfm api_key without secret":   "lastfm:\n  api_key: a\n",
+		"lastfm api_secret without key":   "lastfm:\n  api_secret: a\n",
+		"lastfm session_key without keys": "lastfm:\n  session_key: a\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -262,4 +265,25 @@ func TestLoadRejectsContradictoryTransportConfig(t *testing.T) {
 			assert.Error(t, err)
 		})
 	}
+}
+
+func TestLoadLastfmConfig(t *testing.T) {
+	writeConfig(t, "lastfm:\n  api_key: key123\n  api_secret: secret456\n  session_key: sess789\n")
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Lastfm.APIKey)
+	assert.Equal(t, "key123", *cfg.Lastfm.APIKey)
+	require.NotNil(t, cfg.Lastfm.APISecret)
+	assert.Equal(t, "secret456", *cfg.Lastfm.APISecret)
+	require.NotNil(t, cfg.Lastfm.SessionKey)
+	assert.Equal(t, "sess789", *cfg.Lastfm.SessionKey)
+}
+
+func TestLoadLastfmConfig_APIKeyAndSecretWithoutSessionKeyIsValid(t *testing.T) {
+	// The session key is normally obtained by "soma lastfm login" and
+	// persisted separately (internal/state), not written to this file.
+	writeConfig(t, "lastfm:\n  api_key: key123\n  api_secret: secret456\n")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Nil(t, cfg.Lastfm.SessionKey)
 }

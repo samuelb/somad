@@ -23,6 +23,7 @@ import (
 	"somad/internal/audio"
 	"somad/internal/client"
 	"somad/internal/config"
+	"somad/internal/lastfm"
 	"somad/internal/platform"
 	"somad/internal/platform/tray"
 	"somad/internal/protocol"
@@ -426,17 +427,21 @@ func runServer(args []string) {
 		tr = tray.New()
 	}
 
+	scrobbler, reloadLastfmSession := setUpLastfm(cfg)
+
 	srv := server.New(server.Config{
-		Version:     version,
-		UserAgent:   userAgent(),
-		Player:      player,
-		State:       appState,
-		MPRIS:       mpris,
-		Tray:        tr,
-		IdleTimeout: *idleTimeout,
-		PSK:         psk,
-		Quality:     *quality,
-		Notify:      *notify,
+		Version:             version,
+		UserAgent:           userAgent(),
+		Player:              player,
+		State:               appState,
+		MPRIS:               mpris,
+		Tray:                tr,
+		IdleTimeout:         *idleTimeout,
+		PSK:                 psk,
+		Quality:             *quality,
+		Notify:              *notify,
+		Scrobbler:           scrobbler,
+		ReloadLastfmSession: reloadLastfmSession,
 	})
 
 	// The server must survive its spawning terminal closing; SIGINT/SIGTERM
@@ -473,6 +478,32 @@ func runServer(args []string) {
 	// Shutdown's player.Stop fades out asynchronously; give it a moment so
 	// the audio doesn't cut off hard.
 	time.Sleep(400 * time.Millisecond)
+}
+
+// setUpLastfm builds the Last.fm scrobbler from the config's lastfm.*
+// keys (see internal/config), when both api_key and api_secret are set;
+// otherwise scrobbling is disabled entirely and both return values are
+// nil. The initial session key is resolveLastfmSession's result at
+// startup; the returned function recomputes it (config override, else
+// internal/state's persisted lastfm.json) for the reloadLastfm RPC that
+// "soma lastfm login" triggers after a successful login.
+func setUpLastfm(cfg *config.Config) (server.Scrobbler, func() (string, error)) {
+	apiKey := str(cfg.Lastfm.APIKey)
+	if apiKey == "" {
+		return nil, nil
+	}
+	apiSecret := str(cfg.Lastfm.APISecret)
+	resolveSession := func() (string, error) {
+		if override := str(cfg.Lastfm.SessionKey); override != "" {
+			return override, nil
+		}
+		return state.LoadLastfmSession()
+	}
+	sessionKey, err := resolveSession()
+	if err != nil {
+		log.Printf("warning: could not read the last.fm session: %v", err)
+	}
+	return lastfm.New(apiKey, apiSecret, sessionKey, userAgent()), resolveSession
 }
 
 // ensureCertPair resolves the server certificate pair, generating a
