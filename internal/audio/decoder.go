@@ -33,8 +33,9 @@ func PreferredFormats() []string {
 
 // newDecoder returns a decoder for the given format. Like mp3.NewDecoder,
 // it blocks until enough of the stream has arrived to start decoding, so
-// Play keeps its synchronous connect semantics.
-func newDecoder(format string, r io.Reader) (pcmDecoder, error) {
+// Play keeps its synchronous connect semantics. A variable so tests can
+// substitute a decoder that fails mid-stream.
+var newDecoder = func(format string, r io.Reader) (pcmDecoder, error) {
 	switch format {
 	case FormatMP3:
 		return mp3.NewDecoder(r)

@@ -245,6 +245,22 @@ func (p *AudioPlayer) Play(url, format string) error {
 	if decoder.SampleRate() != sampleRate {
 		decodedStream = newResampler(decoder, decoder.SampleRate(), sampleRate)
 	}
+	// oto pulls from this reader on its own goroutine and, on error, stops
+	// pulling and parks the error in Player.Err, which nothing polls. Without
+	// this wrapper a decode failure after Play returned would leave playback
+	// silent under a "playing" status (the stall watchdog cannot help: the
+	// network side blocks on the full jitter buffer, not on the socket). The
+	// session's ctx scopes the report so a session that is already fading
+	// out cannot kill its successor.
+	decodedStream = &errorReportingReader{r: decodedStream, report: func(err error) {
+		if errors.Is(err, io.EOF) {
+			// A live stream never ends; the network side normally reports
+			// this first, and the duplicate is ignored once the server has
+			// left the playing state.
+			err = errors.New("decoder reached end of stream")
+		}
+		p.reportError(ctx, fmt.Errorf("decode error: %w", err))
+	}}
 	p.mu.Lock()
 	superseded := gen != p.playGen
 	p.mu.Unlock()
@@ -393,6 +409,23 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 		return
 	}
 	p.reportError(ctx, stallErr(fmt.Errorf("stream read error: %w", err)))
+}
+
+// errorReportingReader forwards reads and hands the first error (EOF
+// included) to report, once. It sits between the decoder and the oto player
+// so decode failures after Play has returned become visible.
+type errorReportingReader struct {
+	r      io.Reader
+	once   sync.Once
+	report func(error)
+}
+
+func (e *errorReportingReader) Read(b []byte) (int, error) {
+	n, err := e.r.Read(b)
+	if err != nil {
+		e.once.Do(func() { e.report(err) })
+	}
+	return n, err
 }
 
 // watchdogReader re-arms the stall watchdog on every read that delivers

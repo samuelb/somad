@@ -59,13 +59,26 @@ type fakeAudioContext struct {
 	resumes  atomic.Int32
 	players  atomic.Int32
 	pauses   atomic.Int32
+	// pump makes each player consume its reader on a goroutine until the
+	// first read error, like oto's render loop does.
+	pump bool
 
 	mu        sync.Mutex
 	resumeErr error
 }
 
-func (c *fakeAudioContext) NewPlayer(io.Reader) outputPlayer {
+func (c *fakeAudioContext) NewPlayer(r io.Reader) outputPlayer {
 	c.players.Add(1)
+	if c.pump {
+		go func() {
+			buf := make([]byte, 4096)
+			for {
+				if _, err := r.Read(buf); err != nil {
+					return
+				}
+			}
+		}()
+	}
 	return &fakeOutputPlayer{
 		volume: 1,
 		paused: func() { c.pauses.Add(1) },
@@ -659,4 +672,94 @@ func TestFetchStream_CancelledContextSuppressesReadError(t *testing.T) {
 		t.Fatalf("cancellation should not report an error, got: %v", err)
 	default:
 	}
+}
+
+// failingDecoder yields silence for a while, then fails like a decoder that
+// hit corrupt data mid-stream.
+type failingDecoder struct {
+	reads int
+	err   error
+}
+
+func (d *failingDecoder) Read(b []byte) (int, error) {
+	d.reads++
+	if d.reads > 3 {
+		return 0, d.err
+	}
+	return len(b), nil
+}
+
+func (d *failingDecoder) SampleRate() int { return sampleRate }
+
+func TestPlay_DecoderErrorAfterPlayIsReported(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	ctx.pump = true
+	server := newStreamingTestServer(t)
+	t.Cleanup(p.Stop)
+
+	prevDecoder := newDecoder
+	newDecoder = func(_ string, r io.Reader) (pcmDecoder, error) {
+		// Drain the pipe on a goroutine so the fetch side never blocks; the
+		// decoder's own output does not depend on it.
+		go func() { _, _ = io.Copy(io.Discard, r) }()
+		return &failingDecoder{err: errors.New("corrupt frame")}, nil
+	}
+	t.Cleanup(func() { newDecoder = prevDecoder })
+
+	require.NoError(t, p.Play(server.URL, FormatMP3))
+
+	select {
+	case err := <-p.Errors():
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode error")
+		assert.Contains(t, err.Error(), "corrupt frame")
+	case <-time.After(2 * time.Second):
+		t.Fatal("decoder error after Play was never reported")
+	}
+}
+
+func TestPlay_DecoderErrorAfterStopIsSuppressed(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	t.Cleanup(p.Stop)
+
+	// Not pumped: the first read happens only after Stop has cancelled the
+	// session, which is when a real teardown closes the pipe under the
+	// decoder.
+	var reader io.Reader
+	prevDecoder := newDecoder
+	newDecoder = func(_ string, r io.Reader) (pcmDecoder, error) {
+		return &failingDecoder{err: errors.New("closed pipe")}, nil
+	}
+	t.Cleanup(func() { newDecoder = prevDecoder })
+	p.newContext = func() (audioContext, <-chan struct{}, error) {
+		ready := make(chan struct{})
+		close(ready)
+		return &captureContext{fakeAudioContext: ctx, onPlayer: func(r io.Reader) { reader = r }}, ready, nil
+	}
+
+	require.NoError(t, p.Play(server.URL, FormatMP3))
+	p.Stop()
+	require.Eventually(t, func() bool { return ctx.pauses.Load() == 1 }, time.Second, 10*time.Millisecond)
+
+	buf := make([]byte, 16)
+	for i := 0; i < 5; i++ {
+		_, _ = reader.Read(buf)
+	}
+	select {
+	case err := <-p.Errors():
+		t.Fatalf("error from a stopped session must be dropped, got %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// captureContext hands the reader given to NewPlayer to a callback.
+type captureContext struct {
+	*fakeAudioContext
+	onPlayer func(io.Reader)
+}
+
+func (c *captureContext) NewPlayer(r io.Reader) outputPlayer {
+	c.onPlayer(r)
+	return c.fakeAudioContext.NewPlayer(r)
 }

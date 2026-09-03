@@ -14,26 +14,6 @@ needs a decision.
 
 ## P1 — correctness and security
 
-- [ ] **Decoder read errors are invisible mid-stream** [S]
-      (`internal/audio/player.go`; from the Codex AAC review, applies to MP3
-      too). The reader handed to `ctx.NewPlayer` is the decoder (or resampler)
-      directly; oto's `Player.Err()` exists but the narrowed `outputPlayer`
-      interface omits it and nothing polls it, so a decode error after `Play`
-      returns is stored by oto and never observed. Playback goes silent while
-      status still says playing. Verified that the 30 s stall watchdog does
-      *not* rescue this: once oto stops pulling, `io.Copy` parks in the pipe
-      write, the jitter buffer fills, and the fill goroutine waits on the
-      buffer's condition variable (`buffer.go:90`), not on the socket, so the
-      watchdog's request cancel never reaches anything. Only a manual
-      stop/play recovers. Real error sources: `aac_darwin.go` sticky error,
-      "AAC stream parameters changed mid-stream", "decoding AAC frame", and
-      go-mp3 read errors.
-      **Fix:** wrap `decodedStream` before `NewPlayer` and push any non-EOF
-      read error through `reportError` with the *session's* ctx (so a
-      fading-out session cannot kill the newer one). Also decide what a
-      decoder `io.EOF` should mean — today only the network side reports
-      "stream ended unexpectedly". No test covers a post-`Play` decoder error;
-      `fakeAudioContext` has no player-side `Err`.
 - [ ] **Stop-vs-play supersede window, and the crossfade title leak that
       shares its fix** [M] (`internal/server/playback.go`,
       `internal/audio/player.go`). The per-candidate guard (`playback.go:111`)
