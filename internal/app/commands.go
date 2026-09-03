@@ -15,6 +15,9 @@ type Backend interface {
 	Status() (protocol.PlaybackState, error)
 	Channels() (protocol.ChannelsPayload, error)
 	Play(channelID string) (protocol.PlaybackState, error)
+	// PlayPause toggles between stopped and playing (live radio has no real
+	// pause: unpausing reconnects to the live stream).
+	PlayPause() (protocol.PlaybackState, error)
 	Stop() (protocol.PlaybackState, error)
 	SetVolume(v float64) (protocol.PlaybackState, error)
 	ToggleFavorite(channelID string) ([]string, error)
@@ -119,6 +122,18 @@ func (m *Model) playCmd(channelID string) tea.Cmd {
 		st, err := b.Play(channelID)
 		if err != nil {
 			return requestErr("play", err)
+		}
+		return ServerStateMsg{State: st}
+	}
+}
+
+// playPauseCmd toggles between stopped and playing on the server.
+func (m *Model) playPauseCmd() tea.Cmd {
+	b := m.Backend
+	return func() tea.Msg {
+		st, err := b.PlayPause()
+		if err != nil {
+			return requestErr("playPause", err)
 		}
 		return ServerStateMsg{State: st}
 	}

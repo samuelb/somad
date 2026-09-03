@@ -70,6 +70,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.restartCmd()
 			}
 			return m, m.stopCmd()
+		case "p":
+			// Toggle play/pause without leaving the list.
+			return m, m.playPauseCmd()
 		case "a":
 			// Toggle the inline about footer.
 			m.ShowAbout = !m.ShowAbout
@@ -190,6 +193,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		quitHelp = "quit (stops server)"
 	}
 	fullHelp := []key.Binding{
+		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
 		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume")),
@@ -200,6 +204,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 	}
 
 	shortHelp := []key.Binding{
+		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),

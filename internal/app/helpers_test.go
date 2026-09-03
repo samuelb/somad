@@ -16,14 +16,15 @@ import (
 // fakeBackend is a test double for the Backend interface. It records calls
 // and answers with server-like snapshots.
 type fakeBackend struct {
-	mu        sync.Mutex
-	playIDs   []string
-	stops     int
-	shutdowns int
-	volumes   []float64
-	favorites []string
-	status    protocol.PlaybackState
-	payload   protocol.ChannelsPayload
+	mu         sync.Mutex
+	playIDs    []string
+	playPauses int
+	stops      int
+	shutdowns  int
+	volumes    []float64
+	favorites  []string
+	status     protocol.PlaybackState
+	payload    protocol.ChannelsPayload
 	// callErr, when set, fails every request method; shutdownErr fails
 	// Shutdown specifically.
 	callErr     error
@@ -62,6 +63,22 @@ func (b *fakeBackend) Play(channelID string) (protocol.PlaybackState, error) {
 	}
 	b.playIDs = append(b.playIDs, channelID)
 	b.status = protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: channelID, Volume: b.status.Volume}
+	return b.status, nil
+}
+
+// PlayPause toggles between stopped and playing, like the real server.
+func (b *fakeBackend) PlayPause() (protocol.PlaybackState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.PlaybackState{}, b.callErr
+	}
+	b.playPauses++
+	if b.status.Status == protocol.StatusStopped {
+		b.status = protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: b.status.ChannelID, Volume: b.status.Volume}
+	} else {
+		b.status = protocol.PlaybackState{Status: protocol.StatusStopped, Volume: b.status.Volume}
+	}
 	return b.status, nil
 }
 

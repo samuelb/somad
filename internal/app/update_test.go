@@ -215,6 +215,25 @@ func TestUpdate_StopKey_StopsPlayback(t *testing.T) {
 	assert.Empty(t, m.PlayingID)
 }
 
+func TestUpdate_PlayPauseKey_TogglesPlayback(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
+
+	_, cmd := sendKey(m, 'p')
+	msg := runCmd(cmd)
+	assert.Equal(t, 1, backend(m).playPauses)
+
+	m.Update(msg)
+	assert.Equal(t, protocol.StatusPlaying, m.Snapshot.Status)
+
+	_, cmd = sendKey(m, 'p')
+	msg = runCmd(cmd)
+	assert.Equal(t, 2, backend(m).playPauses)
+
+	m.Update(msg)
+	assert.Equal(t, protocol.StatusStopped, m.Snapshot.Status)
+}
+
 func TestUpdate_PlayKey_RestartsSkewedServerThenPlays(t *testing.T) {
 	m := newTestModel(t)
 	m.About.Version = "new"
