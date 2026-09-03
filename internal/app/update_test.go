@@ -167,13 +167,39 @@ func TestUpdate_HistoryIsNonModal(t *testing.T) {
 
 func TestUpdate_HistoryMsg_AppliesEntriesOrError(t *testing.T) {
 	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = "groovesalad"
 
-	m.Update(HistoryMsg{Entries: []protocol.HistoryEntry{{Title: "Track"}}})
+	m.Update(HistoryMsg{ChannelID: "groovesalad", Entries: []protocol.HistoryEntry{{Title: "Track"}}})
 	assert.Equal(t, []protocol.HistoryEntry{{Title: "Track"}}, m.History)
 	assert.NoError(t, m.HistoryErr)
 
-	m.Update(HistoryMsg{Err: errors.New("boom")})
+	m.Update(HistoryMsg{ChannelID: "groovesalad", Err: errors.New("boom")})
 	require.Error(t, m.HistoryErr)
+}
+
+func TestUpdate_HistoryMsg_IgnoresResultForAChannelTheOverlayMovedOnFrom(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = "dronezone" // the overlay has since reopened for another channel
+	m.History = []protocol.HistoryEntry{{Title: "Current"}}
+
+	m.Update(HistoryMsg{ChannelID: "groovesalad", Entries: []protocol.HistoryEntry{{Title: "Stale"}}})
+
+	assert.Equal(t, []protocol.HistoryEntry{{Title: "Current"}}, m.History,
+		"a result for a channel the overlay is no longer showing must not overwrite it")
+}
+
+func TestUpdate_HistoryMsg_IgnoresResultAfterOverlayClosed(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = false
+	m.HistoryChannelID = "groovesalad"
+	m.History = []protocol.HistoryEntry{{Title: "Current"}}
+
+	m.Update(HistoryMsg{ChannelID: "groovesalad", Entries: []protocol.HistoryEntry{{Title: "Late"}}})
+
+	assert.Equal(t, []protocol.HistoryEntry{{Title: "Current"}}, m.History,
+		"a fetch that lands after the overlay closed must not repopulate it")
 }
 
 func TestUpdate_SearchModeEnter(t *testing.T) {

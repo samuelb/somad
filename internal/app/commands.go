@@ -84,10 +84,14 @@ type FavoritesMsg struct {
 }
 
 // HistoryMsg carries the result of a history fetch for the overlay: either
-// the entries, or the error if the request failed.
+// the entries, or the error if the request failed. ChannelID is the channel
+// the fetch was for, so Update can drop a result that arrives after the
+// overlay has moved on (closed, or reopened for a different channel) rather
+// than clobbering it with a stale answer.
 type HistoryMsg struct {
-	Entries []protocol.HistoryEntry
-	Err     error
+	ChannelID string
+	Entries   []protocol.HistoryEntry
+	Err       error
 }
 
 // opLoadChannels marks catalog fetches so Update can escalate a failure
@@ -235,6 +239,6 @@ func (m *Model) historyCmd(channelID string) tea.Cmd {
 	b := m.Backend
 	return func() tea.Msg {
 		entries, err := b.History(channelID, historyOverlayLimit)
-		return HistoryMsg{Entries: entries, Err: err}
+		return HistoryMsg{ChannelID: channelID, Entries: entries, Err: err}
 	}
 }

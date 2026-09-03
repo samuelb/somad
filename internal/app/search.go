@@ -56,13 +56,23 @@ func (m *Model) refreshVisibleItems(keepID string) {
 		return
 	}
 	// The list now holds only matches, so the match indices are simply its
-	// indices; jump to the top-ranked match.
+	// indices.
 	m.SearchMatches = make([]int, len(items))
 	for i := range m.SearchMatches {
 		m.SearchMatches[i] = i
 	}
-	m.CurrentMatch = 0
-	m.List.Select(0)
+	// Keep the cursor on the channel that was selected before this refresh
+	// (a favorite toggle, the favorites-only reconcile, or a catalog
+	// refresh) when it is still among the matches, instead of always
+	// snapping back to the top-ranked one. UpdateSearchMatches passes ""
+	// for keepID on every keystroke, so typing still jumps to the top match
+	// as before: selectChannelByID("") is always a no-op.
+	if m.selectChannelByID(keepID) {
+		m.CurrentMatch = m.List.Index()
+	} else {
+		m.CurrentMatch = 0
+		m.List.Select(0)
+	}
 }
 
 // filterItems returns the items for which keep reports true, preserving

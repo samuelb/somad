@@ -102,6 +102,47 @@ func TestUpdateSearchMatches_MultipleMatches(t *testing.T) {
 	assert.Equal(t, m.SearchMatches[0], m.List.Index())
 }
 
+func TestRefreshVisibleItems_KeepsSelectionWithinFilteredView(t *testing.T) {
+	m := newTestModel(t)
+
+	// "ambient" matches both Groove Salad's and Drone Zone's descriptions.
+	m.SearchQuery = "ambient"
+	m.UpdateSearchMatches()
+	require.GreaterOrEqual(t, len(m.SearchMatches), 2, "test setup: need at least two matches")
+	m.NextMatch()
+	sel, ok := m.List.SelectedItem().(ui.Item)
+	require.True(t, ok)
+	selectedID := sel.Channel.ID
+	movedIndex := m.List.Index()
+	require.NotZero(t, movedIndex, "test setup: cursor must have moved off the top match")
+
+	// A refresh that funnels through refreshVisibleItems with keepID set (a
+	// favorite toggle, the FavoritesMsg reconcile, or a catalog refresh)
+	// must not snap the cursor back to the top match.
+	m.refreshVisibleItems(selectedID)
+
+	sel, ok = m.List.SelectedItem().(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, selectedID, sel.Channel.ID, "the selection must survive the refresh")
+	assert.Equal(t, movedIndex, m.List.Index())
+	assert.Equal(t, movedIndex, m.CurrentMatch, "CurrentMatch must track the kept selection, not the top match")
+}
+
+func TestRefreshVisibleItems_FallsBackToTopMatchWhenKeepIDNotVisible(t *testing.T) {
+	m := newTestModel(t)
+
+	m.SearchQuery = "ambient"
+	m.UpdateSearchMatches()
+	require.NotEmpty(t, m.SearchMatches)
+
+	// A channel outside the filtered view (e.g. one search query away, or
+	// simply never in it) falls back to the top match, same as before.
+	m.refreshVisibleItems("secretagent")
+
+	assert.Equal(t, 0, m.CurrentMatch)
+	assert.Equal(t, 0, m.List.Index())
+}
+
 func TestNextMatch_WrapsAround(t *testing.T) {
 	m := newTestModel(t)
 

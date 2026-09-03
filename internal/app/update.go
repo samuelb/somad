@@ -182,6 +182,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case HistoryMsg:
+		// Drop a result for a fetch that started for a channel the overlay
+		// has since moved on from (closed, or reopened for another channel);
+		// applying it would clobber the current, still-loading or already
+		// populated, view with a stale answer.
+		if !m.ShowHistory || msg.ChannelID != m.HistoryChannelID {
+			return m, nil
+		}
 		m.History = msg.Entries
 		m.HistoryErr = msg.Err
 		return m, nil
