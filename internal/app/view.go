@@ -189,6 +189,52 @@ func (m *Model) RenderAboutFooter() string {
 	return lipgloss.JoinVertical(lipgloss.Left, separator, body)
 }
 
+// RenderHistoryFooter renders the now-playing history for the playing
+// channel as an inline footer, styled like the about footer. It returns an
+// empty string unless the history overlay is active.
+func (m *Model) RenderHistoryFooter() string {
+	if !m.ShowHistory {
+		return ""
+	}
+
+	width := m.List.Width()
+	if width < 1 {
+		width = m.Width
+	}
+	if width < 1 {
+		width = 1
+	}
+
+	separator := lipgloss.NewStyle().
+		Foreground(ui.SubtleColor).
+		Render(strings.Repeat("─", width))
+
+	var lines []string
+	switch {
+	case m.HistoryChannelID == "":
+		lines = append(lines, "History", "Nothing is playing.")
+	case m.HistoryErr != nil:
+		lines = append(lines,
+			fmt.Sprintf("History: %s", m.HistoryChannelTitle),
+			fmt.Sprintf("failed to load history: %v", m.HistoryErr))
+	case len(m.History) == 0:
+		lines = append(lines, fmt.Sprintf("History: %s", m.HistoryChannelTitle), "No history yet.")
+	default:
+		lines = append(lines, fmt.Sprintf("History: %s", m.HistoryChannelTitle))
+		for _, e := range m.History {
+			lines = append(lines, fmt.Sprintf("%s  %s", e.Time.Local().Format("15:04"), e.Title))
+		}
+	}
+	lines = append(lines, "press h or esc to close")
+
+	body := lipgloss.NewStyle().
+		Foreground(ui.SubtleColor).
+		Padding(0, 0, 0, 2).
+		Render(strings.Join(lines, "\n"))
+
+	return lipgloss.JoinVertical(lipgloss.Left, separator, body)
+}
+
 // View renders the application's UI.
 func (m *Model) View() string {
 	// Display loading message if channels are still being fetched
@@ -217,6 +263,11 @@ func (m *Model) View() string {
 		components = append(components, about)
 	}
 
+	// Show the history overlay as an inline footer when active.
+	if history := m.RenderHistoryFooter(); history != "" {
+		components = append(components, history)
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left, components...)
 }
 
@@ -233,9 +284,13 @@ func (m *Model) UpdateListSize() {
 	if about := m.RenderAboutFooter(); about != "" {
 		aboutHeight = lipgloss.Height(about)
 	}
+	historyHeight := 0
+	if history := m.RenderHistoryFooter(); history != "" {
+		historyHeight = lipgloss.Height(history)
+	}
 
 	// Total height occupied by elements other than the list itself
-	totalFixedUIHeight := 1 + headerHeight + searchBarHeight + statusBarHeight + aboutHeight + 1
+	totalFixedUIHeight := 1 + headerHeight + searchBarHeight + statusBarHeight + aboutHeight + historyHeight + 1
 
 	// Update the list's dimensions
 	m.List.SetSize(m.Width, m.Height-totalFixedUIHeight)

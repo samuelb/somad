@@ -78,8 +78,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ShowAbout = !m.ShowAbout
 			m.UpdateListSize()
 			return m, nil
+		case "h":
+			// Toggle the now-playing history overlay for the playing channel.
+			m.ShowHistory = !m.ShowHistory
+			m.UpdateListSize()
+			if !m.ShowHistory {
+				return m, nil
+			}
+			m.HistoryChannelID = m.Snapshot.ChannelID
+			m.HistoryChannelTitle = m.Snapshot.ChannelTitle
+			m.HistoryErr = nil
+			if m.HistoryChannelID == "" {
+				// Nothing is playing: nothing to fetch.
+				m.History = nil
+				return m, nil
+			}
+			return m, m.historyCmd(m.HistoryChannelID)
 		case "esc":
-			// Close the about footer if it is open; otherwise fall through to the list.
+			// Close whichever overlay is open; otherwise fall through to the list.
+			if m.ShowHistory {
+				m.ShowHistory = false
+				m.UpdateListSize()
+				return m, nil
+			}
 			if m.ShowAbout {
 				m.ShowAbout = false
 				m.UpdateListSize()
@@ -152,6 +173,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyFavorites(msg.Favorites)
 		return m, nil
 
+	case HistoryMsg:
+		m.History = msg.Entries
+		m.HistoryErr = msg.Err
+		return m, nil
+
 	case RequestErrorMsg:
 		if m.Loading && msg.Op == opLoadChannels {
 			// Without a catalog there is nothing to render behind a status
@@ -219,7 +245,8 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear search")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
-		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close about / cancel search")),
+		key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close about/history / cancel search")),
 		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", quitHelp)),
 	}
 
@@ -231,6 +258,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
+		key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
 	}
 
 	return fullHelp, shortHelp

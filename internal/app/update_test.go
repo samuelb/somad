@@ -116,6 +116,66 @@ func TestUpdate_AboutIsNonModal(t *testing.T) {
 	assert.True(t, m.ShowAbout)
 }
 
+func TestUpdate_HistoryKey_TogglesOverlayAndFetches(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1})
+	backend(m).history = []protocol.HistoryEntry{{ChannelID: "groovesalad", Title: "Some Track"}}
+
+	_, cmd := sendKey(m, 'h')
+	assert.True(t, m.ShowHistory, "first 'h' opens the history overlay")
+	require.NotNil(t, cmd)
+
+	msg := runCmd(cmd)
+	m.Update(msg)
+	assert.Equal(t, []protocol.HistoryEntry{{ChannelID: "groovesalad", Title: "Some Track"}}, m.History)
+	require.Len(t, backend(m).historyCalls, 1)
+	assert.Equal(t, "groovesalad", backend(m).historyCalls[0].channelID)
+
+	_, cmd = sendKey(m, 'h')
+	assert.False(t, m.ShowHistory, "second 'h' closes the history overlay")
+	assert.Nil(t, cmd, "closing does not refetch")
+}
+
+func TestUpdate_HistoryKey_NothingPlayingSkipsFetch(t *testing.T) {
+	m := newTestModel(t)
+
+	_, cmd := sendKey(m, 'h')
+
+	assert.True(t, m.ShowHistory)
+	assert.Nil(t, cmd, "nothing is playing, so there is nothing to fetch")
+	assert.Empty(t, backend(m).historyCalls)
+}
+
+func TestUpdate_HistoryDismissedByEsc(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	assert.False(t, m.ShowHistory)
+}
+
+func TestUpdate_HistoryIsNonModal(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+
+	// An unrelated key must not close the overlay; it falls through to the list.
+	sendKey(m, 'x')
+
+	assert.True(t, m.ShowHistory)
+}
+
+func TestUpdate_HistoryMsg_AppliesEntriesOrError(t *testing.T) {
+	m := newTestModel(t)
+
+	m.Update(HistoryMsg{Entries: []protocol.HistoryEntry{{Title: "Track"}}})
+	assert.Equal(t, []protocol.HistoryEntry{{Title: "Track"}}, m.History)
+	assert.NoError(t, m.HistoryErr)
+
+	m.Update(HistoryMsg{Err: errors.New("boom")})
+	require.Error(t, m.HistoryErr)
+}
+
 func TestUpdate_SearchModeEnter(t *testing.T) {
 	m := newTestModel(t)
 

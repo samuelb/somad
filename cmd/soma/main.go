@@ -654,6 +654,14 @@ func runTUI(shutdownOnExit bool) {
 	l.SetShowTitle(false)        // We render our own header with column titles
 	l.SetFilteringEnabled(false) // Disable filtering, we use search instead
 	l.SetStatusBarItemName("channel", "channels")
+	// The bubbles default binds "h" to previous page; "h" is used for the
+	// history overlay instead (see the keymap in internal/app/update.go), so
+	// drop it here rather than silently shadowing it with no help text to
+	// match.
+	l.KeyMap.PrevPage = key.NewBinding(
+		key.WithKeys("left", "pgup", "b", "u"),
+		key.WithHelp("←/pgup", "prev page"),
+	)
 	l.Styles.PaginationStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor)
 	l.Styles.HelpStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor).Padding(0, 0, 0, 2)
 

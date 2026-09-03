@@ -38,6 +38,9 @@ Linux and macOS — other platforms are not supported and may not work.
   is configurable with `soma daemon --quality`
 - View real-time track information (artist/title) from ICY metadata
 - Optional desktop notification on track change (opt in with `soma daemon --notify`)
+- Browse recent now-playing history for a channel (`soma history`, or the
+  <kbd>h</kbd> overlay in the TUI), backfilled from SomaFM when the
+  daemon hasn't been running long
 - Buffered streaming with automatic reconnection on network issues
 - Styled UI with color-coded playback states and visual indicators
 - Select and remember your last-played channel
@@ -382,7 +385,8 @@ speak the same protocol version.
 | <kbd>n</kbd> / <kbd>N</kbd>         | Next / previous search match    |
 | <kbd>c</kbd>                        | Clear the search                |
 | <kbd>a</kbd>                        | About                           |
-| <kbd>Esc</kbd>                      | Close the about screen / cancel the search |
+| <kbd>h</kbd>                        | Show recent now-playing history for the playing channel |
+| <kbd>Esc</kbd>                      | Close the about screen / history overlay / cancel the search |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
 
 ## Configuration

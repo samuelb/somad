@@ -27,10 +27,19 @@ type fakeBackend struct {
 	favorites  []string
 	status     protocol.PlaybackState
 	payload    protocol.ChannelsPayload
+	history    []protocol.HistoryEntry
+	// historyCalls records the channelID/limit of every History call.
+	historyCalls []historyCall
 	// callErr, when set, fails every request method; shutdownErr fails
 	// Shutdown specifically.
 	callErr     error
 	shutdownErr error
+}
+
+// historyCall records one call to fakeBackend.History.
+type historyCall struct {
+	channelID string
+	limit     int
 }
 
 func newFakeBackend() *fakeBackend {
@@ -133,6 +142,16 @@ func (b *fakeBackend) ToggleMute() (protocol.PlaybackState, error) {
 		b.preMute = 0
 	}
 	return b.status, nil
+}
+
+func (b *fakeBackend) History(channelID string, limit int) ([]protocol.HistoryEntry, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.historyCalls = append(b.historyCalls, historyCall{channelID: channelID, limit: limit})
+	if b.callErr != nil {
+		return nil, b.callErr
+	}
+	return b.history, nil
 }
 
 func (b *fakeBackend) Shutdown() error {

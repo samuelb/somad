@@ -103,6 +103,10 @@
           <h3>Desktop notifications</h3>
           <p>Opt in with <code>soma daemon --notify</code> for a notification on every track
             change, fired from the daemon so it works with the TUI closed.</p>
+          <h3>Now-playing history</h3>
+          <p>Browse recent titles for a channel with <code>soma history</code> or the TUI's
+            <kbd>h</kbd> overlay, backfilled from SomaFM when the daemon hasn't been running
+            long.</p>
         </li>
         <li>
           <h3>Remote control</h3>
@@ -309,7 +313,8 @@ systemctl --user enable --now soma.service</code></pre>
               <tr><td><kbd>n</kbd> / <kbd>N</kbd></td><td>Next / previous search match</td></tr>
               <tr><td><kbd>c</kbd></td><td>Clear the search</td></tr>
               <tr><td><kbd>a</kbd></td><td>About</td></tr>
-              <tr><td><kbd>Esc</kbd></td><td>Close the about screen / cancel the search</td></tr>
+              <tr><td><kbd>h</kbd></td><td>Show recent now-playing history for the playing channel</td></tr>
+              <tr><td><kbd>Esc</kbd></td><td>Close the about screen / history overlay / cancel the search</td></tr>
               <tr><td><kbd>q</kbd> / <kbd>Ctrl+C</kbd></td><td>Quit the TUI (playback continues, unless started with <code>--shutdown-on-exit</code>)</td></tr>
             </tbody>
           </table>

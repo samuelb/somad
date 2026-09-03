@@ -274,6 +274,79 @@ func TestView_AboutFooter(t *testing.T) {
 	assert.Contains(t, result, "close")
 }
 
+func TestRenderHistoryFooter_Hidden(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = false
+
+	assert.Empty(t, m.RenderHistoryFooter())
+}
+
+func TestRenderHistoryFooter_NothingPlaying(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = ""
+
+	result := m.RenderHistoryFooter()
+
+	assert.Contains(t, result, "Nothing is playing")
+}
+
+func TestRenderHistoryFooter_ContainsEntries(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = "groovesalad"
+	m.HistoryChannelTitle = "Groove Salad"
+	m.History = []protocol.HistoryEntry{
+		{Title: "Artist - First Track"},
+		{Title: "Artist - Second Track"},
+	}
+
+	result := m.RenderHistoryFooter()
+
+	assert.Contains(t, result, "Groove Salad")
+	assert.Contains(t, result, "Artist - First Track")
+	assert.Contains(t, result, "Artist - Second Track")
+	assert.Contains(t, result, "close")
+}
+
+func TestRenderHistoryFooter_Empty(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = "groovesalad"
+	m.HistoryChannelTitle = "Groove Salad"
+	m.History = nil
+
+	result := m.RenderHistoryFooter()
+
+	assert.Contains(t, result, "No history yet")
+}
+
+func TestRenderHistoryFooter_Error(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = "groovesalad"
+	m.HistoryChannelTitle = "Groove Salad"
+	m.HistoryErr = assert.AnError
+
+	result := m.RenderHistoryFooter()
+
+	assert.Contains(t, result, "failed to load history")
+}
+
+func TestView_HistoryFooter(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.Width = 80
+	m.Height = 24
+	m.HistoryChannelID = "groovesalad"
+	m.HistoryChannelTitle = "Groove Salad"
+	m.History = []protocol.HistoryEntry{{Title: "Artist - Track"}}
+
+	result := m.View()
+
+	assert.Contains(t, result, "Artist - Track")
+}
+
 func TestRenderAboutFooter_Hidden(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowAbout = false

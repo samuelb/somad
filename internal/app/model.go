@@ -48,8 +48,16 @@ type Model struct {
 	RequestErr string
 	ShowAbout  bool
 	About      AboutInfo
-	Width      int
-	Height     int
+	// ShowHistory toggles the now-playing history overlay. HistoryChannelID
+	// and HistoryChannelTitle are the channel it was opened for; History
+	// holds the last fetch's entries and HistoryErr its error, if any.
+	ShowHistory         bool
+	HistoryChannelID    string
+	HistoryChannelTitle string
+	History             []protocol.HistoryEntry
+	HistoryErr          error
+	Width               int
+	Height              int
 	// ShutdownOnExit asks the server to stop playback and exit when the TUI
 	// closes. OnExit is called before quitting so the reconnect bridge does not
 	// auto-spawn a replacement server.

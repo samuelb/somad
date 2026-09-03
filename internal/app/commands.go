@@ -24,6 +24,9 @@ type Backend interface {
 	// or restores it (or a sensible default) when already muted.
 	ToggleMute() (protocol.PlaybackState, error)
 	ToggleFavorite(channelID string) ([]string, error)
+	// History returns recent now-playing titles, newest first, for the
+	// history overlay.
+	History(channelID string, limit int) ([]protocol.HistoryEntry, error)
 	// Shutdown stops the server so the reconnect loop respawns a fresh one; the
 	// TUI uses it to upgrade an out-of-date server when the user changes or
 	// stops the stream.
@@ -78,6 +81,13 @@ type RestartFailedMsg struct {
 // reconciling the optimistic local flip.
 type FavoritesMsg struct {
 	Favorites []string
+}
+
+// HistoryMsg carries the result of a history fetch for the overlay: either
+// the entries, or the error if the request failed.
+type HistoryMsg struct {
+	Entries []protocol.HistoryEntry
+	Err     error
 }
 
 // opLoadChannels marks catalog fetches so Update can escalate a failure
@@ -212,5 +222,19 @@ func (m *Model) toggleMuteCmd() tea.Cmd {
 			return requestErr("mute", err)
 		}
 		return ServerStateMsg{State: st}
+	}
+}
+
+// historyOverlayLimit is how many entries the history overlay asks for and
+// renders.
+const historyOverlayLimit = 20
+
+// historyCmd fetches recent now-playing titles for channelID (the playing
+// channel) to populate the history overlay.
+func (m *Model) historyCmd(channelID string) tea.Cmd {
+	b := m.Backend
+	return func() tea.Msg {
+		entries, err := b.History(channelID, historyOverlayLimit)
+		return HistoryMsg{Entries: entries, Err: err}
 	}
 }
