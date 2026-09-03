@@ -1,32 +1,23 @@
 # TODO
 
-Open findings from the 2026-09 code assessment, the Codex reviews of the
-`improvements` branch (TLS 1.3, adaptive colors, jitter buffer, AAC playback —
-all landed on `main`), and the 2026-09-03 follow-up analysis. Every item was
-re-verified against the tree on 2026-09-03; nothing here is already done.
-Items deliberately dropped are recorded in `docs/adr/` and listed under
-"Not planned" at the end so they are not re-proposed.
+Open work, grouped **P1** (known bugs or real exposure) / **P2**
+(high-value improvements) / **P3** (polish), each with a rough effort tag:
+**[S]** under an hour, **[M]** an afternoon, **[L]** multi-day or needs a
+decision. Items deliberately dropped are recorded in `docs/adr/` and listed
+under "Not planned" so they are not re-proposed.
 
-Priorities: **P1** = known bugs or real exposure, fix next; **P2** = high-value
-improvements; **P3** = polish and nice-to-haves. Each item carries a rough
-effort tag: **[S]** under an hour, **[M]** an afternoon, **[L]** multi-day or
-needs a decision.
+The 2026-09 assessment backlog (P1 correctness and security fixes, the
+P2 features, and the P3 polish) was worked off on 2026-09-03/04; see the
+git log from 79ae532 onwards. Nothing is open right now. Follow-ups that
+came out of that work but were not worth a line here (the Apple Developer
+ID secrets for ADR-0029, publishing to the AUR) live in the ADRs and the
+README.
 
 ## P1 — correctness and security
 
 ## P2 — features and hardening
 
-Ordered roughly by value ÷ effort.
-
 ## P3 — polish
-
-Small hygiene fixes first, then features, then code quality.
-
-### Hygiene (each [S])
-
-### Features
-
-### Code quality
 
 ## Not planned
 
