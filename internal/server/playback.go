@@ -427,9 +427,15 @@ func (s *Server) updateMPRISLocked() {
 	playing := s.status == protocol.StatusPlaying
 	if s.mpris != nil {
 		if playing {
-			// Use the channel title as artist since SomaFM streams don't have
-			// separate artist info.
-			s.mpris.SetPlaying(s.channelTitle, s.trackTitle, s.channelTitle, s.channelArtURL)
+			// The raw ICY title is "Artist - Title" where the stream follows
+			// that convention; split it once so MPRIS shows the real artist.
+			// Genre/ambient stations (and any title with no " - ") have no
+			// separate artist, so fall back to the channel name as before.
+			artist, title := audio.SplitTitle(s.trackTitle)
+			if artist == "" {
+				artist = s.channelTitle
+			}
+			s.mpris.SetPlaying(s.channelTitle, title, artist, s.channelArtURL)
 		} else {
 			s.mpris.SetStopped()
 		}

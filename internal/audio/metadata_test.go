@@ -100,6 +100,72 @@ func TestParseICYMetadata(t *testing.T) {
 	}
 }
 
+func TestSplitTitle(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantArtist string
+		wantTitle  string
+	}{
+		{
+			name:       "artist and title",
+			input:      "Boards of Canada - Dayvan Cowboy",
+			wantArtist: "Boards of Canada",
+			wantTitle:  "Dayvan Cowboy",
+		},
+		{
+			name:       "no separator",
+			input:      "Just a Title",
+			wantArtist: "",
+			wantTitle:  "Just a Title",
+		},
+		{
+			name:       "empty string",
+			input:      "",
+			wantArtist: "",
+			wantTitle:  "",
+		},
+		{
+			name:       "only the first separator splits",
+			input:      "A - B - C",
+			wantArtist: "A",
+			wantTitle:  "B - C",
+		},
+		{
+			name:       "surrounding whitespace is trimmed",
+			input:      "  Spaced Artist  -  Spaced Title  ",
+			wantArtist: "Spaced Artist",
+			wantTitle:  "Spaced Title",
+		},
+		{
+			name:       "hyphen without surrounding spaces is not a separator",
+			input:      "Anti-Hero",
+			wantArtist: "",
+			wantTitle:  "Anti-Hero",
+		},
+		{
+			name:       "title-only after the separator",
+			input:      "Artist - ",
+			wantArtist: "Artist",
+			wantTitle:  "",
+		},
+		{
+			name:       "empty artist before the separator",
+			input:      " - Title",
+			wantArtist: "",
+			wantTitle:  "Title",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artist, title := SplitTitle(tt.input)
+			assert.Equal(t, tt.wantArtist, artist, "artist")
+			assert.Equal(t, tt.wantTitle, title, "title")
+		})
+	}
+}
+
 // icyStreamBuilder assembles a synthetic Shoutcast body: audio segments of
 // exactly icyInt bytes, each followed by a metadata block.
 type icyStreamBuilder struct {

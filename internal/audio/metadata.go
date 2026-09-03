@@ -116,3 +116,18 @@ func parseICYMetadata(metaStr string) (TrackInfo, error) {
 		Title: strings.TrimSpace(title),
 	}, nil
 }
+
+// SplitTitle splits a raw ICY StreamTitle of the conventional "Artist -
+// Title" form into its two parts, on the first " - " separator. Many SomaFM
+// streams (and genre/ambient stations especially) don't follow that
+// convention, so a title with no separator yields an empty artist and the
+// title unchanged — callers that need a display artist fall back to
+// something else (the channel name, for MPRIS) themselves.
+func SplitTitle(s string) (artist, title string) {
+	const sep = " - "
+	idx := strings.Index(s, sep)
+	if idx < 0 {
+		return "", s
+	}
+	return strings.TrimSpace(s[:idx]), strings.TrimSpace(s[idx+len(sep):])
+}
