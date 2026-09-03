@@ -25,3 +25,8 @@ linters:
     gosec:
       excludes:
         - G104
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

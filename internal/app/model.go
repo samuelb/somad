@@ -46,9 +46,9 @@ type Model struct {
 	// status bar until the server next answers successfully.
 	RequestErr string
 	ShowAbout  bool
-	About     AboutInfo
-	Width     int
-	Height    int
+	About      AboutInfo
+	Width      int
+	Height     int
 	// ShutdownOnExit asks the server to stop playback and exit when the TUI
 	// closes. OnExit is called before quitting so the reconnect bridge does not
 	// auto-spawn a replacement server.
