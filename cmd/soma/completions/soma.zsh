@@ -67,8 +67,14 @@ _soma() {
         list | status)
             _arguments '--json[print machine-readable JSON]' && ret=0
             ;;
-        next | prev | pause | stop)
+        next | prev | pause)
             _arguments '--json[print machine-readable JSON]' && ret=0
+            ;;
+        stop)
+            _arguments \
+                '--json[print machine-readable JSON]' \
+                '--in[stop after this long instead of immediately, e.g. 45m]:duration:' \
+                '--cancel[cancel a pending sleep timer without stopping now]' && ret=0
             ;;
         volume)
             _arguments \

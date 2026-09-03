@@ -34,7 +34,7 @@ _soma() {
         COMPREPLY=()
         return
         ;;
-    --server | --tls-fingerprint | --listen | --idle-timeout)
+    --server | --tls-fingerprint | --listen | --idle-timeout | --in)
         COMPREPLY=()
         return
         ;;
@@ -92,8 +92,11 @@ _soma() {
     volume)
         COMPREPLY=($(compgen -W "--json mute" -- "$cur"))
         ;;
-    list | status | next | prev | pause | stop)
+    list | status | next | prev | pause)
         COMPREPLY=($(compgen -W "--json" -- "$cur"))
+        ;;
+    stop)
+        COMPREPLY=($(compgen -W "--json --in --cancel" -- "$cur"))
         ;;
     daemon)
         COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --quality --listen --tls

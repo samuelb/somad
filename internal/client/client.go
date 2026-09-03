@@ -347,10 +347,26 @@ func (c *Client) PlayRelative(delta int) (protocol.PlaybackState, error) {
 	return st, err
 }
 
-// Stop halts playback.
+// Stop halts playback immediately and cancels any pending sleep timer.
 func (c *Client) Stop() (protocol.PlaybackState, error) {
 	var st protocol.PlaybackState
 	err := c.call(protocol.MethodStop, nil, &st)
+	return st, err
+}
+
+// StopIn arms a sleep timer that stops playback after d instead of
+// immediately, replacing any timer already pending. The daemon owns the
+// timer, so it fires even after this client disconnects.
+func (c *Client) StopIn(d time.Duration) (protocol.PlaybackState, error) {
+	var st protocol.PlaybackState
+	err := c.call(protocol.MethodStop, protocol.StopParams{In: d.String()}, &st)
+	return st, err
+}
+
+// CancelStop cancels a pending sleep timer without stopping playback.
+func (c *Client) CancelStop() (protocol.PlaybackState, error) {
+	var st protocol.PlaybackState
+	err := c.call(protocol.MethodStop, protocol.StopParams{Cancel: true}, &st)
 	return st, err
 }
 

@@ -262,10 +262,12 @@ func (s *Server) PlayRelative(delta int) (protocol.PlaybackState, error) {
 	return s.Play(id)
 }
 
-// Stop halts playback and cancels any pending connect or reconnect.
+// Stop halts playback immediately and cancels any pending connect,
+// reconnect, or sleep-timer stop.
 func (s *Server) Stop() protocol.PlaybackState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cancelStopTimerLocked()
 	s.playGen++
 	s.cancelReconnectLocked()
 	s.player.Stop(s.playGen)
@@ -277,6 +279,57 @@ func (s *Server) Stop() protocol.PlaybackState {
 	s.maybeArmIdleLocked()
 	s.broadcastStateLocked()
 	return s.snapshotLocked()
+}
+
+// StopIn arms (or replaces) a sleep timer that stops playback after d. It
+// does not stop now — a play already underway, or one started before the
+// timer fires, keeps playing until it does; that is the point of a sleep
+// timer ("stop in 45 minutes"). The daemon owns the timer, so it survives
+// the requesting client disconnecting or exiting.
+func (s *Server) StopIn(d time.Duration) protocol.PlaybackState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cancelStopTimerLocked()
+	gen := s.stopGen
+	s.stopAt = time.Now().Add(d)
+	s.stopTimer = time.AfterFunc(d, func() {
+		s.mu.Lock()
+		stale := s.stopGen != gen
+		s.mu.Unlock()
+		if stale {
+			return
+		}
+		s.Stop()
+	})
+	s.broadcastStateLocked()
+	return s.snapshotLocked()
+}
+
+// CancelPendingStop cancels a pending sleep-timer stop without stopping
+// playback now. A no-op (returning the current snapshot) when none is
+// pending.
+func (s *Server) CancelPendingStop() protocol.PlaybackState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopTimer == nil {
+		return s.snapshotLocked()
+	}
+	s.cancelStopTimerLocked()
+	s.broadcastStateLocked()
+	return s.snapshotLocked()
+}
+
+// cancelStopTimerLocked cancels and clears any pending sleep-timer stop.
+// Bumping stopGen makes a timer whose AfterFunc has already fired (and is
+// blocked waiting for s.mu) back out instead of stopping a session it no
+// longer owns. Caller holds s.mu.
+func (s *Server) cancelStopTimerLocked() {
+	s.stopGen++
+	if s.stopTimer != nil {
+		s.stopTimer.Stop()
+		s.stopTimer = nil
+	}
+	s.stopAt = time.Time{}
 }
 
 // SetVolume clamps and applies the volume, persists it, and broadcasts the

@@ -296,7 +296,26 @@ func (c *conn) handleRequest(req protocol.Request) {
 		c.respond(req.ID, snap)
 
 	case protocol.MethodStop:
-		c.respond(req.ID, c.s.Stop())
+		var params protocol.StopParams
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				c.respondError(req.ID, fmt.Errorf("malformed stop params: %w", err))
+				return
+			}
+		}
+		switch {
+		case params.Cancel:
+			c.respond(req.ID, c.s.CancelPendingStop())
+		case params.In != "":
+			d, err := time.ParseDuration(params.In)
+			if err != nil {
+				c.respondError(req.ID, fmt.Errorf("malformed stop \"in\" duration: %w", err))
+				return
+			}
+			c.respond(req.ID, c.s.StopIn(d))
+		default:
+			c.respond(req.ID, c.s.Stop())
+		}
 
 	case protocol.MethodSetVolume:
 		var params protocol.SetVolumeParams

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"somad/internal/channels"
 	"somad/internal/client"
@@ -22,15 +23,17 @@ import (
 // fakeDaemon is a scripted playback daemon for exercising the CLI commands
 // end-to-end over the wire protocol, without audio or spawning.
 type fakeDaemon struct {
-	mu        sync.Mutex
-	plays     []string
-	deltas    []int
-	stops     int
-	shutdowns int
-	mutes     int
-	preMute   float64 // remembered pre-mute volume; 0 means "none stored"
-	status    protocol.PlaybackState
-	payload   protocol.ChannelsPayload
+	mu          sync.Mutex
+	plays       []string
+	deltas      []int
+	stops       int
+	stopIns     []string // "in" durations passed to successive MethodStop calls
+	stopCancels int
+	shutdowns   int
+	mutes       int
+	preMute     float64 // remembered pre-mute volume; 0 means "none stored"
+	status      protocol.PlaybackState
+	payload     protocol.ChannelsPayload
 }
 
 func startFakeDaemon(t *testing.T) *fakeDaemon {
@@ -114,8 +117,19 @@ func (d *fakeDaemon) handle(req protocol.Request) any {
 		}
 		return d.status
 	case protocol.MethodStop:
-		d.stops++
-		d.status = protocol.PlaybackState{Status: protocol.StatusStopped, Volume: d.status.Volume}
+		var p protocol.StopParams
+		_ = json.Unmarshal(req.Params, &p)
+		switch {
+		case p.Cancel:
+			d.stopCancels++
+			d.status.StopAt = ""
+		case p.In != "":
+			d.stopIns = append(d.stopIns, p.In)
+			d.status.StopAt = "2099-01-01T00:00:00Z"
+		default:
+			d.stops++
+			d.status = protocol.PlaybackState{Status: protocol.StatusStopped, Volume: d.status.Volume}
+		}
 		return d.status
 	case protocol.MethodSetVolume:
 		var p protocol.SetVolumeParams
@@ -251,6 +265,52 @@ func TestRunStop_JSON(t *testing.T) {
 	assert.Equal(t, 1, d.stops)
 }
 
+func TestRunStop_InArmsTimerWithoutStoppingNow(t *testing.T) {
+	d := startFakeDaemon(t)
+	d.mu.Lock()
+	d.setPlayingLocked("groovesalad")
+	d.mu.Unlock()
+
+	out := captureStdout(t, func() { runStop([]string{"--in", "45m"}) })
+
+	// The message echoes what the user typed; what reaches the daemon is the
+	// client-parsed duration's canonical Go string ("45m0s"), an equivalent
+	// value time.ParseDuration accepts just as well.
+	assert.Contains(t, out, "Stopping in 45m")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	require.Len(t, d.stopIns, 1)
+	parsed, err := time.ParseDuration(d.stopIns[0])
+	require.NoError(t, err)
+	assert.Equal(t, 45*time.Minute, parsed)
+	assert.Zero(t, d.stops, "arming a sleep timer must not call the immediate-stop path")
+}
+
+func TestRunStop_InJSON(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runStop([]string{"--json", "--in", "10s"}) })
+
+	var st protocol.PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.NotEmpty(t, st.StopAt)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Equal(t, []string{"10s"}, d.stopIns)
+}
+
+func TestRunStop_Cancel(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runStop([]string{"--cancel"}) })
+
+	assert.Contains(t, out, "canceled")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Equal(t, 1, d.stopCancels)
+	assert.Zero(t, d.stops)
+}
+
 func TestRunPause_TogglesBothWays(t *testing.T) {
 	startFakeDaemon(t)
 
@@ -310,6 +370,18 @@ func TestRunStatus_HumanReadable(t *testing.T) {
 	assert.Contains(t, out, "Playing: Drone Zone")
 	assert.Contains(t, out, "Track:   Some Track")
 	assert.Contains(t, out, "Volume:  50%")
+}
+
+func TestRunStatus_ShowsSleepTimer(t *testing.T) {
+	d := startFakeDaemon(t)
+	d.mu.Lock()
+	d.setPlayingLocked("dronezone")
+	d.status.StopAt = time.Now().Add(45 * time.Minute).Format(time.RFC3339)
+	d.mu.Unlock()
+
+	out := captureStdout(t, func() { runStatus(nil) })
+
+	assert.Contains(t, out, "Sleep:   in 45m")
 }
 
 func TestRunVolume_ShowSetAndAdjust(t *testing.T) {

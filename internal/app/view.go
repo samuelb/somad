@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"somad/internal/channels"
 	"somad/internal/protocol"
@@ -98,6 +99,11 @@ func (m *Model) RenderStatusBar() string {
 	volumeStyle := lipgloss.NewStyle().Foreground(ui.SubtleColor)
 	parts = append(parts, volumeStyle.Render(fmt.Sprintf("♪ %d%%", int(math.Round(m.Snapshot.Volume*100)))))
 
+	// Show a pending sleep timer (soma stop --in), if any.
+	if label := sleepTimerLabel(m.Snapshot.StopAt); label != "" {
+		parts = append(parts, volumeStyle.Render(label))
+	}
+
 	// Surface the last failed request until the server answers successfully.
 	if m.RequestErr != "" {
 		errorStyle := lipgloss.NewStyle().Foreground(ui.ErrorColor)
@@ -119,6 +125,33 @@ func (m *Model) RenderStatusBar() string {
 		style = style.Width(m.Width)
 	}
 	return style.Render(strings.Join(parts, "  │  "))
+}
+
+// sleepTimerLabel renders the pending sleep-timer stop (protocol.
+// PlaybackState.StopAt, an RFC 3339 timestamp) as "sleep in 42m", or "" when
+// no timer is pending or the timestamp cannot be parsed.
+func sleepTimerLabel(stopAt string) string {
+	if stopAt == "" {
+		return ""
+	}
+	at, err := time.Parse(time.RFC3339, stopAt)
+	if err != nil {
+		return ""
+	}
+	return formatSleepRemaining(time.Until(at))
+}
+
+// formatSleepRemaining renders a duration until a pending sleep-timer stop
+// as "sleep in Xm" (or "sleep in Xs" once under a minute); a negative
+// duration (the timer is about to fire) renders as "sleep in 0s".
+func formatSleepRemaining(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("sleep in %ds", int(d.Round(time.Second).Seconds()))
+	}
+	return fmt.Sprintf("sleep in %dm", int(d.Round(time.Minute).Minutes()))
 }
 
 // RenderAboutFooter renders the about information as an inline footer, styled

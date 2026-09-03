@@ -396,17 +396,37 @@ func runPause(args []string) {
 	}
 }
 
-// runStop stops playback. With --json, it prints the resulting
+// runStop stops playback, or with --in <duration> arms a sleep timer that
+// stops it after that long instead of immediately (the daemon owns the
+// timer, so it survives this process exiting). --cancel drops a pending
+// sleep timer without stopping now. With --json, it prints the resulting
 // protocol.PlaybackState instead of the human-readable message.
 func runStop(args []string) {
-	args, jsonOut := parseJSONFlag("stop", "soma stop [--json]", args)
-	if len(args) != 0 {
-		fail("usage: soma stop [--json]")
+	usage := "soma stop [--json] [--in <duration> | --cancel]"
+	fs := flag.NewFlagSet("stop", flag.ExitOnError)
+	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usage) }
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	in := fs.String("in", "", "stop after this long instead of immediately, e.g. 45m (replaces any pending timer)")
+	cancel := fs.Bool("cancel", false, "cancel a pending sleep timer without stopping now")
+	_ = fs.Parse(args)
+	if fs.NArg() != 0 {
+		fail("usage: %s", usage)
+	}
+	if *in != "" && *cancel {
+		fail("--in and --cancel are mutually exclusive")
+	}
+	var delay time.Duration
+	if *in != "" {
+		var err error
+		delay, err = time.ParseDuration(*in)
+		if err != nil {
+			fail("invalid --in duration: %v", err)
+		}
 	}
 
 	c, serverVersion, running := dialServer()
 	if !running {
-		if jsonOut {
+		if *jsonOut {
 			printJSON(statusSnapshot())
 			return
 		}
@@ -414,18 +434,38 @@ func runStop(args []string) {
 		return
 	}
 	defer func() { _ = c.Close() }()
-	// Stopping interrupts playback anyway, so upgrade an out-of-date server now;
-	// the fresh server starts stopped, which is the state stop leaves us in.
-	c = restartForUpgrade(c, serverVersion)
-	st, err := c.Stop()
+
+	var st protocol.PlaybackState
+	var err error
+	switch {
+	case *cancel:
+		st, err = c.CancelStop()
+	case *in != "":
+		// Arming or replacing a sleep timer does not interrupt playback, so
+		// (unlike an immediate stop) an out-of-date local server is left
+		// alone rather than restarted onto our version.
+		st, err = c.StopIn(delay)
+	default:
+		// Stopping interrupts playback anyway, so upgrade an out-of-date server now;
+		// the fresh server starts stopped, which is the state stop leaves us in.
+		c = restartForUpgrade(c, serverVersion)
+		st, err = c.Stop()
+	}
 	if err != nil {
 		fail("%v", err)
 	}
-	if jsonOut {
+	if *jsonOut {
 		printJSON(st)
 		return
 	}
-	fmt.Println("Stopped")
+	switch {
+	case *cancel:
+		fmt.Println("Sleep timer canceled")
+	case *in != "":
+		fmt.Printf("Stopping in %s\n", *in)
+	default:
+		fmt.Println("Stopped")
+	}
 }
 
 // runStatus prints the playback state, as JSON with --json so status bars
@@ -468,6 +508,31 @@ func runStatus(args []string) {
 		fmt.Printf("Error:   %s\n", st.StreamError)
 	}
 	fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
+	if line := sleepTimerLine(st.StopAt); line != "" {
+		fmt.Print(line)
+	}
+}
+
+// sleepTimerLine formats a pending sleep-timer stop (protocol.PlaybackState.
+// StopAt, an RFC 3339 timestamp, armed by "soma stop --in") as
+// "Sleep:   in 42m\n", or "" when none is pending or the timestamp fails to
+// parse.
+func sleepTimerLine(stopAt string) string {
+	if stopAt == "" {
+		return ""
+	}
+	at, err := time.Parse(time.RFC3339, stopAt)
+	if err != nil {
+		return ""
+	}
+	remaining := time.Until(at)
+	if remaining < 0 {
+		remaining = 0
+	}
+	if remaining < time.Minute {
+		return fmt.Sprintf("Sleep:   in %ds\n", int(remaining.Round(time.Second).Seconds()))
+	}
+	return fmt.Sprintf("Sleep:   in %dm\n", int(remaining.Round(time.Minute).Minutes()))
 }
 
 // statusSnapshot returns the playback state for --json consumers. It never

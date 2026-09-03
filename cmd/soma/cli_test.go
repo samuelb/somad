@@ -4,6 +4,7 @@ import (
 	"flag"
 	"strings"
 	"testing"
+	"time"
 
 	"somad/internal/channels"
 	"somad/internal/protocol"
@@ -263,6 +264,19 @@ func TestFavoriteMessage_ReportsToggleDirection(t *testing.T) {
 	assert.Equal(t, "Favorited: Drone Zone", favoriteMessage([]string{"groovesalad", "dronezone"}, ch))
 	assert.Equal(t, "Unfavorited: Drone Zone", favoriteMessage([]string{"groovesalad"}, ch))
 	assert.Equal(t, "Unfavorited: Drone Zone", favoriteMessage(nil, ch))
+}
+
+func TestSleepTimerLine(t *testing.T) {
+	assert.Empty(t, sleepTimerLine(""), "no timer pending")
+	assert.Empty(t, sleepTimerLine("not-a-timestamp"), "malformed timestamp")
+
+	line := sleepTimerLine(time.Now().Add(42 * time.Minute).Format(time.RFC3339))
+	assert.Equal(t, "Sleep:   in 42m\n", line)
+
+	// Sub-minute remaining renders in seconds; match loosely since a little
+	// wall-clock time passes between formatting the timestamp and rendering it.
+	line = sleepTimerLine(time.Now().Add(30 * time.Second).Format(time.RFC3339))
+	assert.Regexp(t, `^Sleep:   in (2[5-9]|30)s\n$`, line)
 }
 
 func TestPrintFlagDefaults_UsesDoubleDashes(t *testing.T) {

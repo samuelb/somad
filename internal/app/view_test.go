@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"somad/internal/protocol"
 
@@ -159,6 +160,54 @@ func TestRenderStatusBar_WrapsOnNarrowTerminals(t *testing.T) {
 	for _, line := range strings.Split(result, "\n") {
 		assert.LessOrEqual(t, lipgloss.Width(line), 30, "no line may exceed the terminal width")
 	}
+}
+
+func TestFormatSleepRemaining(t *testing.T) {
+	tests := []struct {
+		name string
+		d    time.Duration
+		want string
+	}{
+		{name: "minutes", d: 42 * time.Minute, want: "sleep in 42m"},
+		{name: "rounds to nearest minute", d: 41*time.Minute + 40*time.Second, want: "sleep in 42m"},
+		{name: "under a minute shows seconds", d: 30 * time.Second, want: "sleep in 30s"},
+		{name: "exactly a minute", d: time.Minute, want: "sleep in 1m"},
+		{name: "negative clamps to zero", d: -5 * time.Second, want: "sleep in 0s"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatSleepRemaining(tt.d))
+		})
+	}
+}
+
+func TestSleepTimerLabel_EmptyWhenNotSet(t *testing.T) {
+	assert.Empty(t, sleepTimerLabel(""))
+}
+
+func TestSleepTimerLabel_EmptyOnMalformedTimestamp(t *testing.T) {
+	assert.Empty(t, sleepTimerLabel("not-a-timestamp"))
+}
+
+func TestRenderStatusBar_ShowsSleepTimer(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1,
+		StopAt: time.Now().Add(42 * time.Minute).Format(time.RFC3339),
+	})
+
+	result := m.RenderStatusBar()
+
+	assert.Contains(t, result, "sleep in 42m")
+}
+
+func TestRenderStatusBar_NoSleepTimerByDefault(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
+
+	result := m.RenderStatusBar()
+
+	assert.NotContains(t, result, "sleep in")
 }
 
 func TestRenderStatusBar_ServerLost(t *testing.T) {

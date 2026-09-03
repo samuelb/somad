@@ -21,6 +21,9 @@ type PlaybackState struct {
 	Volume           float64 `json:"volume"`
 	StreamError      string  `json:"streamError,omitempty"`
 	ReconnectAttempt int     `json:"reconnectAttempt,omitempty"`
+	// StopAt is when a pending sleep-timer stop (armed by StopParams.In) will
+	// fire, as an RFC 3339 timestamp; empty when none is pending.
+	StopAt string `json:"stopAt,omitempty"`
 }
 
 // ChannelsPayload carries the full channel catalog together with the
@@ -61,6 +64,19 @@ type PlayRelativeParams struct {
 // SetVolumeParams carries the target volume in [0, 1]; the server clamps.
 type SetVolumeParams struct {
 	Volume float64 `json:"volume"`
+}
+
+// StopParams is the optional payload of a stop request. The zero value
+// (both fields empty) stops playback immediately, as before this type
+// existed. In, when non-empty, is a Go duration string (time.ParseDuration,
+// e.g. "45m"): instead of stopping now, the server arms a sleep timer that
+// stops playback after that long, replacing any timer already pending; a
+// play started before the timer fires keeps playing until it does. Cancel
+// drops a pending sleep timer without stopping playback. In and Cancel are
+// mutually exclusive.
+type StopParams struct {
+	In     string `json:"in,omitempty"`
+	Cancel bool   `json:"cancel,omitempty"`
 }
 
 // ToggleFavoriteParams selects the channel whose favorite flag to flip.

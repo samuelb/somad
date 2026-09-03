@@ -50,6 +50,8 @@ func TestCompletionScriptsCoverCLI(t *testing.T) {
 		"--gen-psk", "--show-cert",
 		// per-command output flag
 		"--json",
+		// soma stop's sleep-timer flags
+		"--in", "--cancel",
 	}
 	for name, script := range map[string]string{"bash": bashCompletion, "zsh": zshCompletion} {
 		for _, want := range append(commands, flags...) {

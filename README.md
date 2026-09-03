@@ -40,6 +40,8 @@ Linux and macOS — other platforms are not supported and may not work.
 - Buffered streaming with automatic reconnection on network issues
 - Styled UI with color-coded playback states and visual indicators
 - Select and remember your last-played channel
+- Sleep timer (`soma stop --in 45m`) owned by the daemon, so it fires even
+  if you close the TUI or the terminal
 - Fast startup with cached channels and background refresh
 - Smooth, keyboard-driven navigation and playback controls
 - MPRIS desktop integration (Linux) — media keys keep working even with the
@@ -223,6 +225,8 @@ background if one isn't running yet.
 | `soma next [--json]` / `soma prev [--json]` | Play the next / previous channel (favorites first, wraps around) |
 | `soma pause [--json]`      | Toggle pause (live radio: unpausing rejoins the live stream) |
 | `soma stop [--json]`       | Stop playback                                            |
+| `soma stop --in <duration> [--json]` | Sleep timer: stop after this long (e.g. `45m`) instead of immediately; the daemon owns the timer, so it fires even after this command exits, and replaces any timer already pending |
+| `soma stop --cancel [--json]` | Cancel a pending sleep timer without stopping now      |
 | `soma status [--json]`     | Show what is playing                                     |
 | `soma volume [--json] [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
 | `soma volume mute [--json]` | Toggle mute, restoring the previous volume          |
@@ -250,7 +254,12 @@ automatically the first time the TUI or a CLI command needs it, but you can
 also start it yourself in the foreground with `soma daemon` — handy for
 watching its logs or running it under a service manager. Quitting the TUI with
 <kbd>q</kbd> leaves the music playing — reopen `soma` any time to pick the
-session back up, or use `soma stop` to silence it. If you'd rather have
+session back up, or use `soma stop` to silence it. `soma stop --in 45m` arms
+a sleep timer instead: the daemon stops playback after that long on its own,
+so it fires even if you close the TUI or the terminal in the meantime;
+`soma stop --in <duration>` again replaces it, and `soma stop --cancel` drops
+it without stopping playback. `soma status` (and the TUI status line) shows
+"sleep in Nm" while one is pending. If you'd rather have
 quitting take everything down, start the TUI with `soma --shutdown-on-exit`
 (or set `tui.shutdown_on_exit: true` in the
 [configuration file](#configuration)): quitting then stops playback and shuts

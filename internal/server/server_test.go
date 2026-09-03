@@ -353,6 +353,108 @@ func TestStop_CancelsPendingReconnect(t *testing.T) {
 	player.mu.Unlock()
 }
 
+func TestStopIn_FiresAfterDelayWithoutStoppingNow(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+
+	st := decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{In: "20ms"}))
+	assert.Equal(t, protocol.StatusPlaying, st.Status, "arming a sleep timer must not stop playback now")
+	assert.NotEmpty(t, st.StopAt)
+
+	c.waitState("sleep timer stopped playback", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusStopped
+	})
+	player.mu.Lock()
+	assert.False(t, player.playing)
+	player.mu.Unlock()
+}
+
+func TestStopIn_ExplicitStopCancelsPendingTimer(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{In: "30ms"}))
+
+	st := decodeState(t, c.call(protocol.MethodStop, nil))
+	assert.Equal(t, protocol.StatusStopped, st.Status)
+	assert.Empty(t, st.StopAt)
+
+	// The canceled timer must not stop a session started after it.
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	time.Sleep(80 * time.Millisecond)
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusPlaying, snap.Status, "a stale timer must not stop the new session")
+}
+
+func TestStopIn_NewInReplacesPendingTimer(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+
+	decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{In: "20ms"}))
+	st := decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{In: "150ms"}))
+	assert.NotEmpty(t, st.StopAt)
+
+	// The replaced (shorter) timer must not fire.
+	time.Sleep(60 * time.Millisecond)
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusPlaying, snap.Status, "the replaced timer must not stop playback")
+
+	c.waitState("replacement timer stopped playback", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusStopped
+	})
+}
+
+func TestStopCancel_DropsPendingTimerWithoutStopping(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{In: "20ms"}))
+
+	st := decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{Cancel: true}))
+	assert.Equal(t, protocol.StatusPlaying, st.Status, "cancel must not stop playback")
+	assert.Empty(t, st.StopAt)
+
+	time.Sleep(60 * time.Millisecond)
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusPlaying, snap.Status, "the canceled timer must not fire")
+}
+
+func TestStopCancel_NoPendingTimerIsANoOp(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+
+	st := decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{Cancel: true}))
+	assert.Empty(t, st.StopAt)
+}
+
+func TestShutdown_CancelsPendingStopTimer(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{In: time.Minute.String()}))
+
+	s.Shutdown()
+	select {
+	case <-s.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not complete")
+	}
+	player.mu.Lock()
+	assert.False(t, player.playing)
+	player.mu.Unlock()
+	// The main assertion is implicit: with the race detector enabled, a
+	// pending timer not canceled by Shutdown would fire on a torn-down
+	// server and race with (or panic on) reused test state.
+}
+
 func TestPlay_SupersededByNewerPlay(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	c := connect(t, s)

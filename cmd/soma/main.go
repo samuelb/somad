@@ -205,6 +205,11 @@ func printUsage(w io.Writer) {
   soma prev [--json]          play the previous channel
   soma pause [--json]         toggle pause (reconnects the live stream on unpause)
   soma stop [--json]          stop playback
+  soma stop --in <duration>   stop after this long instead (e.g. 45m; a sleep
+                                 timer owned by the daemon, so it fires even
+                                 after this command exits; replaces any timer
+                                 already pending)
+  soma stop --cancel          cancel a pending sleep timer without stopping
   soma status [--json]        show what is playing
   soma volume [--json] [<0-100>|+n|-n]
                                  show, set, or adjust the playback volume

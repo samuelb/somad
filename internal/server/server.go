@@ -95,6 +95,15 @@ type Server struct {
 	saveSeq          uint64 // bumped per state mutation; orders persist writes
 	reconnectTimer   *time.Timer
 	idleTimer        *time.Timer
+
+	// stopTimer is the pending sleep-timer stop armed by StopIn, if any;
+	// stopAt is when it will fire (zero when none is pending). stopGen is
+	// bumped whenever the pending timer is armed or canceled, so a timer
+	// that already fired its AfterFunc backs out instead of stopping a
+	// session it no longer owns.
+	stopTimer *time.Timer
+	stopAt    time.Time
+	stopGen   uint64
 }
 
 // New creates a Server and applies the persisted volume to the player.
@@ -190,6 +199,7 @@ func (s *Server) Shutdown() {
 		s.playGen++ // any play still connecting must not commit after this
 		gen := s.playGen
 		s.cancelReconnectLocked()
+		s.cancelStopTimerLocked()
 		s.disarmIdleLocked()
 		lns := s.lns
 		open := make([]*conn, 0, len(s.conns))
@@ -351,6 +361,9 @@ func (s *Server) snapshotLocked() protocol.PlaybackState {
 	}
 	if s.status == protocol.StatusReconnecting {
 		ps.ReconnectAttempt = s.reconnectAttempt
+	}
+	if !s.stopAt.IsZero() {
+		ps.StopAt = s.stopAt.Format(time.RFC3339)
 	}
 	return ps
 }
