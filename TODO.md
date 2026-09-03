@@ -18,14 +18,6 @@ needs a decision.
 
 Ordered roughly by value ÷ effort.
 
-- [ ] **Prefer https stream URLs** [S]. Two separate chooser sites:
-      `internal/channels/select.go` ranks `.pls` entries by format and
-      quality only, and `pkg/playlist/parser.go:57` `parseFirstStreamURL`
-      returns the first `FileN=` entry regardless of scheme. The latter is
-      the one that matters for MITM of audio and ICY titles, since that is
-      what `fetchStream` connects to. `security.ValidateURL` allows plain
-      http by design (`validation.go:63`); prefer an https `FileN` and
-      optionally tighten `ValidateURL` behind a flag.
 - [ ] **PSK quality** [S]. Template suggests `psk: "change-me"`
       (`internal/config/config.go:235` and `:258`, mirrored in README);
       `Config.validate` checks only mutual exclusivity; `readPSKFile`
@@ -52,11 +44,6 @@ Ordered roughly by value ÷ effort.
       cubic/exponential mapping; keep `Volume()` returning the un-curved
       target so the wire stays in percent. The fade steps (`player.go:390`,
       `:435`) scale linearly too and should go through the same curve.
-- [ ] **Stream quality knob** [S]. No `quality` key exists in any config
-      struct (`KnownFields(true)` makes it a hard error today).
-      `internal/channels/select.go` `selectBestQuality` always takes the
-      lowest rank in `{highest, high, low}`. Add `quality` to `ServerConfig`
-      and thread a preferred rank into `SelectPlaylists`.
 - [ ] **Track history** [M]. `somafm.com` is allowed exactly by
       `ValidateURL` (`validation.go:68`), so
       `https://somafm.com/songs/<channel>.json` passes today, and the daemon
