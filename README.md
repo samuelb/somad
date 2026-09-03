@@ -344,11 +344,16 @@ speak the same protocol version.
 | <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up            |
 | <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down          |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel           |
+| <kbd>p</kbd>                        | Play / pause (pause stops the stream; play reconnects live) |
 | <kbd>s</kbd>                        | Stop playback                   |
-| <kbd>+</kbd> / <kbd>-</kbd>         | Volume up / down                |
-| <kbd>m</kbd>                        | Toggle mute                     |
+| <kbd>+</kbd> / <kbd>-</kbd>         | Volume up / down (<kbd>=</kbd> / <kbd>_</kbd> work too) |
+| <kbd>m</kbd>                        | Toggle mute (restores the previous level) |
 | <kbd>f</kbd> / <kbd>*</kbd>         | Toggle favorite                 |
-| <kbd>/</kbd>                        | Filter channels                 |
+| <kbd>/</kbd>                        | Search channels: type to jump to the first match |
+| <kbd>n</kbd> / <kbd>N</kbd>         | Next / previous search match    |
+| <kbd>c</kbd>                        | Clear the search                |
+| <kbd>a</kbd>                        | About                           |
+| <kbd>Esc</kbd>                      | Close the about screen / cancel the search |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
 
 ## Configuration

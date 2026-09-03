@@ -194,19 +194,25 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 	if shutdownOnExit {
 		quitHelp = "quit (stops server)"
 	}
+	// Keep these in step with the keymap in Update and with the README and
+	// website tables (see "Where facts live" in AGENTS.md).
 	fullHelp := []key.Binding{
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/space", "play selected")),
 		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
-		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume")),
+		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume (also =/_)")),
 		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
+		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear search")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
+		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close about / cancel search")),
 		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", quitHelp)),
 	}
 
 	shortHelp := []key.Binding{
+		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "play")),
 		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
