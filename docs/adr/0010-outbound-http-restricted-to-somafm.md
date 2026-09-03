@@ -1,7 +1,7 @@
 # ADR-0010: All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped
 
 - **Status:** Accepted
-- **Date:** 2026-02-18 (hardened through 2026-07-12)
+- **Date:** 2026-02-18 (hardened through 2026-07-12; Last.fm allowlist entry 2026-09-03)
 - **Sources:** 8b9f5e4, cbdb7af, f2955b4, f1acbfa, 494330d, 04b1ad4, acdf2e5, 3a143ad; `internal/security/validation.go`, `securitytest/`
 
 ## Context
@@ -22,14 +22,20 @@ review flagged SSRF-shaped code paths.
   ten hops to any host.
 - One shared `http.Client` for connection reuse against the same few hosts.
 - Response bodies are capped: 4 MiB for the catalog, 1 MiB for a playlist.
-- Both `http` and `https` schemes are accepted, because SomaFM's playlists
-  list plain-http stream URLs.
+- Both `http` and `https` schemes are accepted for SomaFM hosts, because
+  SomaFM's playlists list plain-http stream URLs.
+- **2026-09-03:** Last.fm scrobbling (TODO.md) added `ws.audioscrobbler.com`
+  as its own entry, `lastfmHosts`, consulted by `ValidateURL` alongside the
+  SomaFM check rather than folded into it — exactly the "explicit second
+  allowlist entry, not a widening" this ADR called for below. Unlike the
+  SomaFM allowlist, it is https-only: there is no legacy plain-http stream
+  URL to accommodate there, and the API carries session keys.
 
 ## Consequences
 
-- Adding an integration that talks to another host (Last.fm scrobbling is
-  wanted, see TODO.md) requires an explicit second allowlist entry, not a
-  widening of the check.
+- Adding an integration that talks to another host requires an explicit
+  second allowlist entry, not a widening of the check, as Last.fm scrobbling
+  did above.
 - Plain http means audio and ICY titles are MITM-able on hostile
   networks; preferring an https playlist entry where one exists is an
   open item in TODO.md.

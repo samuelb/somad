@@ -80,6 +80,45 @@ func TestValidateURL(t *testing.T) {
 	}
 }
 
+func TestValidateURLLastfmHost(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{
+			name:    "https last.fm API host is allowed",
+			url:     "https://ws.audioscrobbler.com/2.0/",
+			wantErr: false,
+		},
+		{
+			name:    "plain http last.fm API host is rejected",
+			url:     "http://ws.audioscrobbler.com/2.0/",
+			wantErr: true,
+		},
+		{
+			name:    "an unrelated host is still rejected",
+			url:     "https://evil.com/2.0/",
+			wantErr: true,
+		},
+		{
+			name:    "a host merely ending in the last.fm API host is rejected",
+			url:     "https://evilws.audioscrobbler.com/2.0/",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateURL(tt.url)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateURLExtraAllowedHost(t *testing.T) {
 	const host = "localhost"
 	url := "http://" + host + ":8080/stream"

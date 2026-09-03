@@ -12,6 +12,15 @@ import (
 
 const allowedHostSuffix = ".somafm.com"
 
+// lastfmHosts are the Last.fm API hosts allowed for the scrobbling
+// integration (TODO.md "Last.fm scrobbling"). They are a second, explicit
+// allowlist rather than a widening of the SomaFM rule above (ADR-0010): a
+// bug in the somafm.com check must not accidentally also open the door to
+// an unrelated host. Unlike SomaFM's allowlist, these hosts are https-only —
+// there is no legacy plain-http use case here, and the API carries session
+// keys.
+var lastfmHosts = []string{"ws.audioscrobbler.com"}
+
 // maxRedirects matches net/http's default redirect limit, re-applied here
 // because supplying CheckRedirect replaces that default.
 const maxRedirects = 10
@@ -61,16 +70,32 @@ func ValidateURL(rawURL string) error {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
-		return fmt.Errorf("invalid URL scheme: %s (expected http or https)", parsed.Scheme)
-	}
-
 	host := strings.ToLower(parsed.Hostname())
-	if !strings.HasSuffix(host, allowedHostSuffix) && host != "somafm.com" && !isExtraAllowedHost(host) {
-		return fmt.Errorf("URL host not allowed: %s (must be somafm.com or subdomain)", host)
+
+	switch {
+	case isSomaFMHost(host), isExtraAllowedHost(host):
+		// SomaFM's playlists list plain-http stream URLs, and tests allow
+		// their own httptest hosts over http too.
+		if parsed.Scheme != "https" && parsed.Scheme != "http" {
+			return fmt.Errorf("invalid URL scheme: %s (expected http or https)", parsed.Scheme)
+		}
+	case slices.Contains(lastfmHosts, host):
+		// No legacy plain-http use case for Last.fm, and the API carries
+		// session keys, so https is required rather than just preferred.
+		if parsed.Scheme != "https" {
+			return fmt.Errorf("invalid URL scheme: %s (expected https)", parsed.Scheme)
+		}
+	default:
+		return fmt.Errorf("URL host not allowed: %s (must be somafm.com or subdomain, an explicitly allowed Last.fm host, or a test host)", host)
 	}
 
 	return nil
+}
+
+// isSomaFMHost reports whether host is somafm.com or one of its
+// subdomains (case-insensitive; host must already be lowercased).
+func isSomaFMHost(host string) bool {
+	return host == "somafm.com" || strings.HasSuffix(host, allowedHostSuffix)
 }
 
 func isExtraAllowedHost(host string) bool {
