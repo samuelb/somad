@@ -128,6 +128,7 @@ func TestEnsureTemplateCreatesParseableDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	assert.Nil(t, cfg.Server.Tray)
+	assert.Nil(t, cfg.Server.Quality)
 	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 
 	// The commented-out settings must be real: uncommenting them (dropping
@@ -149,6 +150,8 @@ func TestEnsureTemplateCreatesParseableDefaults(t *testing.T) {
 	assert.Equal(t, 2*time.Minute, time.Duration(*cfg.Server.IdleTimeout))
 	require.NotNil(t, cfg.Server.Tray)
 	assert.True(t, *cfg.Server.Tray)
+	require.NotNil(t, cfg.Server.Quality)
+	assert.Equal(t, "highest", *cfg.Server.Quality)
 	require.NotNil(t, cfg.TUI.ShutdownOnExit)
 	assert.False(t, *cfg.TUI.ShutdownOnExit)
 }
@@ -192,6 +195,25 @@ client:
 	assert.Equal(t, "myserver:5454", *cfg.Client.Server)
 	require.NotNil(t, cfg.Client.TLSFingerprint)
 	require.NotNil(t, cfg.Client.PSKFile)
+}
+
+func TestLoadQuality(t *testing.T) {
+	for _, quality := range []string{"highest", "high", "low"} {
+		t.Run(quality, func(t *testing.T) {
+			writeConfig(t, "server:\n  quality: "+quality+"\n")
+			cfg, err := Load()
+			require.NoError(t, err)
+			require.NotNil(t, cfg.Server.Quality)
+			assert.Equal(t, quality, *cfg.Server.Quality)
+		})
+	}
+}
+
+func TestLoadRejectsUnknownQuality(t *testing.T) {
+	writeConfig(t, "server:\n  quality: lossless\n")
+	_, err := Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "server.quality")
 }
 
 func TestLoadRejectsContradictoryTransportConfig(t *testing.T) {

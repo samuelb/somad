@@ -208,10 +208,11 @@ func printUsage(w io.Writer) {
                                  show, set, or adjust the playback volume
   soma daemon [flags]         run the playback server in the foreground
                                  (--no-tray hides the tray / menu-bar icon;
-                                  --listen <host:port> also serves frontends
-                                  over TCP, --tls encrypts it, --psk-file
-                                  requires a pre-shared key, --show-cert
-                                  prints the TLS certificate fingerprint)
+                                  --quality prefers a stream quality; --listen
+                                  <host:port> also serves frontends over TCP,
+                                  --tls encrypts it, --psk-file requires a
+                                  pre-shared key, --show-cert prints the TLS
+                                  certificate fingerprint)
   soma daemon stop            shut down the playback server
   soma completion <bash|zsh>  print a completion script for the given shell
   soma --version              print version information
@@ -233,6 +234,7 @@ Server and connection flags can also be set in %s
   server:
     idle_timeout: 5m   # exit after this long idle (default "0": never)
     tray: false        # hide the tray / menu-bar icon
+    quality: high      # preferred stream quality (default "highest")
     listen: ":5454"    # also serve frontends over TCP
     tls: true          # ...encrypted (auto-generated certificate)
     psk: "secret"      # ...and authenticated
@@ -286,6 +288,8 @@ func runServer(args []string) {
 		"exit after this long with no clients and stopped playback (0 disables)")
 	noTray := fs.Bool("no-tray", defaultNoTray,
 		"do not show the system tray / menu-bar icon while the server runs")
+	quality := fs.String("quality", str(cfg.Server.Quality),
+		"preferred stream quality: highest, high, or low (falls back to the nearest available; default highest)")
 	listen := fs.String("listen", str(cfg.Server.Listen),
 		"also listen for frontends on this TCP host:port (empty: Unix socket only)")
 	tlsOn := fs.Bool("tls", cfg.Server.TLS != nil && *cfg.Server.TLS,
@@ -301,6 +305,12 @@ func runServer(args []string) {
 	showCert := fs.Bool("show-cert", false,
 		"print the TLS certificate path and fingerprint, then exit")
 	_ = fs.Parse(args)
+
+	switch *quality {
+	case "", "highest", "high", "low":
+	default:
+		log.Fatalf("--quality (or server.quality in the config) must be one of highest, high, low (got %q)", *quality)
+	}
 
 	certPath, keyPath := *tlsCert, *tlsKey
 	if (certPath == "") != (keyPath == "") {
@@ -393,6 +403,7 @@ func runServer(args []string) {
 		Tray:        tr,
 		IdleTimeout: *idleTimeout,
 		PSK:         psk,
+		Quality:     *quality,
 	})
 
 	// The server must survive its spawning terminal closing; SIGINT/SIGTERM

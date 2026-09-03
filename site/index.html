@@ -138,8 +138,8 @@
         </li>
         <li>
           <span class="flow-label">SomaFM</span>
-          <p>Plays each channel's best stream directly, AAC on macOS and MP3 on Linux, and
-            reconnects on its own when the network hiccups.</p>
+          <p>Plays each channel's best stream directly, AAC on macOS and MP3 on Linux (stream
+            quality is configurable), and reconnects on its own when the network hiccups.</p>
         </li>
       </ol>
       <p class="note">Frontends and daemon talk over a local socket, or over TCP with TLS and a
@@ -308,6 +308,10 @@ systemctl --user enable --now soma.service</code></pre>
             skip it automatically.</p>
           <p>After an upgrade, the running daemon is restarted onto the new version the next time you
             change channel, pause or stop, never mid-song.</p>
+          <p>The server picks each channel's best stream quality by default; set
+            <code>--quality</code> (or <code>server.quality</code>) to <code>highest</code>,
+            <code>high</code>, or <code>low</code> to prefer a lower one, e.g. to save bandwidth — a
+            channel lacking that exact quality falls back to the nearest one it has.</p>
         </div>
       </div>
 
@@ -373,6 +377,8 @@ soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk</code></p
   idle_timeout: 5m
   <span class="c"># Show the tray / menu-bar icon. Default: true.</span>
   tray: false
+  <span class="c"># Preferred stream quality: highest (default), high, or low.</span>
+  quality: high
   <span class="c"># Also serve remote frontends over TCP ...</span>
   listen: "0.0.0.0:5454"
   <span class="c"># ... encrypted (auto-generated certificate unless

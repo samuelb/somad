@@ -109,7 +109,7 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 	// this build decodes it), falling back to the next when one fails to
 	// connect or decode.
 	formats := supportedFormats()
-	candidates := channels.SelectPlaylists(playlists, formats)
+	candidates := channels.SelectPlaylists(playlists, formats, s.quality)
 	if len(candidates) == 0 {
 		// Reconnecting cannot conjure up a playlist, so never retry this.
 		return s.failConnect(gen, fmt.Errorf("no playable stream for %s (supported formats: %s)",

@@ -34,7 +34,8 @@ Linux and macOS — other platforms are not supported and may not work.
 - Browse and filter the full list of SomaFM radio channels
 - Plays each channel's best stream directly in your terminal — AAC on
   macOS (via the system decoder, falling back to MP3 automatically if the
-  AAC stream fails), MP3 on Linux
+  AAC stream fails), MP3 on Linux; stream quality (`highest`/`high`/`low`)
+  is configurable with `soma daemon --quality`
 - View real-time track information (artist/title) from ICY metadata
 - Buffered streaming with automatic reconnection on network issues
 - Styled UI with color-coded playback states and visual indicators
@@ -281,6 +282,12 @@ the [configuration file](#configuration)) to run without it. On a headless
 host (no display or GUI session) the tray is skipped automatically and the
 server, CLI, and TUI all keep working.
 
+Each channel offers a few stream qualities; the server picks the best one by
+default. Pass `soma daemon --quality <highest|high|low>` (or set
+`server.quality` in the [configuration file](#configuration)) to prefer a
+lower one instead, e.g. to save bandwidth — a channel that lacks the exact
+quality you asked for falls back to the nearest one it does have.
+
 ### Remote control over TCP
 
 By default the daemon only listens on a local Unix socket. To control a soma
@@ -369,6 +376,11 @@ server:
   # Whether to show the system tray / menu-bar icon while the server runs.
   # Default: true. `tray: false` is the same as --no-tray.
   tray: false
+
+  # Preferred stream quality: "highest" (the default), "high", or "low". A
+  # channel lacking a playlist at exactly that quality falls back to the
+  # nearest one it does have. Same as --quality.
+  quality: high
 
   # Also listen for remote frontends on TCP (see "Remote control over TCP").
   # Default: unset (Unix socket only). Same as --listen.

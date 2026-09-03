@@ -96,8 +96,8 @@ playback server in the foreground (`daemon stop` shuts it down); `play`,
 `list`, `favorite`/`fav`, `next`, `prev`, `pause`, `stop`, `status`,
 `volume`, `completion <bash|zsh>`, `version`. Global connection flags
 (`--server`, `--tls`, `--tls-ca`, `--tls-fingerprint`, `--psk-file`) go
-before the command; daemon flags (`--idle-timeout`, `--no-tray`, `--listen`,
-`--tls`, `--tls-cert`, `--tls-key`, `--psk-file`, `--insecure`,
+before the command; daemon flags (`--idle-timeout`, `--no-tray`, `--quality`,
+`--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`, `--insecure`,
 `--show-cert`) go after it. `play`, `list`, `favorite`, `next`, `prev`,
 `pause`, `stop`, `status`, `volume` all take `--json`.
 
@@ -106,9 +106,11 @@ like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`
 (honored on both platforms; use them to isolate manual runs).
 
 **Config keys** (`internal/config`, YAML, all optional pointers; unknown keys
-and parse errors are fatal by design): `server.{idle_timeout, tray, listen,
-tls, tls_cert, tls_key, psk, psk_file, insecure}`, `client.{server, tls,
-tls_ca, tls_fingerprint, psk, psk_file}`, `tui.shutdown_on_exit`. Config
+and parse errors are fatal by design): `server.{idle_timeout, tray, quality,
+listen, tls, tls_cert, tls_key, psk, psk_file, insecure}`, `client.{server,
+tls, tls_ca, tls_fingerprint, psk, psk_file}`, `tui.shutdown_on_exit`.
+`server.quality` is one of `highest`/`high`/`low` (validated); a channel
+lacking that exact quality falls back to the nearest one it has. Config
 supplies flag defaults; explicit flags win.
 
 **Directories**: config `~/.config/somad/` (Linux) or

@@ -46,7 +46,7 @@ func TestCompletionScriptsCoverCLI(t *testing.T) {
 		"--server", "--tls", "--tls-ca", "--tls-fingerprint", "--psk-file",
 		"--shutdown-on-exit",
 		// daemon flags
-		"--idle-timeout", "--no-tray", "--listen", "--tls-cert", "--tls-key",
+		"--idle-timeout", "--no-tray", "--quality", "--listen", "--tls-cert", "--tls-key",
 		"--show-cert",
 		// per-command output flag
 		"--json",

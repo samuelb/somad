@@ -59,6 +59,12 @@ type ServerConfig struct {
 	// Insecure allows a non-loopback TCP listener without TLS and a PSK,
 	// which the server otherwise refuses to start. Same as --insecure.
 	Insecure *bool `yaml:"insecure"`
+	// Quality is the preferred stream quality: "highest", "high", or "low".
+	// A channel lacking a playlist at that exact quality falls back to the
+	// nearest one it does have. Unset means "highest" (the pre-existing
+	// behavior). Same as the --quality flag. The valid values mirror
+	// internal/channels/select.go's qualityRank.
+	Quality *string `yaml:"quality"`
 }
 
 // ClientConfig configures how the TUI and CLI reach the server. It mirrors
@@ -173,8 +179,14 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// validate rejects contradictory remote-transport settings, so a
-// misconfigured setup fails at startup instead of at connect time.
+// validQualities are the accepted values of server.quality, mirroring the
+// keys of qualityRank in internal/channels/select.go (not imported here to
+// keep this low-level package free of the channels package's dependencies).
+var validQualities = map[string]bool{"highest": true, "high": true, "low": true}
+
+// validate rejects contradictory remote-transport settings and unknown
+// enum-like values, so a misconfigured setup fails at startup instead of at
+// connect time (or, for quality, silently falling back to the default).
 func (c *Config) validate() error {
 	set := func(s *string) bool { return s != nil && *s != "" }
 	if set(c.Server.TLSCert) != set(c.Server.TLSKey) {
@@ -182,6 +194,9 @@ func (c *Config) validate() error {
 	}
 	if set(c.Server.PSK) && set(c.Server.PSKFile) {
 		return errors.New("server.psk and server.psk_file are mutually exclusive")
+	}
+	if c.Server.Quality != nil && !validQualities[*c.Server.Quality] {
+		return fmt.Errorf("server.quality must be one of highest, high, low (got %q)", *c.Server.Quality)
 	}
 	if set(c.Client.PSK) && set(c.Client.PSKFile) {
 		return errors.New("client.psk and client.psk_file are mutually exclusive")
@@ -213,6 +228,14 @@ const templateFormat = `# Soma configuration file.
 #  # Show the system tray / menu-bar icon while the server runs.
 #  # "tray: false" is the same as the --no-tray flag.
 #  tray: true
+#
+#  # Preferred stream quality. Same as the --quality flag. A channel lacking
+#  # a playlist at exactly this quality falls back to the nearest one it
+#  # does have.
+#  #   "highest"    best available (the default)
+#  #   "high"
+#  #   "low"
+#  quality: highest
 #
 #  # Also listen for frontends on TCP (host:port), e.g. to control this
 #  # machine's playback from a laptop. Same as the --listen flag. The Unix

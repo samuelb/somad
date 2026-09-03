@@ -38,6 +38,10 @@ _soma() {
         COMPREPLY=()
         return
         ;;
+    --quality)
+        COMPREPLY=($(compgen -W "highest high low" -- "$cur"))
+        return
+        ;;
     esac
 
     # Find the subcommand: the first non-flag word, skipping values of
@@ -89,7 +93,7 @@ _soma() {
         COMPREPLY=($(compgen -W "--json" -- "$cur"))
         ;;
     daemon)
-        COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --listen --tls
+        COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --quality --listen --tls
             --tls-cert --tls-key --psk-file --insecure --show-cert" -- "$cur"))
         ;;
     completion)

@@ -79,6 +79,7 @@ _soma() {
             _arguments \
                 '--idle-timeout[exit after this long with no clients and stopped playback (0 disables)]:duration:' \
                 '--no-tray[do not show the system tray / menu-bar icon]' \
+                '--quality[preferred stream quality]:quality:(highest high low)' \
                 '--listen[also listen for frontends on this TCP host:port]:host\:port:' \
                 '--tls[serve the TCP listener over TLS]' \
                 '--tls-cert[PEM certificate for the TCP listener (implies --tls)]:file:_files' \

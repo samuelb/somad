@@ -134,6 +134,7 @@ func testChannels() []channels.Channel {
 			Title: "Both Formats",
 			Playlists: []channels.Playlist{
 				{URL: "http://somafm.com/both.pls", Format: "mp3", Quality: "highest"},
+				{URL: "http://somafm.com/both-low.pls", Format: "mp3", Quality: "low"},
 				{URL: "http://somafm.com/both130.pls", Format: "aac", Quality: "highest"},
 			},
 		},

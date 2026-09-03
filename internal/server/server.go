@@ -41,6 +41,11 @@ type Config struct {
 	// connections are exempt: the socket directory's permissions already
 	// restrict them to the owning user.
 	PSK string
+	// Quality is the preferred stream quality passed to
+	// channels.SelectPlaylists: "highest", "high", or "low". Empty (or any
+	// other value) means no preference, which selects the best available
+	// quality.
+	Quality string
 }
 
 // Server is the soma daemon. All mutable fields are guarded by mu; the
@@ -54,6 +59,7 @@ type Server struct {
 	tray        *tray.Tray
 	idleTimeout time.Duration
 	psk         string
+	quality     string
 
 	// persist writes user state to disk. It defaults to state.SaveState;
 	// tests override it to avoid fsync-heavy disk writes on every mutation.
@@ -102,6 +108,7 @@ func New(cfg Config) *Server {
 		tray:        cfg.Tray,
 		idleTimeout: cfg.IdleTimeout,
 		psk:         cfg.PSK,
+		quality:     cfg.Quality,
 		persist:     state.SaveState,
 		done:        make(chan struct{}),
 		conns:       make(map[*conn]struct{}),

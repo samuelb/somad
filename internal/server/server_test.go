@@ -154,6 +154,32 @@ func TestPlay_PrefersAACWhenSupported(t *testing.T) {
 	player.mu.Unlock()
 }
 
+func TestPlay_UsesConfiguredQuality(t *testing.T) {
+	s, player := newTestServer(t, Config{Quality: "low"}) // pinned to MP3-only; see newTestServer
+
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "bothformats"}))
+
+	player.mu.Lock()
+	assert.Equal(t, []string{"http://somafm.com/both-low.pls#stream"}, player.playURLs)
+	player.mu.Unlock()
+}
+
+func TestPlay_UnconfiguredQualityStillPrefersHighest(t *testing.T) {
+	s, player := newTestServer(t, Config{}) // no quality preference configured
+
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "bothformats"}))
+
+	player.mu.Lock()
+	assert.Equal(t, []string{"http://somafm.com/both.pls#stream"}, player.playURLs)
+	player.mu.Unlock()
+}
+
 func TestPlay_StopDuringFallbackDoesNotStartNextCandidate(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	supportedFormats = func() []string { return []string{audio.FormatAAC, audio.FormatMP3} }
