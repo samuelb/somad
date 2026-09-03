@@ -27,14 +27,6 @@ Ordered roughly by value ÷ effort.
       `daemon.go`/`tui.go`. Coverage: `cmd/soma` is at 41.9%, the lowest
       package with real logic (`internal/platform` at 0% and `tray` at 28.8%
       are thin OS bindings).
-- [ ] **Last.fm scrobbling** [L, wanted]. Now-playing on track change,
-      scrobble after the usual ≥30 s / half-track rule, API key + session
-      key in config, one-time auth flow (`soma lastfm login`). Two
-      constraints from the codebase: all outbound HTTP goes through
-      `security.NewRequest`, whose allowlist is SomaFM-only, so
-      `ws.audioscrobbler.com` needs an explicit second allowlist entry
-      rather than a widening; and the artist/title split above is a
-      prerequisite.
 ## P3 — polish
 
 Small hygiene fixes first, then features, then code quality.
