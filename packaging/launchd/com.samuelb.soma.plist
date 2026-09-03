@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Soma playback daemon, as a per-user LaunchAgent.
+
+  Install (adjust the soma path below to wherever you installed it, e.g.
+  /opt/homebrew/bin/soma for a Homebrew install on Apple Silicon,
+  /usr/local/bin/soma on Intel, or wherever you copied it from the DMG):
+    cp packaging/launchd/com.samuelb.soma.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist
+
+  Logs: /tmp/soma.log (StandardOutPath / StandardErrorPath below), plus
+  the state directory's server.log.
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.samuelb.soma.plist
+    rm ~/Library/LaunchAgents/com.samuelb.soma.plist
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.samuelb.soma</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/soma</string>
+		<string>daemon</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/tmp/soma.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/soma.log</string>
+</dict>
+</plist>

@@ -1,0 +1,25 @@
+# Soma playback daemon, as a systemd --user unit.
+#
+# Install (from a source checkout or after a distro package places this
+# file in /usr/lib/systemd/user/):
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now soma.service
+#
+# Logs: journalctl --user -u soma.service
+
+[Unit]
+Description=Soma SomaFM playback daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/soma daemon
+# On a headless host (no display or GUI session) the tray is skipped
+# automatically, but add --no-tray below to disable it explicitly, e.g.
+# to avoid the tray host lookup entirely:
+#   ExecStart=/usr/bin/soma daemon --no-tray
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

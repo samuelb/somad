@@ -224,6 +224,20 @@ soma completion zsh | sudo tee /usr/local/share/zsh/site-functions/_soma</code><
           <p>Completions cover every subcommand and flag, and <code>soma play</code> completes channel
             IDs from the local cache without starting the daemon or touching the network.</p>
         </div>
+
+        <div class="card">
+          <h3>Background service <small>systemd / launchd</small></h3>
+          <p>The Debian and RPM packages install a systemd <code>--user</code> unit to
+            <code>/usr/lib/systemd/user/soma.service</code>; enable it with:</p>
+          <pre><code>systemctl --user daemon-reload
+systemctl --user enable --now soma.service</code></pre>
+          <p>Its <code>ExecStart</code> has a commented <code>--no-tray</code> variant for headless
+            hosts. nfpm only builds Linux packages, so macOS gets nothing installed automatically —
+            copy <code>packaging/launchd/com.samuelb.soma.plist</code> from the repo to
+            <code>~/Library/LaunchAgents/</code>, edit the <code>soma</code> path inside it to match
+            your install, and run:</p>
+          <pre><code>launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist</code></pre>
+        </div>
       </div>
     </section>
 
@@ -279,7 +293,9 @@ soma completion zsh | sudo tee /usr/local/share/zsh/site-functions/_soma</code><
           <h3 id="background-playback">Background playback</h3>
           <p>Audio is streamed and decoded by a separate <code>soma daemon</code> process that the TUI
             and the CLI talk to over a Unix socket. It starts automatically when first needed; run
-            <code>soma daemon</code> yourself to watch its logs or run it under a service manager.</p>
+            <code>soma daemon</code> yourself to watch its logs or run it under a service manager
+            &mdash; see <a href="#install">Install</a> for the systemd unit and launchd plist this
+            repo ships.</p>
           <p>The daemon keeps running until <code>soma daemon stop</code> or the tray's <em>Quit</em>
             item. Set <code>--idle-timeout</code> (or <code>server.idle_timeout</code>) to make it exit
             on its own once playback is stopped and no client is connected. While it runs it shows a

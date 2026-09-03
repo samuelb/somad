@@ -52,3 +52,5 @@ contents:
   - src: cmd/soma/completions/soma.zsh
     dst: /usr/share/zsh/site-functions/_soma
     packager: rpm
+  - src: packaging/systemd/soma.service
+    dst: /usr/lib/systemd/user/soma.service

@@ -252,6 +252,19 @@ Quit item); set an idle timeout with `soma daemon --idle-timeout` or the
 make it exit on its own once playback is stopped and no client is connected
 for that long.
 
+To run the daemon as a persistent background service instead of starting it
+by hand, this repo ships a systemd `--user` unit and a macOS LaunchAgent
+under `packaging/`. On Linux, the Debian and RPM packages install
+`packaging/systemd/soma.service` to `/usr/lib/systemd/user/soma.service`;
+enable it with `systemctl --user daemon-reload && systemctl --user enable
+--now soma.service` (its `ExecStart` has a commented `--no-tray` variant for
+headless hosts). On macOS, copy `packaging/launchd/com.samuelb.soma.plist`
+to `~/Library/LaunchAgents/`, edit the `soma` path inside it to match your
+install (Homebrew or wherever you copied the binary from the DMG), and run
+`launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist`; nfpm only
+builds Linux packages, so the plist isn't installed by any package and has
+to be copied in by hand.
+
 While the server runs it shows a tray / menu-bar icon (macOS and Linux, where a
 tray host is available) with the current track, a "Channels" submenu for
 switching stations (favorites first, marked ★, the playing one marked ▸),
@@ -304,7 +317,9 @@ a warning, since they are no more exposed than the Unix socket.
 
 Two things work differently with a remote server: the client never
 auto-starts one (start `soma daemon` on the server yourself, e.g. under a
-service manager), and a version-skewed remote server is never restarted onto
+service manager — see [Background playback](#background-playback) for the
+systemd unit and launchd plist this repo ships), and a version-skewed remote
+server is never restarted onto
 the client's binary — mismatched builds keep working together as long as they
 speak the same protocol version.
 
