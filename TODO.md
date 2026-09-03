@@ -14,20 +14,6 @@ needs a decision.
 
 ## P1 — correctness and security
 
-- [ ] **Connect-phase timeout is shorter than the daemon's worst case** [S–M]
-      (`internal/client/client.go` `callTimeout` = 30 s applies to every
-      call; `internal/audio/player.go` `streamStallTimeout` = 30 s,
-      `audioReadyTimeout` = 15 s; `pkg/playlist/parser.go` resolves with a
-      15 s ctx). `security.HTTPClient` sets no `Timeout`, and the stream
-      fetch has no dial/first-byte deadline at all, only the stall watchdog.
-      A `play` can therefore spend up to (15 + 30) s per candidate × 2
-      candidates + 15 s device wait ≈ 105 s in the daemon, while the CLI
-      gives up at 30 s with "timed out waiting for play response" and the
-      daemon then succeeds on the MP3 fallback. Note the client's 5 s
-      `dialTimeout` covers only the socket/TLS connect to the daemon.
-      **Fix:** give the pre-first-byte stream phase its own ~10 s deadline
-      in `fetchStream`, and let `play` use a longer per-method client
-      timeout than the other calls.
 - [ ] **Release binaries embed the wrong commit** [S]
       (`.github/workflows/release.yml:145` and `:176`). Both build jobs
       stamp `-X main.commit=${GITHUB_SHA::7}`, the workflow-trigger SHA, but

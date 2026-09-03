@@ -29,6 +29,14 @@ const (
 // reconnection. A variable so tests can shrink it.
 var streamStallTimeout = 30 * time.Second
 
+// streamConnectTimeout bounds the connect phase of a stream fetch: from the
+// request until the first body byte. It is deliberately shorter than the
+// stall watchdog, which is tuned for an established stream: a server that
+// does not even answer should fail fast so the next candidate (or the
+// reconnect backoff) gets its turn and the client's play call does not
+// time out first. A variable so tests can shrink it.
+var streamConnectTimeout = 10 * time.Second
+
 // Stream buffering (see streamBuffer): at SomaFM's usual 128 kbps the
 // capacity holds about half a minute of audio and the prefill about two
 // seconds — a head start that rides out ordinary delivery jitter. Icecast
@@ -370,15 +378,26 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 	// before the request so a server that never answers is caught too.
 	reqCtx, cancelReq := context.WithCancel(ctx)
 	defer cancelReq()
-	var stalled atomic.Bool
+	var stalled, connectTimedOut atomic.Bool
 	watchdog := time.AfterFunc(streamStallTimeout, func() {
 		stalled.Store(true)
 		cancelReq()
 	})
 	defer watchdog.Stop()
-	// stallErr rewrites an error caused by the watchdog's own cancellation
-	// into one that names the stall.
+	// The connect deadline runs until the first body byte, where the
+	// watchdogReader below disarms it; from then on only the watchdog
+	// applies.
+	connectTimer := time.AfterFunc(streamConnectTimeout, func() {
+		connectTimedOut.Store(true)
+		cancelReq()
+	})
+	defer connectTimer.Stop()
+	// stallErr rewrites an error caused by one of the timers' own
+	// cancellation into one that names the timeout.
 	stallErr := func(err error) error {
+		if connectTimedOut.Load() {
+			return fmt.Errorf("stream connect timed out: no data received within %s", streamConnectTimeout)
+		}
 		if stalled.Load() {
 			return fmt.Errorf("stream stalled: no data received for %s", streamStallTimeout)
 		}
@@ -410,7 +429,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 	// drain, so the error handling below is unchanged. When fetchStream
 	// returns, the deferred cancelReq unblocks the fill goroutine's network
 	// read; Close alone could not.
-	raw := &watchdogReader{r: resp.Body, timer: watchdog, timeout: streamStallTimeout}
+	raw := &watchdogReader{r: resp.Body, timer: watchdog, timeout: streamStallTimeout, connect: connectTimer}
 	buf := newStreamBuffer(raw, streamBufferSize, streamBufferPrefill, streamBufferPrefillWait)
 	defer buf.Close()
 
@@ -459,16 +478,22 @@ func (e *errorReportingReader) Read(b []byte) (int, error) {
 
 // watchdogReader re-arms the stall watchdog on every read that delivers
 // data, so the watchdog only fires when the stream stops delivering
-// entirely.
+// entirely. The first byte also disarms the connect deadline, when one is
+// set.
 type watchdogReader struct {
 	r       io.Reader
 	timer   *time.Timer
 	timeout time.Duration
+	connect *time.Timer // may be nil
 }
 
 func (w *watchdogReader) Read(b []byte) (int, error) {
 	n, err := w.r.Read(b)
 	if n > 0 {
+		if w.connect != nil {
+			w.connect.Stop()
+			w.connect = nil
+		}
 		w.timer.Reset(w.timeout)
 	}
 	return n, err

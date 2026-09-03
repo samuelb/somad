@@ -22,10 +22,18 @@ import (
 // future calls fail with it.
 var ErrDisconnected = errors.New("soma daemon connection lost")
 
-// callTimeout bounds a single request/response round trip. Play blocks on
-// the network until the stream is decoding, so this is generous.
-// A variable so tests can shrink it.
+// callTimeout bounds a single request/response round trip for the quick
+// methods. A variable so tests can shrink it.
 var callTimeout = 30 * time.Second
+
+// playCallTimeout bounds the play-ish calls, which block in the daemon
+// until a stream is decoding or every candidate has failed. The daemon's
+// worst case per candidate is the 15 s playlist fetch plus the 10 s stream
+// connect deadline plus a 30 s stall while priming the decoder; with two
+// candidates and the 15 s audio-device wait that is a little over 100 s,
+// so this must exceed it or the client gives up while the daemon goes on
+// to succeed on the fallback. A variable so tests can shrink it.
+var playCallTimeout = 2 * time.Minute
 
 // Client is a connection to the soma daemon. Safe for concurrent use.
 type Client struct {
@@ -257,7 +265,7 @@ func (c *Client) call(method string, params any, result any) error {
 		return fmt.Errorf("%w: %v", ErrDisconnected, err)
 	}
 
-	timeout := time.NewTimer(callTimeout)
+	timeout := time.NewTimer(callTimeoutFor(method))
 	defer timeout.Stop()
 
 	select {
@@ -279,6 +287,16 @@ func (c *Client) call(method string, params any, result any) error {
 		delete(c.pending, id)
 		c.mu.Unlock()
 		return fmt.Errorf("timed out waiting for %s response", method)
+	}
+}
+
+// callTimeoutFor returns the round-trip bound for a method.
+func callTimeoutFor(method string) time.Duration {
+	switch method {
+	case protocol.MethodPlay, protocol.MethodPlayPause, protocol.MethodPlayRelative:
+		return playCallTimeout
+	default:
+		return callTimeout
 	}
 }
 

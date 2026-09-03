@@ -253,6 +253,14 @@ func TestClient_CallTimesOutWithoutResponse(t *testing.T) {
 	assert.Zero(t, pending, "timed-out call left a pending entry")
 }
 
+func TestCallTimeoutFor_PlayIsLongerThanTheRest(t *testing.T) {
+	assert.Equal(t, playCallTimeout, callTimeoutFor(protocol.MethodPlay))
+	assert.Equal(t, playCallTimeout, callTimeoutFor(protocol.MethodPlayPause))
+	assert.Equal(t, playCallTimeout, callTimeoutFor(protocol.MethodPlayRelative))
+	assert.Equal(t, callTimeout, callTimeoutFor(protocol.MethodStatus))
+	assert.Greater(t, playCallTimeout, callTimeout)
+}
+
 func TestEnsureServer_SpawnsAndRetries(t *testing.T) {
 	path := testSocketPath(t)
 

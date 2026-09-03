@@ -482,6 +482,87 @@ func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 	}
 }
 
+// shortConnectTimeout shrinks the stream connect deadline for a test.
+func shortConnectTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	orig := streamConnectTimeout
+	streamConnectTimeout = d
+	t.Cleanup(func() { streamConnectTimeout = orig })
+}
+
+func TestFetchStream_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	shortStallTimeout(t, 5*time.Second)
+	shortConnectTimeout(t, 100*time.Millisecond)
+
+	// Headers arrive but no body ever does: the connect deadline, not the
+	// (much longer) stall watchdog, must end the attempt.
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	p := newTestPlayer()
+	pr, pw := io.Pipe()
+	start := time.Now()
+	go p.fetchStream(context.Background(), 1, server.URL, pw)
+
+	// Headers already arrived, so the failure is owned by the async path.
+	data, _ := drainPipe(pr)
+	assert.Empty(t, data)
+	assert.Less(t, time.Since(start), 2*time.Second)
+	select {
+	case reported := <-p.errChan:
+		assert.Contains(t, reported.Error(), "stream connect timed out")
+	default:
+		t.Fatal("expected the connect timeout to be reported")
+	}
+}
+
+func TestFetchStream_ConnectDeadlineDisarmedByFirstByte(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	shortStallTimeout(t, 400*time.Millisecond)
+	shortConnectTimeout(t, 100*time.Millisecond)
+
+	// Data flows right away, then the stream goes silent for longer than
+	// the connect deadline but shorter than the stall watchdog: the
+	// connect deadline must be gone by then.
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("first"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write([]byte("second"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	p := newTestPlayer()
+	pr, pw := io.Pipe()
+	go p.fetchStream(context.Background(), 1, server.URL, pw)
+
+	data, _ := drainPipe(pr)
+	assert.Equal(t, "firstsecond", string(data))
+	select {
+	case reported := <-p.errChan:
+		assert.Contains(t, reported.Error(), "stream stalled", "the eventual failure is the stall, not the connect deadline")
+	default:
+		t.Fatal("expected the stall to be reported")
+	}
+}
+
 func TestWatchdogReader_RearmsOnData(t *testing.T) {
 	shortStallTimeout(t, 100*time.Millisecond)
 
