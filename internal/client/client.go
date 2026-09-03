@@ -361,6 +361,14 @@ func (c *Client) SetVolume(v float64) (protocol.PlaybackState, error) {
 	return st, err
 }
 
+// ToggleMute mutes playback, remembering the current volume to restore, or
+// restores it (or a sensible default) when already muted.
+func (c *Client) ToggleMute() (protocol.PlaybackState, error) {
+	var st protocol.PlaybackState
+	err := c.call(protocol.MethodToggleMute, nil, &st)
+	return st, err
+}
+
 // ToggleFavorite flips a channel's favorite flag and returns the new list.
 func (c *Client) ToggleFavorite(channelID string) ([]string, error) {
 	var result protocol.FavoritesResult

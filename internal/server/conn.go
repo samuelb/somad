@@ -306,6 +306,9 @@ func (c *conn) handleRequest(req protocol.Request) {
 		}
 		c.respond(req.ID, c.s.SetVolume(params.Volume, true))
 
+	case protocol.MethodToggleMute:
+		c.respond(req.ID, c.s.ToggleMute())
+
 	case protocol.MethodToggleFavorite:
 		var params protocol.ToggleFavoriteParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {

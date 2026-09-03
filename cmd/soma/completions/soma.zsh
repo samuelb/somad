@@ -73,7 +73,7 @@ _soma() {
         volume)
             _arguments \
                 '--json[print machine-readable JSON]' \
-                '1:volume (0-100, +n, -n):' && ret=0
+                '1:volume (0-100, +n, -n, mute):(mute)' && ret=0
             ;;
         daemon)
             _arguments \

@@ -122,9 +122,9 @@ per-user temp dir on macOS.
 
 **RPC methods** (`internal/protocol/protocol.go`): `authChallenge`, `auth`,
 `hello`, `status`, `channels`, `play`, `playPause`, `playRelative`, `stop`,
-`setVolume`, `toggleFavorite`, `shutdown`. Events: `state`, `channels`.
-`protocol.Version` (currently 1) must match exactly between client and
-server; bump it on any incompatible wire change.
+`setVolume`, `toggleMute`, `toggleFavorite`, `shutdown`. Events: `state`,
+`channels`. `protocol.Version` (currently 2) must match exactly between
+client and server; bump it on any incompatible wire change.
 
 **Test helpers**: `internal/server/helpers_test.go` has `newTestServer`,
 `newMockPlayer`, `connect` (a raw wire client with `call`, `hello`,

@@ -8,7 +8,7 @@ import "encoding/json"
 
 // Version is the protocol version. A client and server must agree on it
 // exactly; bump it on any incompatible wire change.
-const Version = 1
+const Version = 2
 
 // Method names for Request.Method.
 const (
@@ -22,6 +22,7 @@ const (
 	MethodPlayRelative   = "playRelative"
 	MethodStop           = "stop"
 	MethodSetVolume      = "setVolume"
+	MethodToggleMute     = "toggleMute"
 	MethodToggleFavorite = "toggleFavorite"
 	MethodShutdown       = "shutdown"
 )

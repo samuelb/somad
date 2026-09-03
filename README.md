@@ -224,6 +224,7 @@ background if one isn't running yet.
 | `soma stop [--json]`       | Stop playback                                            |
 | `soma status [--json]`     | Show what is playing                                     |
 | `soma volume [--json] [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
+| `soma volume mute [--json]` | Toggle mute, restoring the previous volume          |
 | `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp)) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
@@ -345,6 +346,7 @@ speak the same protocol version.
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel           |
 | <kbd>s</kbd>                        | Stop playback                   |
 | <kbd>+</kbd> / <kbd>-</kbd>         | Volume up / down                |
+| <kbd>m</kbd>                        | Toggle mute                     |
 | <kbd>f</kbd> / <kbd>*</kbd>         | Toggle favorite                 |
 | <kbd>/</kbd>                        | Filter channels                 |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |

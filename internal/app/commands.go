@@ -20,6 +20,9 @@ type Backend interface {
 	PlayPause() (protocol.PlaybackState, error)
 	Stop() (protocol.PlaybackState, error)
 	SetVolume(v float64) (protocol.PlaybackState, error)
+	// ToggleMute mutes playback, remembering the current volume to restore,
+	// or restores it (or a sensible default) when already muted.
+	ToggleMute() (protocol.PlaybackState, error)
 	ToggleFavorite(channelID string) ([]string, error)
 	// Shutdown stops the server so the reconnect loop respawns a fresh one; the
 	// TUI uses it to upgrade an out-of-date server when the user changes or
@@ -194,6 +197,19 @@ func (m *Model) setVolumeCmd(v float64) tea.Cmd {
 		st, err := b.SetVolume(v)
 		if err != nil {
 			return requestErr("volume", err)
+		}
+		return ServerStateMsg{State: st}
+	}
+}
+
+// toggleMuteCmd mutes or unmutes on the server, which remembers the
+// pre-mute level and restores it.
+func (m *Model) toggleMuteCmd() tea.Cmd {
+	b := m.Backend
+	return func() tea.Msg {
+		st, err := b.ToggleMute()
+		if err != nil {
+			return requestErr("mute", err)
 		}
 		return ServerStateMsg{State: st}
 	}

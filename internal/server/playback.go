@@ -304,6 +304,35 @@ func (s *Server) SetVolume(v float64, mirrorToMPRIS bool) protocol.PlaybackState
 	return snap
 }
 
+// ToggleMute mutes playback (remembering the current volume so it can be
+// restored) or, when already at 0, restores the remembered volume — or a
+// sensible default when nothing was remembered, e.g. the volume reached 0
+// through explicit steps rather than a previous mute.
+func (s *Server) ToggleMute() protocol.PlaybackState {
+	s.mu.Lock()
+	current := s.player.Volume()
+	var target float64
+	if current > 0 {
+		s.st.MuteVolume(current)
+		target = 0
+	} else {
+		target = s.st.UnmuteVolume()
+	}
+	s.player.SetVolume(target)
+	s.st.SetVolume(target) // clears the pre-mute level when target > 0
+	stateToSave := s.st.Clone()
+	saveSeq := s.nextSaveSeqLocked()
+	if s.mpris != nil {
+		s.mpris.SetVolume(target)
+	}
+	s.broadcastStateLocked()
+	snap := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.saveState(saveSeq, stateToSave)
+	return snap
+}
+
 // handleTrackUpdate publishes a now-playing title from the stream's ICY
 // metadata.
 func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {

@@ -206,6 +206,7 @@ func printUsage(w io.Writer) {
   soma status [--json]        show what is playing
   soma volume [--json] [<0-100>|+n|-n]
                                  show, set, or adjust the playback volume
+  soma volume mute [--json]      toggle mute, restoring the previous level
   soma daemon [flags]         run the playback server in the foreground
                                  (--no-tray hides the tray / menu-bar icon;
                                   --quality prefers a stream quality; --listen

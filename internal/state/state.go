@@ -19,6 +19,11 @@ type State struct {
 	// Volume is a pointer so an explicit 0 (muted) is distinguishable from
 	// "never set" (which defaults to full volume).
 	Volume *float64 `json:"volume,omitempty"`
+	// PreMuteVolume is the volume to restore on the next mute toggle. It is
+	// set when ToggleMute mutes (drops volume to 0) and cleared by any
+	// explicit SetVolume to a non-zero level, so a level chosen after a mute
+	// is never silently overridden by an old pre-mute value.
+	PreMuteVolume *float64 `json:"pre_mute_volume,omitempty"`
 }
 
 // Clone returns an independent copy suitable for saving without holding the
@@ -34,6 +39,10 @@ func (s *State) Clone() *State {
 	if s.Volume != nil {
 		v := *s.Volume
 		clone.Volume = &v
+	}
+	if s.PreMuteVolume != nil {
+		v := *s.PreMuteVolume
+		clone.PreMuteVolume = &v
 	}
 	return clone
 }
@@ -54,9 +63,29 @@ func (s *State) GetVolume() float64 {
 	return v
 }
 
-// SetVolume stores the volume for the next session.
+// SetVolume stores the volume for the next session. A non-zero level clears
+// any stored pre-mute volume: it is a deliberate new level, not an unmute,
+// so a stale pre-mute value must not resurface on a later mute toggle.
 func (s *State) SetVolume(v float64) {
 	s.Volume = &v
+	if v > 0 {
+		s.PreMuteVolume = nil
+	}
+}
+
+// MuteVolume remembers v as the level to restore on the next unmute.
+func (s *State) MuteVolume(v float64) {
+	s.PreMuteVolume = &v
+}
+
+// UnmuteVolume returns the level to restore when unmuting: the remembered
+// pre-mute volume, or a sensible default when nothing was remembered (e.g.
+// volume reached 0 through explicit steps rather than a mute toggle).
+func (s *State) UnmuteVolume() float64 {
+	if s.PreMuteVolume == nil {
+		return 1.0
+	}
+	return *s.PreMuteVolume
 }
 
 // IsFavorite returns true if the given channel ID is in the favorites list.

@@ -27,6 +27,8 @@ type fakeDaemon struct {
 	deltas    []int
 	stops     int
 	shutdowns int
+	mutes     int
+	preMute   float64 // remembered pre-mute volume; 0 means "none stored"
 	status    protocol.PlaybackState
 	payload   protocol.ChannelsPayload
 }
@@ -119,6 +121,23 @@ func (d *fakeDaemon) handle(req protocol.Request) any {
 		var p protocol.SetVolumeParams
 		_ = json.Unmarshal(req.Params, &p)
 		d.status.Volume = p.Volume
+		if p.Volume > 0 {
+			d.preMute = 0
+		}
+		return d.status
+	case protocol.MethodToggleMute:
+		d.mutes++
+		if d.status.Volume > 0 {
+			d.preMute = d.status.Volume
+			d.status.Volume = 0
+		} else {
+			if d.preMute > 0 {
+				d.status.Volume = d.preMute
+			} else {
+				d.status.Volume = 1
+			}
+			d.preMute = 0
+		}
 		return d.status
 	case protocol.MethodToggleFavorite:
 		var p protocol.ToggleFavoriteParams
@@ -321,6 +340,24 @@ func TestRunVolume_JSON(t *testing.T) {
 	out = captureStdout(t, func() { runVolume([]string{"--json", "80"}) })
 	require.NoError(t, json.Unmarshal([]byte(out), &st))
 	assert.InDelta(t, 0.8, st.Volume, 1e-9)
+}
+
+func TestRunVolume_Mute(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runVolume([]string{"mute"}) })
+	assert.Contains(t, out, "Muted")
+	d.mu.Lock()
+	assert.Equal(t, 1, d.mutes)
+	assert.Zero(t, d.status.Volume)
+	d.mu.Unlock()
+
+	out = captureStdout(t, func() { runVolume([]string{"mute"}) })
+	assert.Contains(t, out, "Volume:  50%")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Equal(t, 2, d.mutes)
+	assert.InDelta(t, 0.5, d.status.Volume, 1e-9)
 }
 
 func TestRunFavorite_ToggleWithJSON(t *testing.T) {

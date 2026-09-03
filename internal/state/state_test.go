@@ -75,12 +75,45 @@ func TestSetVolume_ZeroIsDistinctFromUnset(t *testing.T) {
 	assert.Zero(t, s.GetVolume(), "an explicit mute must not fall back to full volume")
 }
 
+func TestUnmuteVolume_DefaultsWhenNothingStored(t *testing.T) {
+	s := &State{}
+	assert.Equal(t, 1.0, s.UnmuteVolume())
+}
+
+func TestMuteVolume_RestoredByUnmuteVolume(t *testing.T) {
+	s := &State{}
+	s.MuteVolume(0.4)
+	assert.InDelta(t, 0.4, s.UnmuteVolume(), 1e-9)
+}
+
+func TestSetVolume_NonZeroClearsPreMuteLevel(t *testing.T) {
+	s := &State{}
+	s.MuteVolume(0.4)
+
+	s.SetVolume(0.7)
+
+	assert.Nil(t, s.PreMuteVolume)
+	assert.Equal(t, 1.0, s.UnmuteVolume(), "no level was remembered after the explicit set")
+}
+
+func TestSetVolume_ZeroKeepsPreMuteLevel(t *testing.T) {
+	s := &State{}
+	s.MuteVolume(0.4)
+
+	// Setting the volume to 0 outside of ToggleMute (e.g. the "-" key
+	// stepping down to zero) must not clobber a remembered pre-mute level.
+	s.SetVolume(0)
+
+	assert.InDelta(t, 0.4, s.UnmuteVolume(), 1e-9)
+}
+
 func TestClone_IsIndependent(t *testing.T) {
 	original := &State{
 		LastSelectedChannelID: "groovesalad",
 		FavoriteChannelIDs:    []string{"dronezone"},
 	}
 	original.SetVolume(0.4)
+	original.MuteVolume(0.7)
 
 	clone := original.Clone()
 	original.LastSelectedChannelID = "secretagent"
@@ -90,6 +123,7 @@ func TestClone_IsIndependent(t *testing.T) {
 	assert.Equal(t, "groovesalad", clone.LastSelectedChannelID)
 	assert.Equal(t, []string{"dronezone"}, clone.FavoriteChannelIDs)
 	assert.InDelta(t, 0.4, clone.GetVolume(), 1e-9)
+	assert.InDelta(t, 0.7, clone.UnmuteVolume(), 1e-9, "the pre-mute level clones independently too")
 }
 
 func TestSaveAndLoadState_WithVolume(t *testing.T) {

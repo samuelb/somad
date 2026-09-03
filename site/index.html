@@ -264,6 +264,7 @@ systemctl --user enable --now soma.service</code></pre>
               <tr><td><code>soma stop [--json]</code></td><td>Stop playback</td></tr>
               <tr><td><code>soma status [--json]</code></td><td>Show what is playing</td></tr>
               <tr><td><code>soma volume [--json] [&lt;0-100&gt;|+n|-n]</code></td><td>Show the volume, set it, or adjust it relative to the current value</td></tr>
+              <tr><td><code>soma volume mute [--json]</code></td><td>Toggle mute, restoring the previous volume</td></tr>
               <tr><td><code>soma daemon</code></td><td>Run the daemon in the foreground (<code>--no-tray</code> hides the tray icon; <code>--listen</code>, <code>--tls</code>, <code>--psk-file</code> serve <a href="#remote-control">remote frontends</a>)</td></tr>
               <tr><td><code>soma daemon stop</code></td><td>Shut down the daemon</td></tr>
               <tr><td><code>soma completion &lt;bash|zsh&gt;</code></td><td>Print a completion script for the given shell</td></tr>
@@ -286,6 +287,7 @@ systemctl --user enable --now soma.service</code></pre>
               <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td>Play selected channel</td></tr>
               <tr><td><kbd>s</kbd></td><td>Stop playback</td></tr>
               <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Volume up / down</td></tr>
+              <tr><td><kbd>m</kbd></td><td>Toggle mute</td></tr>
               <tr><td><kbd>f</kbd> / <kbd>*</kbd></td><td>Toggle favorite</td></tr>
               <tr><td><kbd>/</kbd></td><td>Filter channels</td></tr>
               <tr><td><kbd>q</kbd> / <kbd>Ctrl+C</kbd></td><td>Quit the TUI (playback continues, unless started with <code>--shutdown-on-exit</code>)</td></tr>

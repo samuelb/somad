@@ -535,9 +535,9 @@ func printJSON(v any) {
 }
 
 // runVolume shows the volume when called without an argument, sets it for an
-// absolute percentage, and adjusts it for an explicitly signed one. With
-// --json, it prints a protocol.PlaybackState instead of the human-readable
-// line, in every case (show, set, and adjust).
+// absolute percentage, adjusts it for an explicitly signed one, or toggles
+// mute. With --json, it prints a protocol.PlaybackState instead of the
+// human-readable line, in every case.
 func runVolume(args []string) {
 	args, jsonOut := stripJSONFlag(args)
 	if len(args) == 0 {
@@ -545,7 +545,11 @@ func runVolume(args []string) {
 		return
 	}
 	if len(args) != 1 {
-		fail("usage: soma volume [--json] [<0-100> | +<n> | -<n>]")
+		fail("usage: soma volume [--json] [<0-100> | +<n> | -<n> | mute]")
+	}
+	if args[0] == "mute" {
+		runVolumeMute(jsonOut)
+		return
 	}
 	pct, relative, err := parseVolumeArg(args[0])
 	if err != nil {
@@ -573,6 +577,27 @@ func runVolume(args []string) {
 		return
 	}
 	fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
+}
+
+// runVolumeMute toggles mute, restoring the pre-mute level (or a sensible
+// default) on the way back.
+func runVolumeMute(jsonOut bool) {
+	c := ensureServer()
+	defer func() { _ = c.Close() }()
+
+	st, err := c.ToggleMute()
+	if err != nil {
+		fail("%v", err)
+	}
+	if jsonOut {
+		printJSON(st)
+		return
+	}
+	if st.Volume == 0 {
+		fmt.Println("Muted")
+	} else {
+		fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
+	}
 }
 
 // parseVolumeArg parses a volume argument: an absolute percentage in [0, 100],

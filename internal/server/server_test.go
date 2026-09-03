@@ -466,6 +466,62 @@ func TestSetVolume_ClampsAndPersists(t *testing.T) {
 	assert.InDelta(t, 0.4, persisted.GetVolume(), 1e-9)
 }
 
+func TestToggleMute_MutesAndRestores(t *testing.T) {
+	s, player := newTestServer(t, Config{State: &state.State{}})
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodSetVolume, protocol.SetVolumeParams{Volume: 0.6}))
+
+	st := decodeState(t, c.call(protocol.MethodToggleMute, nil))
+	assert.Zero(t, st.Volume)
+	assert.Zero(t, player.Volume())
+
+	persisted, err := state.LoadState()
+	require.NoError(t, err)
+	assert.Zero(t, persisted.GetVolume())
+	require.NotNil(t, persisted.PreMuteVolume)
+	assert.InDelta(t, 0.6, *persisted.PreMuteVolume, 1e-9)
+
+	st = decodeState(t, c.call(protocol.MethodToggleMute, nil))
+	assert.InDelta(t, 0.6, st.Volume, 1e-9)
+	assert.InDelta(t, 0.6, player.Volume(), 1e-9)
+
+	persisted, err = state.LoadState()
+	require.NoError(t, err)
+	assert.InDelta(t, 0.6, persisted.GetVolume(), 1e-9)
+	assert.Nil(t, persisted.PreMuteVolume, "unmuting clears the remembered level")
+}
+
+func TestToggleMute_NoStoredLevelRestoresDefault(t *testing.T) {
+	s, player := newTestServer(t, Config{State: &state.State{Volume: floatPtr(0)}})
+	c := connect(t, s)
+	c.hello()
+
+	st := decodeState(t, c.call(protocol.MethodToggleMute, nil))
+	assert.InDelta(t, 1.0, st.Volume, 1e-9)
+	assert.InDelta(t, 1.0, player.Volume(), 1e-9)
+}
+
+func TestToggleMute_ExplicitVolumeClearsPreMuteLevel(t *testing.T) {
+	s, _ := newTestServer(t, Config{State: &state.State{}})
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodSetVolume, protocol.SetVolumeParams{Volume: 0.6}))
+	decodeState(t, c.call(protocol.MethodToggleMute, nil)) // mutes, remembers 0.6
+	decodeState(t, c.call(protocol.MethodSetVolume, protocol.SetVolumeParams{Volume: 0.3}))
+
+	// Muted again from an explicit, unrelated level: the old 0.6 must not
+	// resurface.
+	st := decodeState(t, c.call(protocol.MethodToggleMute, nil))
+	assert.Zero(t, st.Volume)
+	st = decodeState(t, c.call(protocol.MethodToggleMute, nil))
+	assert.InDelta(t, 0.3, st.Volume, 1e-9)
+}
+
+func floatPtr(v float64) *float64 { return &v }
+
 func TestToggleFavorite_PersistsAndBroadcasts(t *testing.T) {
 	s, _ := newTestServer(t, Config{})
 	c := connect(t, s)

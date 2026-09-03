@@ -112,6 +112,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setVolumeCmd(m.Snapshot.Volume + volumeStep)
 		case "-", "_":
 			return m, m.setVolumeCmd(m.Snapshot.Volume - volumeStep)
+		case "m":
+			return m, m.toggleMuteCmd()
 		case "c":
 			// Clear search
 			if m.SearchQuery != "" {
@@ -197,6 +199,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
 		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume")),
+		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
@@ -207,6 +210,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
+		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 	}

@@ -92,6 +92,9 @@ _soma() {
     list | status | next | prev | pause | stop | volume)
         COMPREPLY=($(compgen -W "--json" -- "$cur"))
         ;;
+    volume)
+        COMPREPLY=($(compgen -W "mute" -- "$cur"))
+        ;;
     daemon)
         COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --quality --listen --tls
             --tls-cert --tls-key --psk-file --insecure --show-cert" -- "$cur"))

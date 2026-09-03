@@ -330,6 +330,22 @@ func TestUpdate_VolumeKeys_ClampAtBounds(t *testing.T) {
 	assert.InDelta(t, 0.0, m.Snapshot.Volume, 1e-9)
 }
 
+func TestUpdate_MuteKey_TogglesMute(t *testing.T) {
+	m := newTestModel(t)
+	m.Snapshot.Volume = 0.6
+	backend(m).status.Volume = 0.6 // ToggleMute has no params; it mutes from the backend's own state
+
+	_, cmd := sendKey(m, 'm')
+	m.Update(runCmd(cmd))
+	assert.Equal(t, 1, backend(m).mutes)
+	assert.Zero(t, m.Snapshot.Volume)
+
+	_, cmd = sendKey(m, 'm')
+	m.Update(runCmd(cmd))
+	assert.Equal(t, 2, backend(m).mutes)
+	assert.InDelta(t, 0.6, m.Snapshot.Volume, 1e-9)
+}
+
 func TestUpdate_FavoriteKey_TogglesSelected(t *testing.T) {
 	m := newTestModel(t)
 	m.List.Select(1) // dronezone

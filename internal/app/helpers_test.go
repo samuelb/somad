@@ -22,6 +22,8 @@ type fakeBackend struct {
 	stops      int
 	shutdowns  int
 	volumes    []float64
+	mutes      int
+	preMute    float64 // remembered pre-mute volume; 0 means "none stored"
 	favorites  []string
 	status     protocol.PlaybackState
 	payload    protocol.ChannelsPayload
@@ -107,6 +109,29 @@ func (b *fakeBackend) SetVolume(v float64) (protocol.PlaybackState, error) {
 	}
 	b.volumes = append(b.volumes, v)
 	b.status.Volume = v
+	return b.status, nil
+}
+
+// ToggleMute mutes (remembering the current volume) or restores it (or a
+// default of 1 when nothing was remembered), mirroring the real server.
+func (b *fakeBackend) ToggleMute() (protocol.PlaybackState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.PlaybackState{}, b.callErr
+	}
+	b.mutes++
+	if b.status.Volume > 0 {
+		b.preMute = b.status.Volume
+		b.status.Volume = 0
+	} else {
+		if b.preMute > 0 {
+			b.status.Volume = b.preMute
+		} else {
+			b.status.Volume = 1
+		}
+		b.preMute = 0
+	}
 	return b.status, nil
 }
 
