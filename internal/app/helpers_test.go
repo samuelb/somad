@@ -224,6 +224,7 @@ func newTestModel(t *testing.T) *Model {
 	l.SetShowTitle(false)
 	l.SetFilteringEnabled(false)
 	m.List = l
+	m.allItems = items
 
 	return m
 }

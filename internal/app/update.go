@@ -107,11 +107,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "/":
-			// Enter search mode
+			// Enter search mode. An existing query (kept after Enter) is
+			// pre-filled for editing rather than reset.
 			m.Searching = true
-			m.SearchQuery = ""
-			m.SearchMatches = nil
-			m.CurrentMatch = -1
 			m.UpdateListSize()
 			return m, nil
 		case "n":
@@ -241,7 +239,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
 		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume (also =/_)")),
 		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
-		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter channels")),
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
 		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear search")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
@@ -256,7 +254,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
 		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
-		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 		key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
 	}

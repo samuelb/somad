@@ -3,7 +3,12 @@ package app
 import (
 	"testing"
 
+	"somad/internal/channels"
+	"somad/internal/ui"
+
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrintableRunes(t *testing.T) {
@@ -44,10 +49,15 @@ func TestUpdateSearchMatches_WithMatches(t *testing.T) {
 	m.SearchQuery = "zone"
 	m.UpdateSearchMatches()
 
-	assert.Len(t, m.SearchMatches, 1)
+	// The list becomes a matches-only view, so "Drone Zone" (the only
+	// match) is the sole, and therefore first, item shown.
+	require.Len(t, m.SearchMatches, 1)
 	assert.Equal(t, 0, m.CurrentMatch)
-	// "Drone Zone" is index 1 in the list
-	assert.Equal(t, 1, m.SearchMatches[0])
+	assert.Equal(t, 0, m.SearchMatches[0])
+	require.Len(t, m.List.Items(), 1)
+	sel, ok := m.List.Items()[0].(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, "dronezone", sel.Channel.ID)
 }
 
 func TestUpdateSearchMatches_MatchesDescription(t *testing.T) {
@@ -174,4 +184,40 @@ func TestIsMatch_NoMatches(t *testing.T) {
 
 	assert.False(t, m.IsMatch(0))
 	assert.False(t, m.IsMatch(1))
+}
+
+func TestFuzzyMatchItems_TitleRankedBeforeDescription(t *testing.T) {
+	items := []list.Item{
+		ui.Item{Channel: channels.Channel{ID: "a", Title: "Something Else", Description: "nothing relevant"}},
+		ui.Item{Channel: channels.Channel{ID: "b", Title: "Zebra Crossing", Description: "unrelated"}},
+		ui.Item{Channel: channels.Channel{ID: "c", Title: "Unrelated Too", Description: "a zebra wanders by"}},
+	}
+
+	result := fuzzyMatchItems(items, "zebra")
+
+	require.Len(t, result, 2)
+	first, ok := result[0].(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, "b", first.Channel.ID, "the title match ranks before the description-only match")
+	second, ok := result[1].(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, "c", second.Channel.ID)
+}
+
+func TestFuzzyMatchItems_CaseInsensitive(t *testing.T) {
+	items := []list.Item{
+		ui.Item{Channel: channels.Channel{ID: "a", Title: "Groove Salad"}},
+	}
+
+	result := fuzzyMatchItems(items, "GROOVE")
+
+	assert.Len(t, result, 1)
+}
+
+func TestFuzzyMatchItems_NoMatch(t *testing.T) {
+	items := []list.Item{
+		ui.Item{Channel: channels.Channel{ID: "a", Title: "Groove Salad"}},
+	}
+
+	assert.Empty(t, fuzzyMatchItems(items, "xyzzy"))
 }

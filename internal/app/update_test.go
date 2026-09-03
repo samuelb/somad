@@ -186,6 +186,19 @@ func TestUpdate_SearchModeEnter(t *testing.T) {
 	assert.Equal(t, -1, m.CurrentMatch)
 }
 
+func TestUpdate_SearchModeEnter_PrefillsExistingQuery(t *testing.T) {
+	m := newTestModel(t)
+	m.SearchQuery = "groove"
+	m.UpdateSearchMatches()
+	m.Searching = false // as if Enter had been pressed, keeping the filter
+
+	sendKey(m, '/')
+
+	assert.True(t, m.Searching)
+	assert.Equal(t, "groove", m.SearchQuery, "re-opening search pre-fills the existing query for editing")
+	require.Len(t, m.List.Items(), 1, "the matches-only view stays in place")
+}
+
 func TestUpdate_SearchMode_TypeChar(t *testing.T) {
 	m := newTestModel(t)
 	m.Searching = true
@@ -193,6 +206,21 @@ func TestUpdate_SearchMode_TypeChar(t *testing.T) {
 	sendKey(m, 'g')
 
 	assert.Equal(t, "g", m.SearchQuery)
+}
+
+func TestUpdate_SearchMode_TypingNarrowsListToMatches(t *testing.T) {
+	m := newTestModel(t)
+	m.Searching = true
+	require.Len(t, m.List.Items(), len(testChannels()))
+
+	for _, r := range "zone" {
+		sendKey(m, r)
+	}
+
+	require.Len(t, m.List.Items(), 1, "the list narrows to a matches-only view")
+	sel, ok := m.List.Items()[0].(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, "dronezone", sel.Channel.ID)
 }
 
 func TestUpdate_SearchMode_TypeNonASCII(t *testing.T) {
@@ -239,12 +267,22 @@ func TestUpdate_SearchMode_Escape_ClearsSearch(t *testing.T) {
 	m.Searching = true
 	m.SearchQuery = "groove"
 	m.UpdateSearchMatches()
+	require.Len(t, m.List.Items(), 1, "matches-only view narrows the list while searching")
+	selected, ok := m.List.SelectedItem().(ui.Item)
+	require.True(t, ok)
+	selectedID := selected.Channel.ID
 
 	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
 	assert.False(t, m.Searching)
 	assert.Empty(t, m.SearchQuery)
 	assert.Empty(t, m.SearchMatches)
+	// Cancelling restores the full list, keeping the cursor on the channel
+	// that was selected within the filtered view.
+	assert.Len(t, m.List.Items(), len(testChannels()))
+	sel, ok := m.List.SelectedItem().(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, selectedID, sel.Channel.ID)
 }
 
 func TestUpdate_SearchMode_Enter_ExitsSearchKeepsQuery(t *testing.T) {
@@ -450,6 +488,7 @@ func TestUpdate_ClearSearch_ClearsQuery(t *testing.T) {
 
 	assert.Empty(t, m.SearchQuery)
 	assert.Empty(t, m.SearchMatches)
+	assert.Len(t, m.List.Items(), len(testChannels()), "clearing restores the full list")
 }
 
 func TestUpdate_NextMatchKey_Navigates(t *testing.T) {

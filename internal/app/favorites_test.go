@@ -90,19 +90,25 @@ func TestToggleFavorite_CursorFollowsChannel(t *testing.T) {
 	assert.Equal(t, "dronezone", selected.Channel.ID)
 }
 
-func TestToggleFavorite_SearchMatchesRebuilt(t *testing.T) {
+func TestToggleFavorite_WhileSearching_KeepsMatchesOnlyView(t *testing.T) {
 	m := newTestModel(t)
-	m.SearchQuery = "zone"
+	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
-	initialMatch := m.SearchMatches[0]
+	// Both Groove Salad's and Drone Zone's descriptions mention "ambient".
+	require.Len(t, m.SearchMatches, 2)
+	require.Len(t, m.List.Items(), 2)
 
-	// Favorite Drone Zone (index 1 initially)
-	m.List.Select(1)
+	sel, ok := m.List.SelectedItem().(ui.Item)
+	require.True(t, ok)
+	selectedID := sel.Channel.ID
+
 	m.ToggleFavorite()
 
-	// After Drone Zone moves to top (index 0), search matches must reflect new index
-	require.NotEmpty(t, m.SearchMatches)
-	assert.NotEqual(t, initialMatch, m.SearchMatches[0], "indices should have been rebuilt")
+	assert.Contains(t, m.Favorites, selectedID)
+	// Favoriting a channel does not remove it from an active search filter;
+	// the matches-only view still shows exactly the matches.
+	assert.Len(t, m.List.Items(), 2)
+	assert.Len(t, m.SearchMatches, 2)
 }
 
 func TestSortItemsWithFavorites_NoFavorites(t *testing.T) {

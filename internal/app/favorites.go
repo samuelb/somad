@@ -41,14 +41,11 @@ func (m *Model) ToggleFavorite() tea.Cmd {
 		m.Favorites = append(slices.Clone(m.Favorites), selectedID)
 	}
 
-	// Re-sort items with favorites on top, keeping the cursor on the same channel
-	m.List.SetItems(m.sortItemsWithFavorites(m.List.Items()))
-	m.selectChannelByID(selectedID)
-
-	// Update search matches since indices changed
-	if m.SearchQuery != "" {
-		m.UpdateSearchMatches()
-	}
+	// Re-sort the full catalog with favorites on top, then recompute the
+	// visible (possibly filtered) list, keeping the cursor on the same
+	// channel.
+	m.allItems = m.sortItemsWithFavorites(m.allItems)
+	m.refreshVisibleItems(selectedID)
 
 	b := m.Backend
 	return func() tea.Msg {
@@ -72,11 +69,8 @@ func (m *Model) applyFavorites(favs []string) {
 	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
 		selectedID = sel.Channel.ID
 	}
-	m.List.SetItems(m.sortItemsWithFavorites(m.List.Items()))
-	m.selectChannelByID(selectedID)
-	if m.SearchQuery != "" {
-		m.UpdateSearchMatches()
-	}
+	m.allItems = m.sortItemsWithFavorites(m.allItems)
+	m.refreshVisibleItems(selectedID)
 }
 
 // sortItemsWithFavorites returns items partitioned with favorites first,

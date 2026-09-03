@@ -66,8 +66,13 @@ type Model struct {
 	// Search state
 	Searching     bool   // Whether search input is active
 	SearchQuery   string // Current search query
-	SearchMatches []int  // Indices of matching items
+	SearchMatches []int  // Indices into m.List.Items() of matching items
 	CurrentMatch  int    // Current position in searchMatches (-1 if none)
+
+	// allItems is the full, favorites-sorted catalog. m.List.Items() shows
+	// either allItems or a filtered subset of it; see refreshVisibleItems
+	// in search.go.
+	allItems []list.Item
 }
 
 // Init requests the initial catalog and playback state from the server.
@@ -117,31 +122,30 @@ func (m *Model) applyChannels(payload protocol.ChannelsPayload) {
 	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
 		selectedID = sel.Channel.ID
 	}
-	m.List.SetItems(m.sortItemsWithFavorites(ChannelsToItems(payload.Channels)))
+	m.allItems = m.sortItemsWithFavorites(ChannelsToItems(payload.Channels))
 
 	if firstLoad && selectedID == "" {
-		m.selectChannelByID(payload.LastChannelID)
-	} else {
-		m.selectChannelByID(selectedID)
+		selectedID = payload.LastChannelID
 	}
-	// Update search matches since indices may have changed
-	if m.SearchQuery != "" {
-		m.UpdateSearchMatches()
-	}
+	// Recompute the visible (possibly filtered) list from the new catalog,
+	// keeping the cursor on the same channel where possible.
+	m.refreshVisibleItems(selectedID)
 }
 
 // selectChannelByID moves the list cursor to the channel with the given ID,
-// if present. Used to keep the selection stable across list re-sorts.
-func (m *Model) selectChannelByID(id string) {
+// if present, and reports whether it was found. Used to keep the selection
+// stable across list re-sorts and re-filters.
+func (m *Model) selectChannelByID(id string) bool {
 	if id == "" {
-		return
+		return false
 	}
 	for i, li := range m.List.Items() {
 		if it, ok := li.(ui.Item); ok && it.Channel.ID == id {
 			m.List.Select(i)
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // volumeStep is how much the +/- keys change the volume.

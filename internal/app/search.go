@@ -4,7 +4,11 @@ import (
 	"strings"
 	"unicode"
 
+	"somad/internal/channels"
 	"somad/internal/ui"
+
+	"github.com/charmbracelet/bubbles/list"
+	"github.com/sahilm/fuzzy"
 )
 
 // PrintableRunes returns the printable runes of the input (including space
@@ -19,28 +23,87 @@ func PrintableRunes(runes []rune) string {
 	return b.String()
 }
 
-// UpdateSearchMatches finds all items matching the search query.
-func (m *Model) UpdateSearchMatches() {
-	m.SearchMatches = nil
-	m.CurrentMatch = -1
+// refreshVisibleItems recomputes which of the model's allItems are shown in
+// m.List: everything while no search query is active, or a fuzzy
+// matches-only subset while one is. It keeps the cursor on the channel
+// identified by keepID when that channel is still visible, or on the first
+// item otherwise. Callers (search and the channels-event handler) all
+// funnel through this so the list and the search state never disagree.
+func (m *Model) refreshVisibleItems(keepID string) {
+	items := m.allItems
+
 	if m.SearchQuery == "" {
+		m.SearchMatches = nil
+		m.CurrentMatch = -1
+		m.List.SetItems(items)
+		if !m.selectChannelByID(keepID) {
+			m.List.Select(0)
+		}
 		return
 	}
-	query := strings.ToLower(m.SearchQuery)
-	for idx, listItem := range m.List.Items() {
-		if i, ok := listItem.(ui.Item); ok {
-			title := strings.ToLower(i.Channel.Title)
-			desc := strings.ToLower(i.Channel.Description)
-			if strings.Contains(title, query) || strings.Contains(desc, query) {
-				m.SearchMatches = append(m.SearchMatches, idx)
-			}
+
+	items = fuzzyMatchItems(items, m.SearchQuery)
+	m.List.SetItems(items)
+	if len(items) == 0 {
+		m.SearchMatches = nil
+		m.CurrentMatch = -1
+		return
+	}
+	// The list now holds only matches, so the match indices are simply its
+	// indices; jump to the top-ranked match.
+	m.SearchMatches = make([]int, len(items))
+	for i := range m.SearchMatches {
+		m.SearchMatches[i] = i
+	}
+	m.CurrentMatch = 0
+	m.List.Select(0)
+}
+
+// itemFieldSource adapts a []list.Item slice and a field accessor to
+// fuzzy.Source so github.com/sahilm/fuzzy can match against it directly.
+type itemFieldSource struct {
+	items []list.Item
+	field func(channels.Channel) string
+}
+
+func (s itemFieldSource) String(i int) string {
+	it, _ := s.items[i].(ui.Item)
+	return s.field(it.Channel)
+}
+
+func (s itemFieldSource) Len() int { return len(s.items) }
+
+// fuzzyMatchItems returns the items whose title or description fuzzy-match
+// query, ordered by match quality: all title matches first (best score
+// first), then any description-only matches (best score first). Matching is
+// case-insensitive; github.com/sahilm/fuzzy folds case internally.
+func fuzzyMatchItems(items []list.Item, query string) []list.Item {
+	titleMatches := fuzzy.FindFrom(query, itemFieldSource{items, func(c channels.Channel) string { return c.Title }})
+	descMatches := fuzzy.FindFrom(query, itemFieldSource{items, func(c channels.Channel) string { return c.Description }})
+
+	seen := make(map[int]bool, len(titleMatches)+len(descMatches))
+	out := make([]list.Item, 0, len(titleMatches)+len(descMatches))
+	for _, mtc := range titleMatches {
+		if !seen[mtc.Index] {
+			seen[mtc.Index] = true
+			out = append(out, items[mtc.Index])
 		}
 	}
-	// Jump to first match if any
-	if len(m.SearchMatches) > 0 {
-		m.CurrentMatch = 0
-		m.List.Select(m.SearchMatches[0])
+	for _, mtc := range descMatches {
+		if !seen[mtc.Index] {
+			seen[mtc.Index] = true
+			out = append(out, items[mtc.Index])
+		}
 	}
+	return out
+}
+
+// UpdateSearchMatches recomputes the matches-only view for the current
+// search query (fuzzy matching against title and description, ranked by
+// score with title matches before description matches) and jumps the
+// cursor to the top match. Called on every keystroke while searching.
+func (m *Model) UpdateSearchMatches() {
+	m.refreshVisibleItems("")
 }
 
 // NextMatch jumps to the next search match.
@@ -64,15 +127,22 @@ func (m *Model) PrevMatch() {
 	m.List.Select(m.SearchMatches[m.CurrentMatch])
 }
 
-// ClearSearch clears the search state.
+// ClearSearch clears the search state and restores the full list, keeping
+// the cursor on the channel that was selected within the filtered view.
 func (m *Model) ClearSearch() {
+	var selectedID string
+	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
+		selectedID = sel.Channel.ID
+	}
 	m.Searching = false
 	m.SearchQuery = ""
-	m.SearchMatches = nil
-	m.CurrentMatch = -1
+	m.refreshVisibleItems(selectedID)
 }
 
-// IsMatch returns true if the given index is a search match.
+// IsMatch returns true if the given index (into m.List.Items()) is a
+// search match. While a query is active the list only contains matches, so
+// this is true for every visible row; it is kept as an explicit lookup so
+// the delegate's highlighting stays correct if that ever changes.
 func (m *Model) IsMatch(idx int) bool {
 	for _, matchIdx := range m.SearchMatches {
 		if matchIdx == idx {
