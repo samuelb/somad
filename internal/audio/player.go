@@ -446,9 +446,17 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 	}
 
 	// Copy the stream to the pipe writer until cancelled or the stream ends.
-	_, err = io.Copy(pw, body)
+	n, err := io.Copy(pw, body)
 	if ctx.Err() != nil {
 		return // cancelled by a stop or a newer play; expected, not an error
+	}
+	if n == 0 && err != nil {
+		// Headers arrived but no audio ever did (the connect deadline, or a
+		// read error on the first chunk): Play is still parked in the
+		// decoder, so the pipe is the failure's only owner, exactly as for
+		// a failure before the response.
+		pw.CloseWithError(stallErr(fmt.Errorf("stream read error: %w", err)))
+		return
 	}
 	if err == nil {
 		// A live stream never ends on its own: a clean EOF means the server

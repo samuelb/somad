@@ -513,15 +513,17 @@ func TestFetchStream_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
 	start := time.Now()
 	go p.fetchStream(context.Background(), 1, server.URL, pw)
 
-	// Headers already arrived, so the failure is owned by the async path.
-	data, _ := drainPipe(pr)
+	// No audio byte ever flowed, so Play (parked in the decoder) is the
+	// failure's only owner: it surfaces on the pipe, and not async too.
+	data, err := drainPipe(pr)
 	assert.Empty(t, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stream connect timed out")
 	assert.Less(t, time.Since(start), 2*time.Second)
 	select {
 	case reported := <-p.errChan:
-		assert.Contains(t, reported.Error(), "stream connect timed out")
+		t.Fatalf("connect failure must not also be reported async, got: %v", reported)
 	default:
-		t.Fatal("expected the connect timeout to be reported")
 	}
 }
 

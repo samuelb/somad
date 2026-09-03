@@ -138,6 +138,11 @@ func (s *Server) serveConn(nc net.Conn) {
 				return
 			}
 			authed = true
+			if c.remote {
+				// Auth succeeded: give hello a fresh window instead of
+				// whatever is left of the one absolute deadline.
+				_ = nc.SetReadDeadline(time.Now().Add(time.Duration(handshakeTimeout.Load())))
+			}
 			if !registered {
 				if !s.addConn(c) {
 					return // the server is shutting down

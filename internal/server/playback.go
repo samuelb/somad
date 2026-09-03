@@ -59,6 +59,13 @@ func (s *Server) Play(channelID string) (protocol.PlaybackState, error) {
 // from automatic reconnect attempts.
 func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.PlaybackState, error) {
 	s.mu.Lock()
+	if s.closing {
+		// Shutdown has already stopped the player with its generation; a
+		// play that bumped past it would commit into a dying process.
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, errors.New("server is shutting down")
+	}
 	ch, ok := s.findChannelLocked(channelID)
 	if !ok {
 		snap := s.snapshotLocked()
@@ -174,6 +181,12 @@ func (s *Server) failConnect(gen uint64, err error, retry bool) (protocol.Playba
 		// Superseded while connecting; the newer request owns the state.
 		return s.snapshotLocked(), err
 	}
+	// Nothing committed for this generation, but the previous channel's
+	// session may still be playing (a switch whose every candidate failed
+	// to resolve): stop it, or its audio would continue under a
+	// reconnecting or stopped status. A stop with the current generation
+	// is a no-op when no session is committed.
+	s.player.Stop(gen)
 	s.streamErr = err.Error()
 	s.trackTitle = ""
 	s.scheduleReconnectOrStopLocked(retry)

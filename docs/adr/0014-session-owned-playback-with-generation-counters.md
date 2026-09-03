@@ -50,6 +50,7 @@ every stop or switch.
   after a newer one. With one counter the check inside the player is
   authoritative and the server's per-candidate check is only an early
   exit; the server never calls `Stop` on the post-commit supersede path,
-  since the player has already replaced the session with the newer one.
+  since the newer request either committed a replacement session or, when
+  it failed to connect, stopped the player itself from `failConnect`.
 - The server's `mockPlayer` in tests mirrors the generation rule so these
   races stay covered without an audio device.

@@ -1022,3 +1022,32 @@ func TestUnknownMethod(t *testing.T) {
 
 	assert.Contains(t, resp.Error, "unknown method")
 }
+
+func TestPlay_RefusedWhileShuttingDown(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	s.Shutdown()
+
+	_, err := s.Play("groovesalad")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "shutting down")
+	player.mu.Lock()
+	assert.Empty(t, player.playURLs, "a play after shutdown must not reach the player")
+	player.mu.Unlock()
+}
+
+func TestPlay_FailedSwitchStopsThePreviousSession(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+
+	// Switching to a channel whose every candidate fails to resolve must
+	// not leave the old channel's audio running under the new status.
+	resolveStreamURL = func(string, string) (string, error) { return "", errors.New("resolve failed") }
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"})
+	assert.Contains(t, resp.Error, "resolve failed")
+	assert.Equal(t, protocol.StatusReconnecting, s.Snapshot().Status)
+	player.mu.Lock()
+	assert.False(t, player.playing, "the previous session must be stopped")
+	player.mu.Unlock()
+}
