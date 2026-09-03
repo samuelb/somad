@@ -26,24 +26,6 @@ Ordered roughly by value ÷ effort.
       `0o077` and owner uid in `internal/protocol/socket.go:32`. Add
       `soma daemon --gen-psk` (32 random bytes at 0600, modelled on
       `--show-cert`) plus an SSH-style permissions check in `readPSKFile`.
-- [ ] **Play/pause toggle in the TUI** [S]. The `Backend` interface
-      (`internal/app/commands.go:14`) has `Status, Channels, Play, Stop,
-      SetVolume, ToggleFavorite, Shutdown` and no `PlayPause`, while
-      `*client.Client`, the CLI (`soma pause`), MPRIS, the tray, and the
-      server all have it. Today the TUI needs `s` then Enter. `p` is unbound
-      in both the model and the bubbles list keymap.
-- [ ] **Mute toggle** [S] (`m` in the TUI, `soma volume mute`) restoring
-      the previous level. Nothing stores a pre-mute level today
-      (`internal/state/state.go` keeps volume as a pointer so an explicit 0
-      is distinguishable, but that is all). `m` is unbound in both keymaps.
-- [ ] **Perceptual volume curve** [S]. Percent maps linearly to amplitude
-      end to end: `cli.go:452` `pct/100` → server clamp
-      (`playback.go:262`) → `AudioPlayer.SetVolume` (`player.go:396`) →
-      oto multiplies samples by it. Most audible change sits in the bottom
-      quarter. `AudioPlayer.SetVolume` is the single right place for a
-      cubic/exponential mapping; keep `Volume()` returning the un-curved
-      target so the wire stays in percent. The fade steps (`player.go:390`,
-      `:435`) scale linearly too and should go through the same curve.
 - [ ] **Track history** [M]. `somafm.com` is allowed exactly by
       `ValidateURL` (`validation.go:68`), so
       `https://somafm.com/songs/<channel>.json` passes today, and the daemon
@@ -104,14 +86,6 @@ Small hygiene fixes first, then features, then code quality.
 
 ### Hygiene (each [S])
 
-- [ ] **README "Keyboard Controls" vs in-app help disagree both ways**
-      (`README.md:310`, `NewHelpKeys` in `internal/app/update.go:192`):
-      README omits `a` (about) and `n`/`N` (next/prev match), which the help
-      shows; `c` (clear search) and `esc` (close about / cancel search) are
-      in *neither*, and the `=`/`_` volume aliases are documented nowhere;
-      the help omits `Enter`/`Space`, the primary action; README calls `/`
-      "Filter channels" while help says "search" (it is a search-and-jump,
-      see the P2 search item). Fix both lists.
 ### Features
 
 - [ ] Sleep timer (`soma stop --in 45m`): `runStop` takes no args today.

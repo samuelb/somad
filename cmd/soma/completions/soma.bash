@@ -89,11 +89,11 @@ _soma() {
             COMPREPLY=($(compgen -W "$(soma completion channels 2>/dev/null | cut -f1)" -- "$cur"))
         fi
         ;;
-    list | status | next | prev | pause | stop | volume)
-        COMPREPLY=($(compgen -W "--json" -- "$cur"))
-        ;;
     volume)
-        COMPREPLY=($(compgen -W "mute" -- "$cur"))
+        COMPREPLY=($(compgen -W "--json mute" -- "$cur"))
+        ;;
+    list | status | next | prev | pause | stop)
+        COMPREPLY=($(compgen -W "--json" -- "$cur"))
         ;;
     daemon)
         COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --quality --listen --tls
