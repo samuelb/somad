@@ -35,6 +35,9 @@ type mockPlayer struct {
 	// onPlay, when non-nil, runs at the start of every Play call (outside
 	// the mock's lock), e.g. to inject a concurrent Stop.
 	onPlay func(format string)
+	// gen mirrors the real player's generation rule: Play and Stop with a
+	// generation older than the newest seen are refused/ignored.
+	gen uint64
 }
 
 func newMockPlayer() *mockPlayer {
@@ -45,7 +48,7 @@ func newMockPlayer() *mockPlayer {
 	}
 }
 
-func (p *mockPlayer) Play(url, format string) error {
+func (p *mockPlayer) Play(url, format string, gen uint64) error {
 	p.mu.Lock()
 	block := p.blockPlay
 	onPlay := p.onPlay
@@ -58,6 +61,10 @@ func (p *mockPlayer) Play(url, format string) error {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if gen < p.gen {
+		return audio.ErrSuperseded
+	}
+	p.gen = gen
 	if p.playErr != nil {
 		return p.playErr
 	}
@@ -70,10 +77,21 @@ func (p *mockPlayer) Play(url, format string) error {
 	return nil
 }
 
-func (p *mockPlayer) Stop() {
+func (p *mockPlayer) Stop(gen uint64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if gen < p.gen {
+		return
+	}
+	p.gen = gen
 	p.playing = false
+}
+
+// currentGen returns the newest generation the mock has seen.
+func (p *mockPlayer) currentGen() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gen
 }
 
 func (p *mockPlayer) Errors() <-chan error { return p.errChan }

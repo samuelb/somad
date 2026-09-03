@@ -49,16 +49,40 @@ var ErrSuperseded = errors.New("playback superseded by a newer request")
 
 // Player is the interface for audio playback operations.
 // This allows mocking the player in tests.
+//
+// Play and Stop carry the caller's generation number: a monotonically
+// increasing counter the caller bumps for every play or stop request. The
+// player commits a session only while its generation is the newest it has
+// seen, so a request that was issued earlier but reaches the player later
+// (a slow playlist resolve racing a stop, say) can never start stale audio.
+// Errors and track updates are stamped with the generation of the session
+// that produced them, so the caller can drop reports from a session it has
+// already replaced.
 type Player interface {
 	// Play streams the URL, decoding it as the given format (one of the
-	// formats listed by PreferredFormats).
-	Play(url, format string) error
-	Stop()
+	// formats listed by PreferredFormats). It returns ErrSuperseded when gen
+	// is older than a generation the player has already seen.
+	Play(url, format string, gen uint64) error
+	// Stop halts playback. A gen older than the newest seen is ignored so a
+	// stale stop cannot tear down a newer session; a gen equal to it stops
+	// that session (the caller reacting to its stream error).
+	Stop(gen uint64)
 	Errors() <-chan error
 	TrackUpdates() <-chan TrackInfo
 	SetVolume(v float64)
 	Volume() float64
 }
+
+// StreamError is an asynchronous failure of a committed session, carrying
+// the generation that session was started with.
+type StreamError struct {
+	Gen uint64
+	Err error
+}
+
+func (e *StreamError) Error() string { return e.Err.Error() }
+
+func (e *StreamError) Unwrap() error { return e.Err }
 
 // outputPlayer and audioContext are the parts of oto used by AudioPlayer.
 // Keeping this boundary small lets the device lifecycle be tested without
@@ -136,7 +160,7 @@ type AudioPlayer struct {
 	mu       sync.Mutex
 	current  *session // the active session, guarded by mu
 	sessions int      // committed sessions still fading or playing, guarded by mu
-	playGen  uint64   // bumped by every Play/Stop so stale connects never commit
+	playGen  uint64   // newest generation seen from Play/Stop; stale ones never commit
 	volume   float64  // target volume in [0, 1], guarded by mu
 }
 
@@ -211,13 +235,18 @@ func (p *AudioPlayer) ensureContext() error {
 // Play starts streaming and playing audio from the given URL, decoded as
 // format. It blocks until the stream is decoding and playback has begun; the
 // previous session (if any) fades out and tears down asynchronously. Play is
-// safe to call concurrently: if another Play or Stop arrives while this one
-// is still connecting, the newer request wins and this one returns
-// ErrSuperseded without touching the audio state.
-func (p *AudioPlayer) Play(url, format string) error {
+// safe to call concurrently: if another Play or Stop with a newer generation
+// arrives while this one is still connecting, the newer request wins and
+// this one returns ErrSuperseded without touching the audio state. The same
+// generation may be retried (the caller falling back to another stream
+// candidate) but never an older one.
+func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 	p.mu.Lock()
-	p.playGen++
-	gen := p.playGen
+	if gen < p.playGen {
+		p.mu.Unlock()
+		return ErrSuperseded
+	}
+	p.playGen = gen
 	p.mu.Unlock()
 
 	// Create a pipe to connect the HTTP stream to the MP3 decoder.
@@ -230,7 +259,7 @@ func (p *AudioPlayer) Play(url, format string) error {
 		_ = pw.Close()
 	}
 
-	go p.fetchStream(ctx, url, pw)
+	go p.fetchStream(ctx, gen, url, pw)
 
 	// Decode the stream from the pipe reader. This is the only synchronous
 	// failure mode, so the new session is not committed until decoding succeeds.
@@ -259,7 +288,7 @@ func (p *AudioPlayer) Play(url, format string) error {
 			// left the playing state.
 			err = errors.New("decoder reached end of stream")
 		}
-		p.reportError(ctx, fmt.Errorf("decode error: %w", err))
+		p.reportError(ctx, gen, fmt.Errorf("decode error: %w", err))
 	}}
 	p.mu.Lock()
 	superseded := gen != p.playGen
@@ -333,7 +362,7 @@ func (p *AudioPlayer) Play(url, format string) error {
 // reporting it here too would leave a stale error queued that could kill a
 // later, healthy session. Once the stream is established, errors are
 // reported asynchronously via the errors channel.
-func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWriter) {
+func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, pw *io.PipeWriter) {
 	defer func() { _ = pw.Close() }()
 
 	// The watchdog aborts the request when the connection goes silent for
@@ -392,7 +421,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 	var body io.Reader = buf
 	if icyInt, err := strconv.Atoi(resp.Header.Get("icy-metaint")); err == nil && icyInt > 0 {
 		body = newICYDemuxer(body, icyInt, func(title string) {
-			p.reportTrack(ctx, TrackInfo{Title: title})
+			p.reportTrack(ctx, TrackInfo{Title: title, Gen: gen})
 		})
 	}
 
@@ -405,10 +434,10 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, url string, pw *io.PipeWr
 		// A live stream never ends on its own: a clean EOF means the server
 		// hung up, and without a report playback would sit silent while the
 		// status still says playing.
-		p.reportError(ctx, errors.New("stream ended unexpectedly"))
+		p.reportError(ctx, gen, errors.New("stream ended unexpectedly"))
 		return
 	}
-	p.reportError(ctx, stallErr(fmt.Errorf("stream read error: %w", err)))
+	p.reportError(ctx, gen, stallErr(fmt.Errorf("stream read error: %w", err)))
 }
 
 // errorReportingReader forwards reads and hands the first error (EOF
@@ -588,11 +617,16 @@ func (p *AudioPlayer) suspendIfIdleLocked() {
 }
 
 // Stop halts the current audio playback and cancels any Play call that is
-// still connecting. The fade-out and teardown run asynchronously, so this
-// returns immediately.
-func (p *AudioPlayer) Stop() {
+// still connecting, unless gen is older than the newest generation seen (a
+// stale stop must not tear down a newer session). The fade-out and teardown
+// run asynchronously, so this returns immediately.
+func (p *AudioPlayer) Stop(gen uint64) {
 	p.mu.Lock()
-	p.playGen++
+	if gen < p.playGen {
+		p.mu.Unlock()
+		return
+	}
+	p.playGen = gen
 	old := p.current
 	p.current = nil
 	p.mu.Unlock()
@@ -604,7 +638,9 @@ func (p *AudioPlayer) Stop() {
 	}
 }
 
-func (p *AudioPlayer) reportError(ctx context.Context, err error) {
+// reportError publishes an asynchronous failure of the session started with
+// gen. Errors from cancelled (superseded) sessions are dropped.
+func (p *AudioPlayer) reportError(ctx context.Context, gen uint64, err error) {
 	if err == nil {
 		return
 	}
@@ -614,7 +650,7 @@ func (p *AudioPlayer) reportError(ctx context.Context, err error) {
 	// Non-blocking send: if the buffer is full the error is dropped rather than
 	// stalling the session goroutine. See Errors for what a reader can rely on.
 	select {
-	case p.errChan <- err:
+	case p.errChan <- &StreamError{Gen: gen, Err: err}:
 	default:
 	}
 }

@@ -106,7 +106,10 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 	for _, cand := range candidates {
 		// A stop or newer play may have arrived while an earlier candidate
 		// was resolving or connecting. The newer request owns the state, so
-		// back out instead of starting stale audio.
+		// back out instead of starting stale audio. This check is only an
+		// early exit: the player sees the same generation and refuses to
+		// commit a stale one itself, which closes the window between here
+		// and player.Play (resolveStreamURL blocks on the network).
 		s.mu.Lock()
 		superseded := gen != s.playGen
 		s.mu.Unlock()
@@ -120,7 +123,7 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 			continue
 		}
 
-		if err := s.player.Play(streamURL, cand.Format); err != nil {
+		if err := s.player.Play(streamURL, cand.Format, gen); err != nil {
 			if errors.Is(err, audio.ErrSuperseded) {
 				// A newer play/stop request won; it owns the state now.
 				return s.Snapshot(), err
@@ -133,6 +136,10 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if gen != s.playGen {
+			// The player committed this generation, so whoever bumped the
+			// server's counter since has also reached the player with a
+			// newer one and replaced the session. Do not stop the player
+			// here: that would hit the newer, legitimate session.
 			return s.snapshotLocked(), audio.ErrSuperseded
 		}
 		s.status = protocol.StatusPlaying
@@ -170,9 +177,16 @@ func (s *Server) handleStreamError(err error) {
 	if s.status != protocol.StatusPlaying {
 		return
 	}
+	// A session that is still fading out after a channel switch can fail
+	// during the crossfade; its error must not tear down its successor.
+	var se *audio.StreamError
+	if errors.As(err, &se) && se.Gen != s.playGen {
+		return
+	}
 	// Stop the player so the failed session's goroutine and audio resources
-	// are released instead of lingering until the next play.
-	s.player.Stop()
+	// are released instead of lingering until the next play. The current
+	// generation targets exactly this session.
+	s.player.Stop(s.playGen)
 	s.trackTitle = ""
 	s.streamErr = err.Error()
 	s.scheduleReconnectOrStopLocked(true)
@@ -240,7 +254,7 @@ func (s *Server) Stop() protocol.PlaybackState {
 	defer s.mu.Unlock()
 	s.playGen++
 	s.cancelReconnectLocked()
-	s.player.Stop()
+	s.player.Stop(s.playGen)
 	s.status = protocol.StatusStopped
 	s.trackTitle = ""
 	s.streamErr = ""
@@ -281,7 +295,9 @@ func (s *Server) SetVolume(v float64, mirrorToMPRIS bool) protocol.PlaybackState
 func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.status != protocol.StatusPlaying {
+	// The previous stream keeps delivering titles while it fades out under
+	// the new one; only titles from the current generation are shown.
+	if s.status != protocol.StatusPlaying || ti.Gen != s.playGen {
 		return
 	}
 	s.trackTitle = ti.Title

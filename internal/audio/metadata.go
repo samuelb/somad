@@ -10,6 +10,10 @@ import (
 // TrackInfo represents the current track information from ICY metadata.
 type TrackInfo struct {
 	Title string
+	// Gen is the generation of the session the title arrived on (see
+	// Player), so a title from a stream that is still fading out is not
+	// shown under its successor.
+	Gen uint64
 }
 
 // icyDemuxer strips the ICY metadata blocks that Shoutcast/Icecast servers

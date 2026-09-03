@@ -151,7 +151,7 @@ func TestAACDecoderRejectsNonADTSStream(t *testing.T) {
 func TestPlay_AACStream(t *testing.T) {
 	p, ctx, _ := newLifecycleTestPlayer(t)
 	securitytest.AllowTestHosts(t)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { stopNext(p) })
 
 	// Stream the AAC fixture and then hold the connection open, like a live
 	// Icecast server that has sent its initial burst.
@@ -165,7 +165,7 @@ func TestPlay_AACStream(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	require.NoError(t, p.Play(server.URL, FormatAAC))
+	require.NoError(t, playNext(p, server.URL, FormatAAC))
 	require.EqualValues(t, 1, ctx.players.Load())
-	p.Stop()
+	stopNext(p)
 }

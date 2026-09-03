@@ -179,6 +179,8 @@ func (s *Server) Shutdown() {
 	s.shutdownOnce.Do(func() {
 		s.mu.Lock()
 		s.closing = true
+		s.playGen++ // any play still connecting must not commit after this
+		gen := s.playGen
 		s.cancelReconnectLocked()
 		s.disarmIdleLocked()
 		lns := s.lns
@@ -188,7 +190,7 @@ func (s *Server) Shutdown() {
 		}
 		s.mu.Unlock()
 
-		s.player.Stop()
+		s.player.Stop(gen)
 		if s.mpris != nil {
 			s.mpris.Close()
 		}

@@ -18,6 +18,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testGen hands out increasing generation numbers for Play and Stop, the
+// way the server's counter does.
+var testGen atomic.Uint64
+
+// playNext calls Play with the next generation.
+func playNext(p *AudioPlayer, url, format string) error {
+	return p.Play(url, format, testGen.Add(1))
+}
+
+// stopNext calls Stop with the next generation.
+func stopNext(p *AudioPlayer) {
+	p.Stop(testGen.Add(1))
+}
+
 // newTestPlayer returns a bare AudioPlayer without an oto context. This is
 // enough for tests that exercise methods which never touch the audio device.
 func newTestPlayer() *AudioPlayer {
@@ -148,23 +162,23 @@ func TestNewPlayer_DoesNotOpenAudioDevice(t *testing.T) {
 func TestPlayStop_ResumesAndSuspendsAudioDevice(t *testing.T) {
 	p, ctx, created := newLifecycleTestPlayer(t)
 	server := newStreamingTestServer(t)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { stopNext(p) })
 
-	require.NoError(t, p.Play(server.URL, FormatMP3))
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
 	assert.EqualValues(t, 1, created.Load())
 	assert.EqualValues(t, 1, ctx.players.Load())
 	assert.Zero(t, ctx.resumes.Load(), "a new context is already active")
 	assert.Zero(t, ctx.suspends.Load())
 
-	p.Stop()
+	stopNext(p)
 	require.Eventually(t, func() bool {
 		return ctx.suspends.Load() == 1
 	}, time.Second, 10*time.Millisecond)
 
-	require.NoError(t, p.Play(server.URL, FormatMP3))
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
 	assert.EqualValues(t, 1, ctx.resumes.Load())
 	assert.EqualValues(t, 2, ctx.players.Load())
-	p.Stop()
+	stopNext(p)
 	require.Eventually(t, func() bool {
 		return ctx.suspends.Load() == 2
 	}, time.Second, 10*time.Millisecond)
@@ -196,16 +210,16 @@ func TestEnsureContext_RecoversAfterReadyTimeout(t *testing.T) {
 func TestPlay_ResumeErrorDoesNotCommitSession(t *testing.T) {
 	p, ctx, _ := newLifecycleTestPlayer(t)
 	server := newStreamingTestServer(t)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { stopNext(p) })
 
-	require.NoError(t, p.Play(server.URL, FormatMP3))
-	p.Stop()
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	stopNext(p)
 	require.Eventually(t, func() bool {
 		return ctx.suspends.Load() == 1
 	}, time.Second, 10*time.Millisecond)
 
 	ctx.setResumeError(errors.New("resume failed"))
-	err := p.Play(server.URL, FormatMP3)
+	err := playNext(p, server.URL, FormatMP3)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to resume audio device")
 	assert.EqualValues(t, 1, ctx.players.Load())
@@ -215,16 +229,16 @@ func TestPlay_ResumeErrorDoesNotCommitSession(t *testing.T) {
 	p.mu.Unlock()
 
 	ctx.setResumeError(nil)
-	require.NoError(t, p.Play(server.URL, FormatMP3))
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
 }
 
 func TestPlaySwitch_DoesNotSuspendReplacementSession(t *testing.T) {
 	p, ctx, _ := newLifecycleTestPlayer(t)
 	server := newStreamingTestServer(t)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { stopNext(p) })
 
-	require.NoError(t, p.Play(server.URL, FormatMP3))
-	require.NoError(t, p.Play(server.URL, FormatMP3))
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
 	require.Eventually(t, func() bool {
 		return ctx.pauses.Load() == 1
 	}, time.Second, 10*time.Millisecond)
@@ -234,7 +248,7 @@ func TestPlaySwitch_DoesNotSuspendReplacementSession(t *testing.T) {
 	assert.Zero(t, ctx.suspends.Load())
 	assert.Zero(t, ctx.resumes.Load())
 
-	p.Stop()
+	stopNext(p)
 	require.Eventually(t, func() bool {
 		return ctx.pauses.Load() == 2 && ctx.suspends.Load() == 1
 	}, time.Second, 10*time.Millisecond)
@@ -243,11 +257,11 @@ func TestPlaySwitch_DoesNotSuspendReplacementSession(t *testing.T) {
 func TestStopDuringCrossfade_WaitsForBothSessionsBeforeSuspend(t *testing.T) {
 	p, ctx, _ := newLifecycleTestPlayer(t)
 	server := newStreamingTestServer(t)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { stopNext(p) })
 
-	require.NoError(t, p.Play(server.URL, FormatMP3))
-	require.NoError(t, p.Play(server.URL, FormatMP3))
-	p.Stop()
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	stopNext(p)
 
 	require.Eventually(t, func() bool {
 		return ctx.pauses.Load() >= 1
@@ -268,7 +282,7 @@ func TestErrors_ReturnsChannel(t *testing.T) {
 func TestReportError_NilError(t *testing.T) {
 	p := newTestPlayer()
 
-	p.reportError(context.Background(), nil)
+	p.reportError(context.Background(), 1, nil)
 
 	select {
 	case <-p.errChan:
@@ -282,7 +296,7 @@ func TestReportError_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	p.reportError(ctx, errors.New("boom"))
+	p.reportError(ctx, 1, errors.New("boom"))
 
 	select {
 	case <-p.errChan:
@@ -294,7 +308,7 @@ func TestReportError_CancelledContext(t *testing.T) {
 func TestReportError_Delivers(t *testing.T) {
 	p := newTestPlayer()
 
-	p.reportError(context.Background(), errors.New("stream failed"))
+	p.reportError(context.Background(), 1, errors.New("stream failed"))
 
 	select {
 	case err := <-p.errChan:
@@ -308,9 +322,9 @@ func TestReportError_FullChannelDoesNotBlock(t *testing.T) {
 	p := newTestPlayer()
 
 	// Fill the buffered channel (capacity 2), then a third report must not block.
-	p.reportError(context.Background(), errors.New("1"))
-	p.reportError(context.Background(), errors.New("2"))
-	p.reportError(context.Background(), errors.New("3")) // dropped, must not block
+	p.reportError(context.Background(), 1, errors.New("1"))
+	p.reportError(context.Background(), 1, errors.New("2"))
+	p.reportError(context.Background(), 1, errors.New("3")) // dropped, must not block
 
 	assert.Len(t, p.errChan, 2)
 }
@@ -356,10 +370,10 @@ func TestPlay_SupersededByStop(t *testing.T) {
 	p := newTestPlayer()
 
 	playErr := make(chan error, 1)
-	go func() { playErr <- p.Play(server.URL, FormatMP3) }()
+	go func() { playErr <- playNext(p, server.URL, FormatMP3) }()
 
 	<-requestArrived
-	p.Stop() // supersedes the in-flight Play
+	stopNext(p) // supersedes the in-flight Play
 	close(release)
 
 	err := <-playErr
@@ -377,7 +391,7 @@ func TestFetchStream_Success(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw)
 
 	data, err := drainPipe(pr)
 	require.NoError(t, err)
@@ -423,7 +437,7 @@ func TestFetchStream_StalledStreamReportsError(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		p.fetchStream(context.Background(), server.URL, pw)
+		p.fetchStream(context.Background(), 1, server.URL, pw)
 		close(done)
 	}()
 
@@ -453,7 +467,7 @@ func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw)
 
 	_, err := drainPipe(pr)
 	require.Error(t, err)
@@ -508,7 +522,7 @@ func TestFetchStream_RequestsAndDemuxesICYMetadata(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw)
 
 	data, err := drainPipe(pr)
 	require.NoError(t, err)
@@ -519,6 +533,7 @@ func TestFetchStream_RequestsAndDemuxesICYMetadata(t *testing.T) {
 	select {
 	case info := <-p.TrackUpdates():
 		assert.Equal(t, "Demuxed Song", info.Title)
+		assert.EqualValues(t, 1, info.Gen, "titles carry the session generation")
 	default:
 		t.Fatal("expected a track update from the demuxed metadata")
 	}
@@ -534,7 +549,7 @@ func TestFetchStream_NoICYHeaderPassesThrough(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw)
 
 	data, err := drainPipe(pr)
 	require.NoError(t, err)
@@ -598,7 +613,7 @@ func TestFetchStream_InvalidURL(t *testing.T) {
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
 
-	go p.fetchStream(context.Background(), "http://evil.example.com/stream", pw)
+	go p.fetchStream(context.Background(), 1, "http://evil.example.com/stream", pw)
 
 	// The pipe reader should observe the error propagated via CloseWithError.
 	_, err := drainPipe(pr)
@@ -623,7 +638,7 @@ func TestFetchStream_BadStatusCode(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw)
 
 	_, err := drainPipe(pr)
 	require.Error(t, err)
@@ -657,7 +672,7 @@ func TestFetchStream_CancelledContextSuppressesReadError(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		p.fetchStream(ctx, server.URL, pw)
+		p.fetchStream(ctx, 1, server.URL, pw)
 		close(done)
 	}()
 
@@ -695,7 +710,7 @@ func TestPlay_DecoderErrorAfterPlayIsReported(t *testing.T) {
 	p, ctx, _ := newLifecycleTestPlayer(t)
 	ctx.pump = true
 	server := newStreamingTestServer(t)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { stopNext(p) })
 
 	prevDecoder := newDecoder
 	newDecoder = func(_ string, r io.Reader) (pcmDecoder, error) {
@@ -706,7 +721,7 @@ func TestPlay_DecoderErrorAfterPlayIsReported(t *testing.T) {
 	}
 	t.Cleanup(func() { newDecoder = prevDecoder })
 
-	require.NoError(t, p.Play(server.URL, FormatMP3))
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
 
 	select {
 	case err := <-p.Errors():
@@ -721,7 +736,7 @@ func TestPlay_DecoderErrorAfterPlayIsReported(t *testing.T) {
 func TestPlay_DecoderErrorAfterStopIsSuppressed(t *testing.T) {
 	p, ctx, _ := newLifecycleTestPlayer(t)
 	server := newStreamingTestServer(t)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { stopNext(p) })
 
 	// Not pumped: the first read happens only after Stop has cancelled the
 	// session, which is when a real teardown closes the pipe under the
@@ -738,8 +753,8 @@ func TestPlay_DecoderErrorAfterStopIsSuppressed(t *testing.T) {
 		return &captureContext{fakeAudioContext: ctx, onPlayer: func(r io.Reader) { reader = r }}, ready, nil
 	}
 
-	require.NoError(t, p.Play(server.URL, FormatMP3))
-	p.Stop()
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	stopNext(p)
 	require.Eventually(t, func() bool { return ctx.pauses.Load() == 1 }, time.Second, 10*time.Millisecond)
 
 	buf := make([]byte, 16)
@@ -762,4 +777,50 @@ type captureContext struct {
 func (c *captureContext) NewPlayer(r io.Reader) outputPlayer {
 	c.onPlayer(r)
 	return c.fakeAudioContext.NewPlayer(r)
+}
+
+func TestPlay_StaleGenerationIsRefused(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	newer := testGen.Add(2)
+	require.NoError(t, p.Play(server.URL, FormatMP3, newer))
+	// A request issued before the one that just committed arrives late: it
+	// must not touch the audio state.
+	require.ErrorIs(t, p.Play(server.URL, FormatMP3, newer-1), ErrSuperseded)
+	assert.EqualValues(t, 1, ctx.players.Load())
+	// Retrying the same generation (a stream-candidate fallback) is allowed.
+	require.NoError(t, p.Play(server.URL, FormatMP3, newer))
+	assert.EqualValues(t, 2, ctx.players.Load())
+}
+
+func TestStop_StaleGenerationIsIgnored(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	gen := testGen.Add(2)
+	require.NoError(t, p.Play(server.URL, FormatMP3, gen))
+	p.Stop(gen - 1)
+	p.mu.Lock()
+	current := p.current
+	p.mu.Unlock()
+	assert.NotNil(t, current, "a stale stop must not tear down a newer session")
+	assert.Zero(t, ctx.pauses.Load())
+
+	// The session's own generation stops it (the server reacting to its
+	// stream error).
+	p.Stop(gen)
+	require.Eventually(t, func() bool { return ctx.pauses.Load() == 1 }, time.Second, 10*time.Millisecond)
+}
+
+func TestReportError_CarriesGeneration(t *testing.T) {
+	p := newTestPlayer()
+	p.reportError(context.Background(), 7, errors.New("boom"))
+	err := <-p.errChan
+	var se *StreamError
+	require.ErrorAs(t, err, &se)
+	assert.EqualValues(t, 7, se.Gen)
+	assert.EqualError(t, err, "boom")
 }

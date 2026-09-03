@@ -147,6 +147,28 @@ func TestPlay_StopDuringFallbackDoesNotStartNextCandidate(t *testing.T) {
 	player.mu.Unlock()
 }
 
+func TestPlay_StopDuringSucceedingCandidateDoesNotStartAudio(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	// A Stop lands after the server's per-candidate guard but before the
+	// player commits. The player sees the stop's newer generation and must
+	// refuse the late play instead of starting audio under a stopped status.
+	player.mu.Lock()
+	player.onPlay = func(string) { s.Stop() }
+	player.mu.Unlock()
+
+	c := connect(t, s)
+	c.hello()
+
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"})
+
+	assert.Contains(t, resp.Error, audio.ErrSuperseded.Error())
+	assert.Equal(t, protocol.StatusStopped, s.Snapshot().Status)
+	player.mu.Lock()
+	assert.Empty(t, player.playURLs, "no audio may start after the stop")
+	assert.False(t, player.playing)
+	player.mu.Unlock()
+}
+
 func TestPlay_FallsBackToMP3WhenAACFails(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	supportedFormats = func() []string { return []string{audio.FormatAAC, audio.FormatMP3} }
@@ -575,12 +597,61 @@ func TestTrackUpdate_BroadcastsTitle(t *testing.T) {
 	c.hello()
 
 	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy"}
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
 
 	st := c.waitState("track title", func(st protocol.PlaybackState) bool {
 		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
 	})
 	assert.Equal(t, protocol.StatusPlaying, st.Status)
+}
+
+func TestTrackUpdate_StaleGenerationIsDropped(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
+	gen := player.currentGen()
+	// The previous channel's stream is still fading out and delivers a
+	// title; it must not show up under the new channel.
+	player.trackChan <- audio.TrackInfo{Title: "Stale Title", Gen: gen - 1}
+	player.trackChan <- audio.TrackInfo{Title: "Fresh Title", Gen: gen}
+
+	st := c.waitState("fresh title", func(st protocol.PlaybackState) bool {
+		require.NotEqual(t, "Stale Title", st.TrackTitle, "title from the old session leaked")
+		return st.TrackTitle == "Fresh Title"
+	})
+	assert.Equal(t, "dronezone", st.ChannelID)
+}
+
+func TestStreamError_FromOldGenerationIsIgnored(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	go s.watchPlayerErrors()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
+	gen := player.currentGen()
+
+	// The old session fails during the crossfade: the new one must keep
+	// playing.
+	player.errChan <- &audio.StreamError{Gen: gen - 1, Err: errors.New("stream read error")}
+	time.Sleep(20 * time.Millisecond)
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusPlaying, snap.Status)
+	assert.Equal(t, "dronezone", snap.ChannelID)
+	player.mu.Lock()
+	assert.True(t, player.playing)
+	player.mu.Unlock()
+
+	// Its own generation's error does take the session down.
+	player.errChan <- &audio.StreamError{Gen: gen, Err: errors.New("stream read error")}
+	c.waitState("reconnecting", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusReconnecting
+	})
 }
 
 func TestIdleExit_FiresWhenStoppedAndNoClients(t *testing.T) {

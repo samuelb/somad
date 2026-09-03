@@ -14,42 +14,6 @@ needs a decision.
 
 ## P1 — correctness and security
 
-- [ ] **Stop-vs-play supersede window, and the crossfade title leak that
-      shares its fix** [M] (`internal/server/playback.go`,
-      `internal/audio/player.go`). The per-candidate guard (`playback.go:111`)
-      runs at the top of each candidate iteration, before `resolveStreamURL`
-      and before `s.player.Play`; nothing re-checks in between. The server
-      and the player keep *separate* generation counters, and the player's
-      is assigned when `player.Play` is *entered*, so whoever calls last
-      wins regardless of who was requested first. Two confirmed outcomes:
-      - **Race A:** a Stop landing after the guard but before `player.Play`
-        bumps both counters, then the late `Play` takes a fresh player
-        generation and commits. The post-commit check (`playback.go:135`)
-        sees the server supersede and returns without stopping the audio.
-        Audio plays under status `stopped`.
-      - **Race B:** play A (slow playlist resolve) and play B (newer). B
-        commits first; A enters `player.Play` later, takes the newest player
-        generation, commits, and its `old.requestStop()` kills B. A then
-        returns `ErrSuperseded`. Channel A's audio under channel B's status.
-      - **Crossfade title race:** `drainTrackUpdates` runs before
-        `old.requestStop()`, and `fadeOutAndClose` only cancels the old
-        session's ctx after the 250 ms fade (longer under load). An ICY
-        title from the old channel arriving in that window passes
-        `reportTrack`'s ctx check and `handleTrackUpdate` checks only
-        `status == playing`, so it is displayed under the new channel.
-        `TrackInfo` carries only `Title`.
-      **Fix:** collapse the two counters into one: thread the server's
-      `gen` into `Play(url, format, gen)` / `Stop(gen)` and have the player
-      refuse to commit a stale generation. Stamp `TrackInfo` with that same
-      generation and drop mismatches in `handleTrackUpdate`. Do *not* call
-      `player.Stop()` on the post-commit supersede path (it would stop the
-      newer legitimate session), and do not serialize the check and
-      `player.Play` under `s.mu` (Play blocks on network + decoder priming).
-      Existing tests (`TestPlay_SupersededByNewerPlay`,
-      `TestPlay_StopDuringFallbackDoesNotStartNextCandidate`) cover the
-      guard only; `mockPlayer` has no generation semantics. The `onPlay`
-      hook in `helpers_test.go` is the right place to inject a Stop into a
-      *succeeding* candidate for a regression test.
 - [ ] **Connect-phase timeout is shorter than the daemon's worst case** [S–M]
       (`internal/client/client.go` `callTimeout` = 30 s applies to every
       call; `internal/audio/player.go` `streamStallTimeout` = 30 s,
