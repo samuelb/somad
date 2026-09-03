@@ -14,16 +14,6 @@ needs a decision.
 
 ## P1 — correctness and security
 
-- [ ] **Release binaries embed the wrong commit** [S]
-      (`.github/workflows/release.yml:145` and `:176`). Both build jobs
-      stamp `-X main.commit=${GITHUB_SHA::7}`, the workflow-trigger SHA, but
-      the tag points at the "Release vX" bump commit that `prepare` pushes.
-      `needs.prepare.outputs.sha` already exists and is already used for
-      the `checkout` refs and `target_commitish`; only the two ldflags lines
-      are wrong. Every release reports its parent commit in
-      `soma --version`. Dry runs hide it because the bump is discarded.
-      Bash slicing does not work on an expression, so put the output in an
-      env var first.
 - [ ] **TCP hardening bundle** [M] (`internal/server/conn.go`,
       `server.go` `acceptLoop`, `cmd/soma/main.go` `listenTCP`). Exposure
       exists only when the operator opts into `--listen`, and
