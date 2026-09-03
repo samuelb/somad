@@ -98,6 +98,10 @@ type Server struct {
 	// (lastfm.go); separate from mu since those run off it entirely.
 	lastfmLogMu  sync.Mutex
 	lastfmLogged map[string]bool
+	// lastfmWG tracks in-flight scrobble/now-playing submission goroutines
+	// (lastfm.go); Shutdown waits on it, bounded by lastfmShutdownWait, so
+	// the final scrobble has a chance to land before the process exits.
+	lastfmWG sync.WaitGroup
 
 	// persist writes user state to disk. It defaults to state.SaveState;
 	// tests override it to avoid fsync-heavy disk writes on every mutation.
@@ -256,6 +260,10 @@ func (s *Server) Shutdown() {
 		s.cancelReconnectLocked()
 		s.cancelStopTimerLocked()
 		s.disarmIdleLocked()
+		// Ends the pending scrobble (if it played long enough) the same way
+		// Stop does; without this, the last track played before shutdown was
+		// never scrobbled at all.
+		s.endLastfmTrackLocked()
 		lns := s.lns
 		open := make([]*conn, 0, len(s.conns))
 		for c := range s.conns {
@@ -278,6 +286,7 @@ func (s *Server) Shutdown() {
 			c.close()
 		}
 		s.flushDirtyState()
+		s.waitLastfmSubmissions()
 	})
 }
 

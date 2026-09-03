@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -248,6 +249,39 @@ func TestHistory_SongsResponseRefetchedAfterTTL(t *testing.T) {
 	s.History("groovesalad", 10)
 
 	assert.GreaterOrEqual(t, hits.Load(), int32(2), "an expired cache entry must be refetched")
+}
+
+func TestHistory_UnknownChannelNeverBackfills(t *testing.T) {
+	var hits atomic.Int32
+	s, _ := newTestServer(t, Config{})
+	withSongsServer(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"songs":[]}`))
+	})
+
+	entries := s.History("not-a-real-channel", 10)
+
+	require.Empty(t, entries, "an unknown channel has no ring entries and nothing to backfill from")
+	assert.Zero(t, hits.Load(), "a channel that is not in the catalog must never trigger a network fetch")
+}
+
+func TestFetchSongs_EscapesChannelIDInURL(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	var gotPath string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		_, _ = w.Write([]byte(`{"songs":[]}`))
+	}))
+	t.Cleanup(ts.Close)
+	prev := songsURLFormat
+	songsURLFormat = ts.URL + "/%s.json"
+	t.Cleanup(func() { songsURLFormat = prev })
+
+	id := "weird channel"
+	_, err := fetchSongs(id, "test-agent")
+
+	require.NoError(t, err)
+	assert.Equal(t, "/"+url.PathEscape(id)+".json", gotPath)
 }
 
 func TestHistory_NoChannelIDNeverBackfills(t *testing.T) {

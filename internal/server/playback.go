@@ -285,6 +285,13 @@ func (s *Server) PlayRelative(delta int) (protocol.PlaybackState, error) {
 func (s *Server) Stop() protocol.PlaybackState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.stopLocked()
+}
+
+// stopLocked is Stop's implementation, for callers that already hold s.mu
+// (namely the StopIn sleep-timer callback, which must check stopGen and act
+// on it in the same critical section — see StopIn). Caller holds s.mu.
+func (s *Server) stopLocked() protocol.PlaybackState {
 	s.cancelStopTimerLocked()
 	s.playGen++
 	s.cancelReconnectLocked()
@@ -313,12 +320,16 @@ func (s *Server) StopIn(d time.Duration) protocol.PlaybackState {
 	s.stopAt = time.Now().Add(d)
 	s.stopTimer = time.AfterFunc(d, func() {
 		s.mu.Lock()
-		stale := s.stopGen != gen
-		s.mu.Unlock()
-		if stale {
+		defer s.mu.Unlock()
+		// The stale check and the stop happen in one critical section: were
+		// the lock released between them, a StopIn landing in that gap could
+		// arm a new timer (and re-lock to run this same closure's stopLocked
+		// call) before this callback got back to it, stopping a session this
+		// now-superseded timer no longer owns.
+		if s.stopGen != gen {
 			return
 		}
-		s.Stop()
+		s.stopLocked()
 	})
 	s.broadcastStateLocked()
 	return s.snapshotLocked()

@@ -32,6 +32,12 @@ var lastfmMinPlayDuration = 30 * time.Second
 // shrink it.
 var lastfmRetryDelay = 10 * time.Second
 
+// lastfmShutdownWait bounds how long Shutdown waits for in-flight Last.fm
+// submissions (the final scrobble in particular) to finish, so a slow or
+// unreachable Last.fm never delays shutdown indefinitely. A variable so
+// tests can shrink it.
+var lastfmShutdownWait = 3 * time.Second
+
 // lastfmTrack is the now-playing track a future scrobble is pending for.
 type lastfmTrack struct {
 	artist, title string
@@ -54,9 +60,19 @@ func (s *Server) updateLastfmLocked(rawTitle string) {
 	if artist == "" {
 		return
 	}
-	s.lastfmTrack = &lastfmTrack{artist: artist, title: title, startedAt: time.Now()}
+	tr := &lastfmTrack{artist: artist, title: title, startedAt: time.Now()}
+	s.lastfmTrack = tr
 	scrobbler := s.scrobbler
-	s.submitLastfm("now-playing", func() error { return scrobbler.UpdateNowPlaying(artist, title) })
+	// Captured so the retry can check, under s.mu, whether this is still the
+	// track s.lastfmTrack points to: if a later title change has already
+	// replaced it (which sends its own now-playing update), retrying this
+	// stale one would incorrectly restamp Last.fm's "now playing" backward.
+	stillCurrent := func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.lastfmTrack == tr
+	}
+	s.submitLastfm("now-playing", stillCurrent, func() error { return scrobbler.UpdateNowPlaying(artist, title) })
 }
 
 // endLastfmTrackLocked ends the currently tracked now-playing track, if
@@ -72,24 +88,67 @@ func (s *Server) endLastfmTrackLocked() {
 		return
 	}
 	scrobbler := s.scrobbler
-	s.submitLastfm("scrobble", func() error { return scrobbler.Scrobble(tr.artist, tr.title, tr.startedAt) })
+	// No latest-wins check: unlike a now-playing update, each scrobble
+	// records a distinct historical play, so a retry of an older one is
+	// never invalidated by a newer one.
+	s.submitLastfm("scrobble", nil, func() error { return scrobbler.Scrobble(tr.artist, tr.title, tr.startedAt) })
 }
 
 // submitLastfm runs action (an UpdateNowPlaying or Scrobble call) on its own
 // goroutine, off the playback hot path, retrying once after a short delay
 // on failure. kind names the call for the log line ("now-playing" or
-// "scrobble"); a failure is logged once per kind, further ones of the same
-// kind silently swallowed — like desktop notifications (ADR-0030), this is
-// a nice-to-have, never worth playback going wrong over.
-func (s *Server) submitLastfm(kind string, action func() error) {
+// "scrobble"). retryOK, when non-nil, is checked immediately before the
+// retry; a false result skips it silently (see updateLastfmLocked). The
+// goroutine is tracked in lastfmWG, which Shutdown waits on (bounded by
+// lastfmShutdownWait) so the final scrobble has a chance to land; once the
+// server is closing, a failed submission skips the retry delay entirely
+// rather than outlive that bound for nothing. A failure is logged once per
+// kind, further ones of the same kind silently swallowed — like desktop
+// notifications (ADR-0030), this is a nice-to-have, never worth playback
+// going wrong over.
+func (s *Server) submitLastfm(kind string, retryOK func() bool, action func() error) {
+	s.lastfmWG.Add(1)
 	go func() {
+		defer s.lastfmWG.Done()
 		if err := action(); err != nil {
+			if s.isClosing() {
+				return
+			}
 			time.Sleep(lastfmRetryDelay)
+			if retryOK != nil && !retryOK() {
+				return
+			}
 			if err = action(); err != nil {
 				s.logLastfmFailureOnce(kind, err)
 			}
 		}
 	}()
+}
+
+// isClosing reports whether Shutdown has begun.
+func (s *Server) isClosing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closing
+}
+
+// waitLastfmSubmissions waits (bounded by lastfmShutdownWait) for in-flight
+// Last.fm submissions to finish, so the final scrobble Shutdown triggers has
+// a chance to actually be sent before the process exits. A no-op when
+// scrobbling is not configured.
+func (s *Server) waitLastfmSubmissions() {
+	if s.scrobbler == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		s.lastfmWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(lastfmShutdownWait):
+	}
 }
 
 func (s *Server) logLastfmFailureOnce(kind string, err error) {

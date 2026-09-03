@@ -7,10 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"time"
 
+	"somad/internal/channels"
 	"somad/internal/protocol"
 	"somad/internal/security"
 )
@@ -57,9 +59,12 @@ func (s *Server) recordHistoryLocked(channelID, channelTitle, title string) {
 
 // History returns recent now-playing titles, newest first. With channelID
 // set, the result is filtered to that channel and, when the in-memory ring
-// has too few entries for it, backfilled (best-effort) from SomaFM's own
-// song history. limit <= 0, or greater than historyRingSize, is clamped to
-// historyRingSize.
+// has too few entries for it and channelID names a channel in the current
+// catalog, backfilled (best-effort) from SomaFM's own song history; an
+// unrecognized channelID (never validated against the catalog by the wire
+// protocol) gets the ring-only result, with no backfill attempt at all —
+// there is no known channel to fetch or cache song history for. limit <= 0,
+// or greater than historyRingSize, is clamped to historyRingSize.
 func (s *Server) History(channelID string, limit int) []protocol.HistoryEntry {
 	if limit <= 0 || limit > historyRingSize {
 		limit = historyRingSize
@@ -69,10 +74,14 @@ func (s *Server) History(channelID string, limit int) []protocol.HistoryEntry {
 	entries := make([]historyEntry, len(s.history))
 	copy(entries, s.history)
 	var channelTitle string
+	knownChannel := true
 	if channelID != "" {
-		if ch, ok := s.findChannelLocked(channelID); ok {
+		var ok bool
+		var ch channels.Channel
+		if ch, ok = s.findChannelLocked(channelID); ok {
 			channelTitle = ch.Title
 		}
+		knownChannel = ok
 	}
 	s.mu.Unlock()
 
@@ -89,7 +98,7 @@ func (s *Server) History(channelID string, limit int) []protocol.HistoryEntry {
 			}
 		}
 		entries = filtered
-		if len(entries) < limit {
+		if knownChannel && len(entries) < limit {
 			entries = s.backfillHistory(channelID, entries)
 		}
 	}
@@ -205,12 +214,15 @@ type songsResponse struct {
 // fetchSongs fetches and parses channelID's recent song history from
 // SomaFM. The title fields feed the same "Artist - Title" shape the ICY
 // metadata produces, so backfilled and live entries render the same way.
+// channelID is path-escaped before it reaches the URL — defense in depth,
+// since History only ever calls this for a channelID already found in the
+// current catalog (see backfillHistory), never an arbitrary client string.
 func fetchSongs(channelID, userAgent string) ([]historyEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf(songsURLFormat, channelID)
-	req, err := security.NewRequest(ctx, url, userAgent)
+	reqURL := fmt.Sprintf(songsURLFormat, url.PathEscape(channelID))
+	req, err := security.NewRequest(ctx, reqURL, userAgent)
 	if err != nil {
 		return nil, fmt.Errorf("invalid songs URL: %w", err)
 	}

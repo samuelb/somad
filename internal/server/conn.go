@@ -317,6 +317,10 @@ func (c *conn) handleRequest(req protocol.Request) {
 				c.respondError(req.ID, fmt.Errorf("malformed stop \"in\" duration: %w", err))
 				return
 			}
+			if d <= 0 {
+				c.respondError(req.ID, errors.New(`stop "in" duration must be positive`))
+				return
+			}
 			c.respond(req.ID, c.s.StopIn(d))
 		default:
 			c.respond(req.ID, c.s.Stop())

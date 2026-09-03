@@ -434,6 +434,29 @@ func TestStopCancel_NoPendingTimerIsANoOp(t *testing.T) {
 	assert.Empty(t, st.StopAt)
 }
 
+func TestStopIn_RejectsNonPositiveDuration(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+
+	for _, in := range []string{"0", "0s", "-5m"} {
+		t.Run(in, func(t *testing.T) {
+			resp := c.call(protocol.MethodStop, protocol.StopParams{In: in})
+			require.NotEmpty(t, resp.Error)
+			assert.Contains(t, resp.Error, "must be positive")
+		})
+	}
+
+	// None of the rejected requests must have armed a timer or stopped playback.
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusPlaying, snap.Status)
+	assert.Empty(t, snap.StopAt)
+	player.mu.Lock()
+	assert.True(t, player.playing)
+	player.mu.Unlock()
+}
+
 func TestShutdown_CancelsPendingStopTimer(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	c := connect(t, s)

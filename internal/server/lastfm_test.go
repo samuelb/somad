@@ -25,6 +25,10 @@ type fakeScrobbler struct {
 
 	failNowPlayingTimes int
 	failScrobbleTimes   int
+
+	// scrobbleDelay, when set, makes Scrobble sleep this long before
+	// returning, to exercise Shutdown's bounded wait for a slow Last.fm.
+	scrobbleDelay time.Duration
 }
 
 type trackCall struct{ artist, title string }
@@ -45,6 +49,12 @@ func (f *fakeScrobbler) UpdateNowPlaying(artist, title string) error {
 }
 
 func (f *fakeScrobbler) Scrobble(artist, title string, startedAt time.Time) error {
+	f.mu.Lock()
+	delay := f.scrobbleDelay
+	f.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scrobbleCalls = append(f.scrobbleCalls, scrobbleCall{artist, title, startedAt})
@@ -284,6 +294,35 @@ func TestLastfm_GivesUpAfterOneRetry(t *testing.T) {
 	assert.Equal(t, 2, scrobbler.nowPlayingCount(), "must not retry a third time")
 }
 
+func TestLastfm_SkipsNowPlayingRetryWhenTrackChanged(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	scrobbler := &fakeScrobbler{failNowPlayingTimes: 1}
+	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+	c.waitState("first title", func(st protocol.PlaybackState) bool {
+		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
+	})
+
+	// A second title arrives before the first now-playing update's retry
+	// delay elapses; it supersedes the first as s.lastfmTrack.
+	player.trackChan <- audio.TrackInfo{Title: "Tycho - A Walk", Gen: player.currentGen()}
+	c.waitState("second title", func(st protocol.PlaybackState) bool {
+		return st.TrackTitle == "Tycho - A Walk"
+	})
+	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 2 }, 2*time.Second, 5*time.Millisecond)
+
+	// Give the first track's (should-be-skipped) retry time to fire if the
+	// latest-wins check were not in place.
+	time.Sleep(3 * lastfmRetryDelay)
+	assert.Equal(t, 2, scrobbler.nowPlayingCount(),
+		"the stale retry for the superseded first track must be skipped")
+}
+
 func TestLastfm_DisabledWhenNoScrobblerConfigured(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	go s.watchTrackUpdates()
@@ -353,4 +392,88 @@ func TestReloadLastfm_RPC(t *testing.T) {
 	defer scrobbler.mu.Unlock()
 	require.Len(t, scrobbler.sessionKeys, 1)
 	assert.Equal(t, "via-rpc", scrobbler.sessionKeys[0])
+}
+
+func TestShutdown_ScrobblesFinalTrack(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	scrobbler := &fakeScrobbler{}
+	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+	c.waitState("title", func(st protocol.PlaybackState) bool {
+		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
+	})
+	time.Sleep(2 * lastfmMinPlayDuration)
+
+	s.Shutdown()
+	select {
+	case <-s.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not complete")
+	}
+
+	require.Equal(t, 1, scrobbler.scrobbleCount(), "Shutdown must scrobble the track that was playing, like Stop does")
+	got := scrobbler.lastScrobble()
+	assert.Equal(t, "Boards of Canada", got.artist)
+	assert.Equal(t, "Dayvan Cowboy", got.title)
+}
+
+func TestShutdown_LastfmWaitIsBounded(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	prevWait := lastfmShutdownWait
+	lastfmShutdownWait = 50 * time.Millisecond
+	t.Cleanup(func() { lastfmShutdownWait = prevWait })
+
+	scrobbler := &fakeScrobbler{scrobbleDelay: 2 * time.Second}
+	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+	c.waitState("title", func(st protocol.PlaybackState) bool {
+		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
+	})
+	time.Sleep(2 * lastfmMinPlayDuration)
+
+	start := time.Now()
+	s.Shutdown()
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, time.Second,
+		"shutdown must not wait for a slow scrobble beyond lastfmShutdownWait")
+}
+
+func TestSubmitLastfm_SkipsRetryOnceClosing(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	scrobbler := &fakeScrobbler{failScrobbleTimes: 1}
+	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+	c.waitState("title", func(st protocol.PlaybackState) bool {
+		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
+	})
+	time.Sleep(2 * lastfmMinPlayDuration)
+
+	s.Shutdown()
+	select {
+	case <-s.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown did not complete")
+	}
+
+	// The one (failing) scrobble attempt happens as part of Shutdown's
+	// bounded wait; the 10s retry must be skipped once closing, not merely
+	// cut off by the wait bound.
+	time.Sleep(3 * lastfmRetryDelay)
+	assert.Equal(t, 1, scrobbler.scrobbleCount(), "no retry once the server is shutting down")
 }
