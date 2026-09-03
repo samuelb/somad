@@ -215,7 +215,7 @@ func printUsage(w io.Writer) {
   soma status [--json]        show what is playing
   soma volume [--json] [<0-100>|+n|-n]
                                  show, set, or adjust the playback volume
-  soma volume mute [--json]      toggle mute, restoring the previous level
+  soma volume mute [--json]   toggle mute, restoring the previous level
   soma history [--json] [-n N] [channel]
                                  show recent now-playing titles, newest first
                                  (all channels, or one when given; -n bounds
