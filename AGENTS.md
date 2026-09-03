@@ -49,7 +49,10 @@ make site               # stage the website (site/ + demo.gif) into dist/site
   Website workflow (`.github/workflows/website.yml`) deploys it to GitHub
   Pages on every push to `main` that touches `site/` or `demo.gif`. The
   page fetches the latest release tag from the GitHub API at view time.
-  Keep its Install and Usage sections in sync with the README.
+  **Keep it current:** any change to features, installation steps,
+  commands, flags, keybindings, config keys, or file locations updates
+  `site/index.html` in the same commit as the README. The page must never
+  describe behaviour the binary no longer has.
 - **Decisions** live in `docs/adr/` (index: `docs/adr/README.md`). Read the
   relevant records before changing the architecture, wire protocol,
   security model, audio pipeline, or release process. When a change makes
@@ -78,6 +81,8 @@ make site               # stage the website (site/ + demo.gif) into dist/site
 | Config keys | `internal/config/config.go` (structs + template text) | README "Configuration", `printUsage` example, `site/index.html` "Configuration" |
 | Keyboard controls | keymap in `internal/app/update.go` | README "Keyboard Controls" (`<kbd>` tables), `site/index.html` "Keyboard controls" |
 | Installation instructions | README "Installation" | `site/index.html` "Install" |
+| Feature list | README "Features" | `site/index.html` "What you get" |
+| Data directories | `config.Path`, `state.Dir`, the cache dir in `internal/channels`, `protocol.SocketPath` | README "Data Storage", `site/index.html` "Where Somad keeps its files" |
 | Wire protocol | `internal/protocol/protocol.go`, `types.go` | ADR 0002 |
 | Build and architecture | this file | — |
 
