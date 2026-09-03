@@ -18,22 +18,6 @@ needs a decision.
 
 Ordered roughly by value ÷ effort.
 
-- [ ] **PSK quality** [S]. Template suggests `psk: "change-me"`
-      (`internal/config/config.go:235` and `:258`, mirrored in README);
-      `Config.validate` checks only mutual exclusivity; `readPSKFile`
-      (`cmd/soma/endpoint.go:96`, reused by the daemon) rejects only an
-      empty file and never stats it, while the socket dir *is* checked for
-      `0o077` and owner uid in `internal/protocol/socket.go:32`. Add
-      `soma daemon --gen-psk` (32 random bytes at 0600, modelled on
-      `--show-cert`) plus an SSH-style permissions check in `readPSKFile`.
-- [ ] **Track history** [M]. `somafm.com` is allowed exactly by
-      `ValidateURL` (`validation.go:68`), so
-      `https://somafm.com/songs/<channel>.json` passes today, and the daemon
-      sees every title change. Needs a protocol method, server fetch/cache,
-      `soma history [--json]`, and a TUI pane. Note `h` is already bound by
-      the bubbles list as *previous page* (`left, h, pgup, b, u`); a
-      model-level `h` case would silently shadow pagination, so pick another
-      key or remove `h` from the list keymap.
 - [ ] **Search improvements** [M] (`internal/app/search.go`,
       `internal/app/update.go:85`). `UpdateSearchMatches` only collects
       indices and jumps; the list's own filtering is disabled at
@@ -53,16 +37,6 @@ Ordered roughly by value ÷ effort.
       `daemon.go`/`tui.go`. Coverage: `cmd/soma` is at 41.9%, the lowest
       package with real logic (`internal/platform` at 0% and `tray` at 28.8%
       are thin OS bindings).
-- [ ] **Desktop notification on track change** [M]: show the track
-      title and artist, opt-in via config. `handleTrackUpdate`
-      (`internal/server/playback.go`) only sets `s.trackTitle`, updates
-      MPRIS, and broadcasts today. `TrackInfo` carries the raw ICY
-      `StreamTitle` (`Artist - Title`) unsplit, and `updateMPRISLocked`
-      passes the channel title as `xesam:artist`, so split it once and let
-      MPRIS use the same artist/title. Linux: `notify-send`/D-Bus
-      `org.freedesktop.Notifications`; macOS: `osascript` or
-      `UNUserNotificationCenter` via the existing Cocoa bridge. Should
-      fire from the daemon, not the TUI, so it works with the TUI closed.
 - [ ] **Last.fm scrobbling** [L, wanted]. Now-playing on track change,
       scrobble after the usual ≥30 s / half-track rule, API key + session
       key in config, one-time auth flow (`soma lastfm login`). Two
@@ -79,24 +53,11 @@ Small hygiene fixes first, then features, then code quality.
 
 ### Features
 
-- [ ] Sleep timer (`soma stop --in 45m`): `runStop` takes no args today.
-      Model it on the idle-exit `time.AfterFunc` in
-      `internal/server/server.go:467`. [S–M]
 - [ ] Favorites-only view toggle in the TUI. `sortItemsWithFavorites`
       (`internal/app/favorites.go:81`) only partitions favorites first;
       nothing filters. [S–M, shares the matches-only plumbing with search]
-- [ ] Mouse support: sole `tea.NewProgram` call at `cmd/soma/main.go:571`
-      uses only `WithAltScreen`. [S]
-
 ### Code quality
 
-- [ ] Deduplicate: XDG/darwin base-dir resolution ×2 (`internal/state`
-      and `internal/config` are structurally identical; `internal/channels`
-      uses a simpler `os.UserCacheDir` variant that should fold into the
-      same helper), favorites `map[string]bool` built ×4 (`cli.go:204`,
-      `cli.go:233`, `server.go:300`, `server.go:517`), and a byte-identical
-      `str(*string)` closure ×2 in package `main` (`endpoint.go:35`,
-      `main.go:270`). [S]
 ## Not planned
 
 Scope cuts are recorded as Architecture Decision Records in `docs/adr/`
