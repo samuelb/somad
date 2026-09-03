@@ -17,8 +17,9 @@ Linux and macOS — other platforms are not supported and may not work.
 - Client-server architecture: playback runs in a background server, so you
   can close the TUI and the music keeps playing (opt out with
   `soma --shutdown-on-exit`)
-- The server starts automatically when needed and exits on its own once
-  playback is stopped and no client is connected
+- The server starts automatically when needed and keeps running until you
+  stop it (or, with an idle timeout configured, exits on its own once
+  playback is stopped and no client is connected)
 - After an upgrade, the background server is restarted onto the new version the
   next time you change channel, pause, or stop — never mid-song just to upgrade,
   so music you're listening to keeps playing until you interrupt it yourself

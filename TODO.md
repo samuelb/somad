@@ -4,8 +4,8 @@ Open findings from the 2026-09 code assessment, the Codex reviews of the
 `improvements` branch (TLS 1.3, adaptive colors, jitter buffer, AAC playback —
 all landed on `main`), and the 2026-09-03 follow-up analysis. Every item was
 re-verified against the tree on 2026-09-03; nothing here is already done.
-Items deliberately dropped are listed under "Not planned" at the end so they
-are not re-proposed.
+Items deliberately dropped are recorded in `docs/adr/` and listed under
+"Not planned" at the end so they are not re-proposed.
 
 Priorities: **P1** = known bugs or real exposure, fix next; **P2** = high-value
 improvements; **P3** = polish and nice-to-haves. Each item carries a rough
@@ -290,12 +290,6 @@ Small hygiene fixes first, then features, then code quality.
       `formatters:` section and `lefthook.yml` runs only `golangci-lint` and
       `go test`, so nothing enforces `make fmt`. Run `gofmt -w`, then add
       `formatters: enable: [gofmt, goimports]`.
-- [ ] **Docs contradict the default idle behaviour**: README:20 (features)
-      says the server "exits on its own once playback is stopped and no
-      client is connected" unconditionally, and AGENTS.md:45 says "after an
-      idle timeout"; `server.DefaultIdleTimeout` is 0 and README:245
-      ("keeps running until stopped explicitly") and README:342 (`"0" (the
-      default) never exits on idle`) already say so. Fix the two sentences.
 - [ ] **README "Keyboard Controls" vs in-app help disagree both ways**
       (`README.md:310`, `NewHelpKeys` in `internal/app/update.go:192`):
       README omits `a` (about) and `n`/`N` (next/prev match), which the help
@@ -354,30 +348,18 @@ Small hygiene fixes first, then features, then code quality.
       ADTS reader (`internal/audio/adts.go`), `pkg/playlist`. [S]
 - [ ] Add `SECURITY.md` (the daemon ships a network listener). [S]
 
-## Not planned (decided 2026-09-03)
+## Not planned
 
-- **Linux AAC decoding.** AAC is only worth having where the platform ships
-  a decoder (macOS AudioToolbox). MP3 everywhere else is fine; do not add a
-  cgo decoder dependency for it.
-- **Theming via config.** The palette in `internal/ui/styles.go` follows the
-  somafm.com website colors and is adaptive so it works out of the box on
-  dark and light terminals (landed in 9b254e7). Keep that property; no
-  user-configurable theme.
-- **Channel detail pane.** Descriptions are short; there is not much to show.
-- **Sort options.** API order with favorites hoisted is enough.
-- **Protocol min/max version range in hello.** `protocol.Version` is 1 and
-  there is no v2; revisit only when an incompatible wire change is actually
-  made.
-- **Shared per-address auth limiter.** The challenge-response makes online
-  guessing unrealistic; the TCP connection cap and deadlines bound the
-  resource cost instead.
-- **Semver comparison for version-skew restarts.** Exempting `dev` fixes
-  the real problem (two local installs fighting).
-- **Hoisting per-frame lipgloss styles / set-based `IsMatch`.** A few dozen
-  rows per frame; nothing measured it as slow.
-- **CONTRIBUTING.md and a committed CHANGELOG.** Solo trunk-based project
-  with AGENTS.md; git-cliff generates release notes at release time.
-- **Raising the CI coverage gate.** Adds friction on every commit for no
-  concrete gain.
-- **Re-arming the stall watchdog on buffer consumption.** The decoder-error
-  reader wrapper is the fix; this was only an optional extra guard.
+Scope cuts are recorded as Architecture Decision Records in `docs/adr/`
+(see the "Rejected alternatives" sections); this list only points there so
+they are not re-proposed.
+
+- Linux AAC decoding — ADR-0016
+- Theming via config — ADR-0020
+- Channel detail pane, sort options, per-frame style hoisting — ADR-0026
+- Protocol min/max version range in hello — ADR-0002
+- Shared per-address auth limiter — ADR-0008
+- Semver comparison for version-skew restarts — ADR-0006
+- CONTRIBUTING.md and a committed CHANGELOG — ADR-0022
+- Raising the CI coverage gate — ADR-0025
+- Re-arming the stall watchdog on buffer consumption — ADR-0013

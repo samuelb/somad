@@ -21,6 +21,18 @@ go test -race ./internal/server/ -run TestName   # run a single test
 - Git hooks via lefthook run `golangci-lint` and `go test -race` on pre-commit and pre-push.
 - CI enforces a minimum total test coverage of 60% (Linux job).
 
+## Decisions
+
+Architecture decisions are recorded in `docs/adr/` (one file per decision,
+index in `docs/adr/README.md`). Read the relevant records before changing
+the architecture, the wire protocol, the security model, the audio
+pipeline, or the release process; they state invariants the code relies on
+and list ideas that were already considered and rejected. When a change
+makes a decision that future work must respect, or reverses a recorded one,
+add a new record from `docs/adr/0000-template.md` or mark the old one
+superseded, in the same commit as the change. Scope cuts go there too:
+`TODO.md`'s "Not planned" section only points at the records.
+
 ## Branching
 
 This project follows trunk-based development. Commit changes directly to
@@ -42,7 +54,7 @@ Two processes, one binary. `cmd/soma/main.go` dispatches subcommands: no args op
 
 **Wire protocol** (`internal/protocol`): newline-delimited JSON over a Unix domain socket (`SocketPath()` in `socket.go`; overridable with `$SOMAD_SOCKET`) or, when configured, TCP (`server.listen` / `--listen`, with optional TLS and pre-shared-key auth). Clients send `Request`s, the server replies with ID-correlated `Response`s and pushes `Event`s carrying full state snapshots. `protocol.Version` must match exactly between client and server; bump it on any incompatible wire change. `auth.go` has the HMAC challenge–response used by PSK authentication (TCP connections only; the Unix socket is exempt because file permissions already guard it).
 
-**Server** (`internal/server`): owns audio playback, the channel catalog, persisted state, MPRIS, and the tray icon. `spawnlock.go` ensures only one daemon runs. The server exits on its own after an idle timeout when playback is stopped and no client is connected. `Run` accepts multiple listeners (Unix socket + optional TLS-wrapped TCP); `conn.go` gates non-local connections behind auth when a PSK is configured.
+**Server** (`internal/server`): owns audio playback, the channel catalog, persisted state, MPRIS, and the tray icon. `spawnlock.go` ensures only one daemon runs. By default the server runs until stopped explicitly; `--idle-timeout` / `server.idle_timeout` make it exit once playback is stopped and no client is connected for that long. `Run` accepts multiple listeners (Unix socket + optional TLS-wrapped TCP); `conn.go` gates non-local connections behind auth when a PSK is configured.
 
 **Client** (`internal/client`): protocol client shared by TUI and CLI. Connections are described by an `Endpoint` (Unix socket, or TCP with optional `tls.Config` and PSK; resolved in `cmd/soma/endpoint.go` from `--server`-style flags, `$SOMAD_SERVER`, and the config file). `spawn.go` auto-spawns the server when none is running and handles version-skew upgrades: a server whose version differs from the client's is restarted onto the new binary, but only at a moment that already interrupts playback (channel change, pause, stop) — never mid-song. Tests shrink `restartWait` to keep this fast. Both apply only to local endpoints: a remote server is never spawned or restarted.
 
