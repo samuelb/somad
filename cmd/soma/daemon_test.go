@@ -118,6 +118,18 @@ func TestResolveDaemonOptions_ConfigDefaultsAndFlagOverrides(t *testing.T) {
 	}
 }
 
+func TestResolveDaemonOptions_ExpandsHomeInFlagPaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".config/somad"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".config/somad/psk"), []byte("secret\n"), 0o600))
+
+	opts, err := resolveDaemonOptions(&config.Config{}, []string{"--psk-file=~/.config/somad/psk"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "secret", opts.psk, "a quoted ~/-prefixed --psk-file must expand like the shell would")
+}
+
 func TestResolveDaemonOptions_RejectsInvalidQuality(t *testing.T) {
 	_, err := resolveDaemonOptions(&config.Config{}, []string{"--quality=ultra"})
 

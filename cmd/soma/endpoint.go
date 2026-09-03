@@ -59,13 +59,26 @@ func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
 	// A trust flag replaces both configured trust sources, so a one-off
 	// --tls-fingerprint works even when the config file names a tls_ca.
 	if f.tlsCA != "" || f.tlsFingerprint != "" {
-		caPath, fingerprint = f.tlsCA, f.tlsFingerprint
+		// config.Load already expanded a configured tls_ca; a --tls-ca flag
+		// bypasses that, so it needs the same "~/" handling here (a shell
+		// normally expands it, but a quoted flag value should still work).
+		flagCA, err := config.ExpandHome(f.tlsCA)
+		if err != nil {
+			return client.Endpoint{}, err
+		}
+		caPath, fingerprint = flagCA, f.tlsFingerprint
 	}
 	useTLS := f.tls || caPath != "" || fingerprint != "" ||
 		(cfg.Client.TLS != nil && *cfg.Client.TLS)
 
 	psk := str(cfg.Client.PSK)
-	if pskFile := firstNonEmpty(f.pskFile, str(cfg.Client.PSKFile)); pskFile != "" {
+	// Likewise for --psk-file: cfg.Client.PSKFile is already expanded, but a
+	// flag value is not.
+	flagPSKFile, err := config.ExpandHome(f.pskFile)
+	if err != nil {
+		return client.Endpoint{}, err
+	}
+	if pskFile := firstNonEmpty(flagPSKFile, str(cfg.Client.PSKFile)); pskFile != "" {
 		if psk, err = readPSKFile(pskFile); err != nil {
 			return client.Endpoint{}, err
 		}

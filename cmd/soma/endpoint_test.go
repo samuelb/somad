@@ -61,6 +61,40 @@ func TestResolveEndpoint_TLSAndPSK(t *testing.T) {
 	assert.Equal(t, "secret", ep.PSK, "the PSK file is read and trimmed")
 }
 
+func TestResolveEndpoint_PSKFileFlagExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".config/somad"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".config/somad/psk"), []byte("secret\n"), 0o600))
+
+	ep, err := resolveEndpoint(connFlags{
+		server:  "myserver:5454",
+		pskFile: "~/.config/somad/psk",
+	}, &config.Config{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "secret", ep.PSK, "a quoted ~/-prefixed --psk-file must expand like the shell would")
+}
+
+func TestResolveEndpoint_TLSCAFlagExpandsHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	caPath := filepath.Join(home, "ca.pem")
+	// tlsutil.ClientTLSConfig validates the CA file's contents, so this only
+	// needs to prove the path itself was expanded before being read; a
+	// malformed PEM file surfaces as an error naming the expanded path.
+	require.NoError(t, os.WriteFile(caPath, []byte("not a real certificate"), 0o600))
+
+	_, err := resolveEndpoint(connFlags{
+		server: "myserver:5454",
+		tlsCA:  "~/ca.pem",
+	}, &config.Config{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), caPath, "the error must name the expanded path")
+	assert.NotContains(t, err.Error(), "~/ca.pem", "the ~ must have been expanded before the file was opened")
+}
+
 func TestResolveEndpoint_FlagTrustOverridesConfigTrust(t *testing.T) {
 	ca := "/path/ca.pem"
 	cfg := &config.Config{Client: config.ClientConfig{TLSCA: &ca}}

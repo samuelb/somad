@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"somad/internal/xdg"
@@ -164,6 +165,48 @@ func Dir() (string, error) {
 	return dir, nil
 }
 
+// ExpandHome expands a leading "~" (the whole path) or "~/" prefix in path
+// to the current user's home directory (os.UserHomeDir), the way a shell
+// would expand it — so a config value or a quoted flag argument such as
+// "~/.config/somad/psk" works the same as an unquoted one the shell already
+// expanded. A path that does not start with "~" is returned unchanged.
+func ExpandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("expanding %q: resolving the home directory: %w", path, err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[len("~/"):]), nil
+}
+
+// expandConfigHomePaths expands a leading "~/" (see ExpandHome) in the
+// config's path-valued fields, so the documented "~/.config/somad/psk"
+// style examples work without a shell to expand them for us.
+func expandConfigHomePaths(cfg *Config) error {
+	for _, field := range []**string{
+		&cfg.Server.PSKFile,
+		&cfg.Server.TLSCert,
+		&cfg.Server.TLSKey,
+		&cfg.Client.PSKFile,
+		&cfg.Client.TLSCA,
+	} {
+		if *field == nil || **field == "" {
+			continue
+		}
+		expanded, err := ExpandHome(**field)
+		if err != nil {
+			return err
+		}
+		*field = &expanded
+	}
+	return nil
+}
+
 // Load reads the configuration file. A missing file is not an error and
 // yields the zero Config; a file that exists but does not parse is an error,
 // because silently ignoring a hand-written config would be worse than
@@ -191,6 +234,10 @@ func Load() (*Config, error) {
 		if errors.Is(err, io.EOF) { // an empty file is a valid, empty config
 			return &Config{}, nil
 		}
+		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
+	}
+
+	if err := expandConfigHomePaths(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
 	}
 

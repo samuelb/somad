@@ -279,6 +279,69 @@ func TestLoadLastfmConfig(t *testing.T) {
 	assert.Equal(t, "sess789", *cfg.Lastfm.SessionKey)
 }
 
+func TestExpandHome(t *testing.T) {
+	home := "/home/tester"
+	t.Setenv("HOME", home)
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"bare tilde", "~", home},
+		{"tilde slash", "~/.config/somad/psk", filepath.Join(home, ".config/somad/psk")},
+		{"absolute path unchanged", "/etc/somad/psk", "/etc/somad/psk"},
+		{"relative path unchanged", "somad/psk", "somad/psk"},
+		{"empty path unchanged", "", ""},
+		{"tilde in the middle is not expanded", "/a/~/b", "/a/~/b"},
+		{"tilde-prefixed username is not expanded", "~otheruser/psk", "~otheruser/psk"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ExpandHome(tt.path)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestLoadExpandsHomeInPathValuedKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeConfig(t, `server:
+  psk_file: ~/.config/somad/psk
+  tls_cert: ~/certs/cert.pem
+  tls_key: ~/certs/key.pem
+client:
+  psk_file: ~/.config/somad/psk
+  tls_ca: ~/certs/ca.pem
+`)
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Server.PSKFile)
+	assert.Equal(t, filepath.Join(home, ".config/somad/psk"), *cfg.Server.PSKFile)
+	require.NotNil(t, cfg.Server.TLSCert)
+	assert.Equal(t, filepath.Join(home, "certs/cert.pem"), *cfg.Server.TLSCert)
+	require.NotNil(t, cfg.Server.TLSKey)
+	assert.Equal(t, filepath.Join(home, "certs/key.pem"), *cfg.Server.TLSKey)
+	require.NotNil(t, cfg.Client.PSKFile)
+	assert.Equal(t, filepath.Join(home, ".config/somad/psk"), *cfg.Client.PSKFile)
+	require.NotNil(t, cfg.Client.TLSCA)
+	assert.Equal(t, filepath.Join(home, "certs/ca.pem"), *cfg.Client.TLSCA)
+}
+
+func TestLoadLeavesAbsolutePathValuedKeysUnchanged(t *testing.T) {
+	writeConfig(t, "server:\n  psk_file: /etc/somad/psk\n")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Server.PSKFile)
+	assert.Equal(t, "/etc/somad/psk", *cfg.Server.PSKFile)
+}
+
 func TestLoadLastfmConfig_APIKeyAndSecretWithoutSessionKeyIsValid(t *testing.T) {
 	// The session key is normally obtained by "soma lastfm login" and
 	// persisted separately (internal/state), not written to this file.

@@ -111,6 +111,19 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 		`generate a random pre-shared key at --psk-file (or a "psk" file in the config directory when unset), then exit`)
 	_ = fs.Parse(args)
 
+	// cfg's own path-valued fields are already expanded by config.Load; an
+	// explicit flag bypasses that and needs the same "~/" handling, so
+	// --tls-cert/--tls-key/--psk-file behave like the config keys they
+	// mirror (a shell normally expands "~" for a flag, but a quoted value
+	// should still work).
+	for _, p := range []*string{tlsCert, tlsKey, pskFile} {
+		expanded, err := config.ExpandHome(*p)
+		if err != nil {
+			return daemonOptions{}, err
+		}
+		*p = expanded
+	}
+
 	if *genPSK {
 		path := *pskFile
 		if path == "" {
