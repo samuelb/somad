@@ -19,7 +19,7 @@ make lint               # golangci-lint run ./...  (config: .golangci.yml, gosec
 make check              # lint + test + vet — run before committing
 go test -race ./internal/server/ -run TestName   # single test
 make fmt                # gofmt -s (+ goimports if installed)
-make site               # Hugo build of the website (site/) into site/public
+make site               # stage the website (site/ + demo.gif) into dist/site
 ```
 
 - Tests need no network, audio device, or display: HTTP goes to `httptest`
@@ -43,13 +43,13 @@ make site               # Hugo build of the website (site/) into site/public
   version numbers. Unprefixed commits land under a generic "Other" heading.
 - **Releases** are the manually dispatched Release workflow
   (`.github/workflows/release.yml`, inputs `bump` and `dry_run`).
-- **Website** (https://samuelb.github.io/somad/) is a Hugo site in `site/`
-  with its own layouts and no theme; content in `site/content/` presents
-  the software, installation, and usage only. The Website workflow
-  (`.github/workflows/website.yml`) deploys it to GitHub Pages on every
-  push to `main` that touches `site/` or `demo.gif`, and on each published
-  release (the landing page shows the latest tag). Keep `install.md` and
-  `usage.md` in sync with the README sections they mirror.
+- **Website** (https://samuelb.github.io/somad/) is a single hand-written
+  page in `site/` (`index.html`, `style.css`, `favicon.svg`; no generator,
+  no build) that presents the software, installation, and usage only. The
+  Website workflow (`.github/workflows/website.yml`) deploys it to GitHub
+  Pages on every push to `main` that touches `site/` or `demo.gif`. The
+  page fetches the latest release tag from the GitHub API at view time.
+  Keep its Install and Usage sections in sync with the README.
 - **Decisions** live in `docs/adr/` (index: `docs/adr/README.md`). Read the
   relevant records before changing the architecture, wire protocol,
   security model, audio pipeline, or release process. When a change makes
@@ -74,10 +74,10 @@ make site               # Hugo build of the website (site/) into site/public
 
 | Fact | Source of truth | Also stated in |
 |------|-----------------|----------------|
-| CLI commands and flags | `printUsage` in `cmd/soma/main.go` | README "Commands", `site/content/usage.md` |
-| Config keys | `internal/config/config.go` (structs + template text) | README "Configuration", `printUsage` example, `site/content/usage.md` |
-| Keyboard controls | keymap in `internal/app/update.go` | README "Keyboard Controls" (`<kbd>` tables), `site/content/usage.md` |
-| Installation instructions | README "Installation" | `site/content/install.md` |
+| CLI commands and flags | `printUsage` in `cmd/soma/main.go` | README "Commands", `site/index.html` "Usage" |
+| Config keys | `internal/config/config.go` (structs + template text) | README "Configuration", `printUsage` example, `site/index.html` "Configuration" |
+| Keyboard controls | keymap in `internal/app/update.go` | README "Keyboard Controls" (`<kbd>` tables), `site/index.html` "Keyboard controls" |
+| Installation instructions | README "Installation" | `site/index.html` "Install" |
 | Wire protocol | `internal/protocol/protocol.go`, `types.go` | ADR 0002 |
 | Build and architecture | this file | — |
 

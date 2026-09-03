@@ -152,17 +152,19 @@ package-nix:
 	@echo "Building Nix package..."
 	nix build .#
 
-# Build the website (site/) into site/public with Hugo
-SITE_VERSION?=$(shell git describe --tags --abbrev=0 2>/dev/null)
+# Stage the website (site/ plus demo.gif) into dist/site
 .PHONY: site
 site:
-	@echo "Building website..."
-	HUGO_PARAMS_VERSION="$(SITE_VERSION)" hugo --source site --minify --gc
+	@echo "Staging website..."
+	rm -rf dist/site
+	mkdir -p dist/site
+	cp -R site/. dist/site/
+	cp demo.gif dist/site/
 
-# Serve the website locally with live reload
+# Serve the staged website locally
 .PHONY: site-serve
-site-serve:
-	HUGO_PARAMS_VERSION="$(SITE_VERSION)" hugo server --source site --navigateToChanged
+site-serve: site
+	python3 -m http.server --directory dist/site 8000
 
 # Format Go code
 .PHONY: fmt
@@ -234,8 +236,8 @@ help:
 	@echo "  uninstall         Remove binary from \$$GOBIN"
 	@echo "  package-deb       Build a .deb package in dist/ with nfpm"
 	@echo "  package-nix       Build the Nix flake package"
-	@echo "  site              Build the website into site/public with Hugo"
-	@echo "  site-serve        Serve the website locally with live reload"
+	@echo "  site              Stage the website into dist/site"
+	@echo "  site-serve        Serve the staged website on http://localhost:8000"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
 	@echo "  security          Run security scan (gosec)"
@@ -249,4 +251,3 @@ help:
 	@echo "  COMMIT            Set commit hash (default: git sha or 'none')"
 	@echo "  DATE              Set build date (default: current UTC time)"
 	@echo "  DEB_ARCH          Debian architecture for package-deb (default: amd64)"
-	@echo "  SITE_VERSION      Release version shown on the website (default: latest git tag)"

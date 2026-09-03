@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Somad · SomaFM in your terminal</title>
+  <meta name="description" content="Play and explore SomaFM radio from your terminal. Daemon-backed playback that outlives the TUI, plus a headless CLI. Linux and macOS.">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="canonical" href="https://samuelb.github.io/somad/">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Somad">
+  <meta property="og:title" content="Somad · SomaFM in your terminal">
+  <meta property="og:description" content="Play and explore SomaFM radio from your terminal. Daemon-backed playback that outlives the TUI, plus a headless CLI. Linux and macOS.">
+  <meta property="og:url" content="https://samuelb.github.io/somad/">
+  <meta property="og:image" content="https://samuelb.github.io/somad/demo.gif">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <nav class="wrap" aria-label="Main">
+      <a class="brand" href="#top">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><use href="favicon.svg#mark"/></svg>
+        <span>soma<span class="brand-d">d</span></span>
+      </a>
+      <ul class="menu">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#usage">Usage</a></li>
+        <li><a href="https://github.com/samuelb/somad" rel="noopener">GitHub</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <!-- Hero ------------------------------------------------------------ -->
+    <section class="hero wrap" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow">SomaFM radio client · Linux and macOS</p>
+        <h1>SomaFM in your&nbsp;terminal.</h1>
+        <p class="lede">Browse every SomaFM channel from a keyboard-driven TUI. Playback runs in a
+          background daemon, so closing the terminal never stops the music, and a headless
+          CLI controls it from anywhere.</p>
+        <div class="cta">
+          <a class="btn primary" href="#install">Install</a>
+          <a class="btn" href="#usage">Usage</a>
+          <a class="btn ghost" href="https://github.com/samuelb/somad">GitHub</a>
+        </div>
+        <p class="version">Latest release:
+          <a href="https://github.com/samuelb/somad/releases/latest"><code id="version">see releases</code></a></p>
+      </div>
+      <figure class="terminal">
+        <img src="demo.gif" alt="Animated demo of the Somad terminal UI: browsing SomaFM channels, playing one, and showing the current track." width="880" height="618">
+      </figure>
+    </section>
+
+    <!-- Quick start ----------------------------------------------------- -->
+    <section class="wrap quickstart" id="quick-start">
+      <div class="quickstart-grid">
+        <div>
+          <h2>Quick start</h2>
+          <p>One tap, one install, one command. Homebrew works on both macOS and Linux;
+            packages for Debian, Fedora, Arch and Nix, plus plain binaries, are
+            <a href="#install">below</a>.</p>
+        </div>
+        <pre class="shell"><code><span class="p">$</span> brew tap samuelb/tap
+<span class="p">$</span> brew install somad
+<span class="p">$</span> soma</code></pre>
+      </div>
+    </section>
+
+    <!-- Features -------------------------------------------------------- -->
+    <section class="wrap features" id="features">
+      <h2>What you get</h2>
+      <ul class="feature-grid">
+        <li>
+          <h3>Music that outlives the TUI</h3>
+          <p>Playback runs in a background daemon. Quit the terminal UI and the music keeps
+            playing; reopen it any time to pick the session back up.</p>
+        </li>
+        <li>
+          <h3>Headless CLI</h3>
+          <p><code>play</code>, <code>next</code>, <code>pause</code>, <code>stop</code>,
+            <code>status</code>, <code>volume</code> and <code>list</code> work without the TUI,
+            so they slot into scripts, keybindings and status bars.</p>
+        </li>
+        <li>
+          <h3>Every SomaFM channel</h3>
+          <p>Browse and filter the full channel list, mark favorites, and jump straight back to
+            your last-played channel on startup.</p>
+        </li>
+        <li>
+          <h3>Live track info</h3>
+          <p>Artist and title arrive with the stream itself, so the TUI, the tray and media
+            players always show what is playing.</p>
+        </li>
+        <li>
+          <h3>Remote control</h3>
+          <p>Run the daemon on the machine wired to the speakers and control it from your
+            laptop over TCP, with TLS and a pre-shared key.</p>
+        </li>
+        <li>
+          <h3>Tray icon and media keys</h3>
+          <p>A menu-bar or tray icon with channel picker and playback controls, and MPRIS on
+            Linux so media keys keep working with the TUI closed.</p>
+        </li>
+        <li>
+          <h3>Resilient streaming</h3>
+          <p>Buffered playback with a stall watchdog and automatic reconnection, so a flaky
+            network means a pause, not a restart.</p>
+        </li>
+        <li>
+          <h3>Fast to start</h3>
+          <p>The channel catalog is cached and refreshed in the background, so the TUI opens
+            instantly.</p>
+        </li>
+      </ul>
+    </section>
+
+    <!-- How it works ---------------------------------------------------- -->
+    <section class="wrap how" id="how-it-works">
+      <h2>How it works</h2>
+      <ol class="flow">
+        <li>
+          <span class="flow-label">TUI &amp; CLI</span>
+          <p><code>soma</code> opens the interface; <code>soma play</code>, <code>soma next</code>,
+            <code>soma status</code> and friends work without it.</p>
+        </li>
+        <li>
+          <span class="flow-label">Daemon</span>
+          <p>Starts on demand, streams and decodes the audio, tracks titles, shows the tray
+            icon, and keeps playing after every client has gone.</p>
+        </li>
+        <li>
+          <span class="flow-label">SomaFM</span>
+          <p>Plays each channel's best stream directly, AAC on macOS and MP3 on Linux, and
+            reconnects on its own when the network hiccups.</p>
+        </li>
+      </ol>
+      <p class="note">Frontends and daemon talk over a local socket, or over TCP with TLS and a
+        pre-shared key when the speakers live on another machine.
+        <a href="#remote-control">Remote control details</a>.</p>
+    </section>
+
+    <!-- Install --------------------------------------------------------- -->
+    <section class="wrap prose" id="install">
+      <h2>Install</h2>
+      <p>Somad runs on Linux and macOS. Every method installs a single binary called
+        <code>soma</code>; no extra runtime or audio setup is needed. Packages and binaries
+        come from the <a href="https://github.com/samuelb/somad/releases">latest release</a>.</p>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Homebrew <small>macOS and Linux</small></h3>
+          <pre><code>brew tap samuelb/tap
+brew install somad</code></pre>
+          <p>No compiler required. Upgrade later with <code>brew upgrade somad</code>. If Homebrew
+            reports an "untrusted tap", run <code>brew trust samuelb/tap</code> and try again.</p>
+        </div>
+
+        <div class="card">
+          <h3>Debian / Ubuntu</h3>
+          <p>Download the <code>.deb</code> package and install it:</p>
+          <pre><code>sudo apt install ./somad_*_linux_$(dpkg --print-architecture).deb</code></pre>
+        </div>
+
+        <div class="card">
+          <h3>Fedora / RHEL / openSUSE</h3>
+          <p>Download the <code>.rpm</code> package and install it:</p>
+          <pre><code>sudo dnf install ./somad-*.$(uname -m).rpm</code></pre>
+        </div>
+
+        <div class="card">
+          <h3>Nix</h3>
+          <p>Run it straight from the flake, or install it into your profile:</p>
+          <pre><code>nix run github:samuelb/somad
+nix profile install github:samuelb/somad</code></pre>
+        </div>
+
+        <div class="card">
+          <h3>Arch Linux</h3>
+          <p>Every release ships a pinned <code>PKGBUILD</code> plus the matching source tarball
+            as release assets. Download the PKGBUILD and run:</p>
+          <pre><code>makepkg -si</code></pre>
+        </div>
+
+        <div class="card">
+          <h3>Pre-built binaries</h3>
+          <ul>
+            <li><code>soma-macos.dmg</code>: macOS, universal (Intel and Apple Silicon). Mount it
+              and copy <code>soma</code> somewhere on your <code>PATH</code>.</li>
+            <li><code>soma_darwin_universal</code>: the same build as a bare binary.</li>
+            <li><code>soma_linux_amd64</code> and <code>soma_linux_arm64</code>: Linux.</li>
+          </ul>
+          <p>The macOS binary is not signed, so remove the quarantine flag once (or use
+            <em>Privacy &amp; Security › Open Anyway</em>). On Linux, make it executable:</p>
+          <pre><code>xattr -d com.apple.quarantine ./soma   <span class="c"># macOS</span>
+chmod +x ./soma                        <span class="c"># Linux</span></code></pre>
+        </div>
+
+        <div class="card">
+          <h3>Build from source</h3>
+          <p>Needs Go 1.25 or newer. On Linux, install the ALSA development library first
+            (<code>libasound2-dev</code> on Debian/Ubuntu, <code>alsa-lib-devel</code> on Fedora,
+            <code>alsa-lib</code> on Arch).</p>
+          <pre><code>git clone https://github.com/samuelb/somad.git
+cd somad
+go build -o soma ./cmd/soma</code></pre>
+        </div>
+
+        <div class="card">
+          <h3>Shell completions</h3>
+          <p>The Debian, Arch and Nix packages install Bash and Zsh completions automatically.
+            For a manual setup:</p>
+          <pre><code><span class="c"># Bash</span>
+soma completion bash | sudo tee /usr/share/bash-completion/completions/soma
+<span class="c"># Zsh (then: rm ~/.zcompdump &amp;&amp; exec zsh)</span>
+soma completion zsh | sudo tee /usr/local/share/zsh/site-functions/_soma</code></pre>
+          <p>Completions cover every subcommand and flag, and <code>soma play</code> completes channel
+            IDs from the local cache without starting the daemon or touching the network.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Usage ----------------------------------------------------------- -->
+    <section class="wrap prose" id="usage">
+      <h2>Usage</h2>
+      <p>Run <code>soma</code> with no arguments to open the terminal UI. It starts the playback
+        daemon in the background if one isn't running yet. Pick a channel with the arrow keys and
+        press <kbd>Enter</kbd>. Quitting with <kbd>q</kbd> leaves the music playing; run
+        <code>soma</code> again to pick the session back up, or <code>soma stop</code> to silence it.</p>
+
+          <h3 id="commands">Commands</h3>
+          <p>Every command works without the TUI, which makes them handy for scripts, keybindings
+            and status bars.</p>
+          <table>
+            <thead><tr><th>Command</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>soma</code></td><td>Start the TUI (spawns the daemon if needed); <code>--shutdown-on-exit</code> stops playback and the daemon on quit</td></tr>
+              <tr><td><code>soma play [channel]</code></td><td>Play a channel by ID or name match, or resume the last played channel when omitted</td></tr>
+              <tr><td><code>soma list [--json]</code></td><td>List all channels (favorites first, marked with <code>*</code>)</td></tr>
+              <tr><td><code>soma favorite [--json] &lt;channel&gt;</code></td><td>Toggle a channel's favorite flag (<code>fav</code> works too)</td></tr>
+              <tr><td><code>soma next</code> / <code>soma prev</code></td><td>Play the next / previous channel (favorites first, wraps around)</td></tr>
+              <tr><td><code>soma pause</code></td><td>Toggle pause (live radio: unpausing rejoins the live stream)</td></tr>
+              <tr><td><code>soma stop</code></td><td>Stop playback</td></tr>
+              <tr><td><code>soma status [--json]</code></td><td>Show what is playing (<code>--json</code> for status bars and scripts)</td></tr>
+              <tr><td><code>soma volume [&lt;0-100&gt;|+n|-n]</code></td><td>Show the volume, set it, or adjust it relative to the current value</td></tr>
+              <tr><td><code>soma daemon</code></td><td>Run the daemon in the foreground (<code>--no-tray</code> hides the tray icon; <code>--listen</code>, <code>--tls</code>, <code>--psk-file</code> serve <a href="#remote-control">remote frontends</a>)</td></tr>
+              <tr><td><code>soma daemon stop</code></td><td>Shut down the daemon</td></tr>
+              <tr><td><code>soma completion &lt;bash|zsh&gt;</code></td><td>Print a completion script for the given shell</td></tr>
+              <tr><td><code>soma --version</code></td><td>Print version information</td></tr>
+            </tbody>
+          </table>
+
+      <div class="two-col">
+        <div>
+          <h3 id="keys">Keyboard controls</h3>
+          <table>
+            <thead><tr><th>Key</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td><kbd>↑</kbd> / <kbd>k</kbd></td><td>Navigate channels up</td></tr>
+              <tr><td><kbd>↓</kbd> / <kbd>j</kbd></td><td>Navigate channels down</td></tr>
+              <tr><td><kbd>Enter</kbd> / <kbd>Space</kbd></td><td>Play selected channel</td></tr>
+              <tr><td><kbd>s</kbd></td><td>Stop playback</td></tr>
+              <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Volume up / down</td></tr>
+              <tr><td><kbd>f</kbd> / <kbd>*</kbd></td><td>Toggle favorite</td></tr>
+              <tr><td><kbd>/</kbd></td><td>Filter channels</td></tr>
+              <tr><td><kbd>q</kbd> / <kbd>Ctrl+C</kbd></td><td>Quit the TUI (playback continues, unless started with <code>--shutdown-on-exit</code>)</td></tr>
+            </tbody>
+          </table>
+
+        </div>
+        <div>
+          <h3 id="background-playback">Background playback</h3>
+          <p>Audio is streamed and decoded by a separate <code>soma daemon</code> process that the TUI
+            and the CLI talk to over a Unix socket. It starts automatically when first needed; run
+            <code>soma daemon</code> yourself to watch its logs or run it under a service manager.</p>
+          <p>The daemon keeps running until <code>soma daemon stop</code> or the tray's <em>Quit</em>
+            item. Set <code>--idle-timeout</code> (or <code>server.idle_timeout</code>) to make it exit
+            on its own once playback is stopped and no client is connected. While it runs it shows a
+            tray / menu-bar icon with the current track, a channel picker and playback controls;
+            <code>--no-tray</code> or <code>server.tray: false</code> turns that off, and headless hosts
+            skip it automatically.</p>
+          <p>After an upgrade, the running daemon is restarted onto the new version the next time you
+            change channel, pause or stop, never mid-song.</p>
+        </div>
+      </div>
+
+      <h3 id="remote-control">Remote control over TCP</h3>
+      <div class="two-col">
+        <div>
+          <p>By default the daemon only listens on a local Unix socket. To control a daemon on
+            another machine, say a server wired to the living-room speakers, make it additionally
+            listen on TCP:</p>
+          <pre><code><span class="c"># on the machine with the speakers</span>
+soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk</code></pre>
+          <p><code>--tls</code> encrypts the connection; without your own certificate
+            (<code>--tls-cert</code>/<code>--tls-key</code>) a self-signed one is generated once and
+            reused. The daemon prints its SHA-256 fingerprint at startup, and
+            <code>soma daemon --show-cert</code> reprints it. <code>--psk-file</code> points at a file
+            holding a pre-shared key that TCP clients must know; it is verified with an HMAC
+            challenge-response and never travels over the wire.</p>
+        </div>
+        <div>
+          <p>On the laptop, point the frontend at the server, pin the certificate by its
+            fingerprint, and hand it the same key:</p>
+          <pre><code>soma --server myserver:5454 \
+     --tls-fingerprint sha256:... \
+     --psk-file ~/somad-psk</code></pre>
+          <p>That works with every command, or permanently via <code>$SOMAD_SERVER</code> and the
+            <code>client:</code> section of the <a href="#configuration">configuration file</a>.
+            Instead of pinning the fingerprint you can trust the certificate file itself
+            (<code>--tls-ca</code>) or, with a CA-issued certificate, use plain <code>--tls</code>
+            with the system trust store.</p>
+          <p>A listener reachable from other machines requires both TLS and a PSK; the daemon
+            refuses to start without them (<code>--insecure</code> overrides that on a trusted
+            isolated network). A remote daemon is never auto-started or restarted by the client.</p>
+        </div>
+      </div>
+
+      <h3 id="configuration">Configuration</h3>
+      <div class="two-col">
+        <div>
+          <p>Daemon and TUI flags can also be set in a configuration file, which matters because
+            the daemon is usually auto-spawned and therefore runs without any flags. It lives at
+            <code>~/.config/somad/config.yaml</code> on Linux and
+            <code>~/Library/Application Support/somad/config.yaml</code> on macOS.</p>
+          <p>On the first daemon start the file is created as a template with every setting present
+            but commented out. All settings are optional; anything omitted keeps its built-in
+            default, and explicit flags take precedence. A file that fails to parse or contains
+            unknown keys stops the daemon with an error naming the offending line, so a typo never
+            silently falls back to defaults.</p>
+          <h3 id="files">Where Somad keeps its files</h3>
+          <ul>
+            <li><strong>Config</strong>: <code>~/.config/somad/</code> (Linux) or
+              <code>~/Library/Application Support/somad/</code> (macOS)</li>
+            <li><strong>State</strong>: <code>~/.local/state/somad/</code> (Linux) or the same
+              macOS directory. Also holds <code>server.log</code> and the generated TLS certificate.</li>
+            <li><strong>Cache</strong>: <code>~/.cache/somad/</code> (Linux) or
+              <code>~/Library/Caches/somad/</code> (macOS)</li>
+            <li><strong>Socket</strong>: <code>$XDG_RUNTIME_DIR/somad.sock</code> (Linux) or a
+              per-user temp directory (macOS); override with <code>$SOMAD_SOCKET</code></li>
+          </ul>
+        </div>
+        <pre class="config"><code>server:
+  <span class="c"># Exit after this long with no clients and stopped playback.
+  # "0" (the default) never exits on idle.</span>
+  idle_timeout: 5m
+  <span class="c"># Show the tray / menu-bar icon. Default: true.</span>
+  tray: false
+  <span class="c"># Also serve remote frontends over TCP ...</span>
+  listen: "0.0.0.0:5454"
+  <span class="c"># ... encrypted (auto-generated certificate unless
+  # tls_cert/tls_key point at your own PEM pair) ...</span>
+  tls: true
+  <span class="c"># ... and authenticated (psk_file reads it from a file).</span>
+  psk: "change-me"
+
+client:
+  <span class="c"># Connect the TUI and CLI to a remote daemon.</span>
+  server: "myserver:5454"
+  <span class="c"># Pin the server certificate, or trust a PEM via tls_ca.</span>
+  tls_fingerprint: "sha256:..."
+  psk: "change-me"
+
+tui:
+  <span class="c"># Stop playback and the daemon when the TUI exits.</span>
+  shutdown_on_exit: true</code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p>
+        <a href="https://github.com/samuelb/somad">Source on GitHub</a> ·
+        <a href="https://github.com/samuelb/somad/releases">Releases</a> ·
+        <a href="https://github.com/samuelb/somad/issues">Issues</a> ·
+        <a href="https://github.com/samuelb/somad/blob/main/LICENSE">MIT License</a>
+      </p>
+      <p class="fine">Somad is not affiliated with SomaFM. All content and station streams are provided by
+        <a href="https://somafm.com/">somafm.com</a>. If you enjoy the music,
+        <a href="https://somafm.com/support/">support SomaFM</a>.</p>
+    </div>
+  </footer>
+
+  <script>
+    // Show the latest release tag; the link works without it.
+    fetch("https://api.github.com/repos/samuelb/somad/releases/latest")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.tag_name) document.getElementById("version").textContent = d.tag_name; })
+      .catch(function () {});
+  </script>
+</body>
+</html>
