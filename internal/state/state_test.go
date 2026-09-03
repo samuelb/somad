@@ -222,6 +222,18 @@ func TestIsFavorite_Empty(t *testing.T) {
 	assert.False(t, state.IsFavorite("groovesalad"))
 }
 
+func TestFavoriteSet(t *testing.T) {
+	set := FavoriteSet([]string{"groovesalad", "dronezone"})
+
+	assert.Equal(t, map[string]bool{"groovesalad": true, "dronezone": true}, set)
+	assert.False(t, set["secretagent"], "a missing key reads as false, not merely absent")
+}
+
+func TestFavoriteSet_Empty(t *testing.T) {
+	assert.Empty(t, FavoriteSet(nil))
+	assert.Empty(t, FavoriteSet([]string{}))
+}
+
 func TestToggleFavorite_Add(t *testing.T) {
 	state := &State{}
 

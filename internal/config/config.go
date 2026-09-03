@@ -11,8 +11,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
+
+	"somad/internal/xdg"
 
 	"gopkg.in/yaml.v3"
 )
@@ -118,26 +119,11 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 // On Linux: $XDG_CONFIG_HOME/somad/config.yaml or ~/.config/somad/config.yaml
 // On macOS: ~/Library/Application Support/somad/config.yaml
 func Path() (string, error) {
-	var baseDir string
-
-	// Check XDG override first (works on all platforms, enables testing)
-	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		baseDir = xdgConfig
-	} else if runtime.GOOS == "darwin" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		baseDir = filepath.Join(homeDir, "Library", "Application Support")
-	} else {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		baseDir = filepath.Join(homeDir, ".config")
+	dir, err := xdg.ConfigDir(appDirName)
+	if err != nil {
+		return "", err
 	}
-
-	return filepath.Join(baseDir, appDirName, configFileName), nil
+	return filepath.Join(dir, configFileName), nil
 }
 
 // Dir returns the configuration directory, creating it if needed. Besides

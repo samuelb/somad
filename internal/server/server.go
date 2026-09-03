@@ -307,10 +307,7 @@ func (s *Server) setCatalog(chs []channels.Channel) {
 // sortChannelsWithFavorites returns the channels with favorites first, both
 // groups keeping their relative order.
 func sortChannelsWithFavorites(chs []channels.Channel, favorites []string) []channels.Channel {
-	fav := make(map[string]bool, len(favorites))
-	for _, id := range favorites {
-		fav[id] = true
-	}
+	fav := state.FavoriteSet(favorites)
 	sorted := make([]channels.Channel, 0, len(chs))
 	for _, ch := range chs {
 		if fav[ch.ID] {
@@ -524,10 +521,7 @@ func (s *Server) pushChannelsToTrayLocked() {
 	if s.tray == nil {
 		return
 	}
-	fav := make(map[string]bool, len(s.st.FavoriteChannelIDs))
-	for _, id := range s.st.FavoriteChannelIDs {
-		fav[id] = true
-	}
+	fav := state.FavoriteSet(s.st.FavoriteChannelIDs)
 	list := make([]tray.Channel, len(s.catalog))
 	for i, ch := range s.catalog {
 		list[i] = tray.Channel{ID: ch.ID, Title: ch.Title, Favorite: fav[ch.ID]}

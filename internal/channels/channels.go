@@ -13,6 +13,7 @@ import (
 
 	"somad/internal/atomicfile"
 	"somad/internal/security"
+	"somad/internal/xdg"
 )
 
 // Playlist represents a single playlist entry for a SomaFM channel.
@@ -57,16 +58,11 @@ var SomaFMChannelsURL = "https://somafm.com/channels.json"
 // cacheFilePath resolves the absolute path of the cache file without
 // touching the filesystem.
 func cacheFilePath() (string, error) {
-	// Check XDG override first (works on all platforms, enables testing)
-	cacheDir := os.Getenv("XDG_CACHE_HOME")
-	if cacheDir == "" {
-		var err error
-		cacheDir, err = os.UserCacheDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user cache directory: %w", err)
-		}
+	cacheDir, err := xdg.CacheDir(appCacheDirName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user cache directory: %w", err)
 	}
-	return filepath.Join(cacheDir, appCacheDirName, cacheFileName), nil
+	return filepath.Join(cacheDir, cacheFileName), nil
 }
 
 // GetCacheFilePath returns the absolute path to the cache file, creating its

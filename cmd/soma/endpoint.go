@@ -33,13 +33,6 @@ type connFlags struct {
 // resolveEndpoint turns the connection flags and config into the endpoint to
 // use: the Unix socket unless a remote server address is configured.
 func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
-	str := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
-
 	addr := f.server
 	if addr == "" {
 		addr = os.Getenv("SOMAD_SERVER")
@@ -91,6 +84,16 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// str returns the value of a possibly-nil config string field (config
+// fields are pointers so an explicit "" is distinguishable from an absent
+// key), or "" when unset. Used to seed flag defaults from the config file.
+func str(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // readPSKFile reads a pre-shared key from a file, trimming surrounding

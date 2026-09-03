@@ -184,4 +184,8 @@ delegate and lipgloss styles.
   dir) and client trust via CA file, pinned SHA-256 fingerprint, or system roots
 - `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_other.go`) and `tray/`
 - `internal/atomicfile` — temp-file + rename writes used by state and cache
+- `internal/xdg` — `ConfigDir`/`StateDir`/`CacheDir(app)`: shared base-directory
+  resolution behind `$XDG_CONFIG_HOME`/`$XDG_STATE_HOME`/`$XDG_CACHE_HOME`
+  (falling back to the conventional `~/Library/...` paths on macOS), used
+  by `internal/config`, `internal/state`, and `internal/channels`
 - `pkg/playlist` — PLS playlist parsing

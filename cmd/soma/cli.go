@@ -221,10 +221,7 @@ func runList(args []string) {
 // marker, then aligned ID, title, and genre columns. The ID leads so shell
 // pipelines can cut it out easily.
 func formatChannelList(payload protocol.ChannelsPayload) string {
-	fav := make(map[string]bool, len(payload.Favorites))
-	for _, id := range payload.Favorites {
-		fav[id] = true
-	}
+	fav := state.FavoriteSet(payload.Favorites)
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	for _, ch := range payload.Channels {
@@ -250,10 +247,7 @@ type channelListEntry struct {
 // channelListEntries converts the catalog payload to its JSON list form,
 // preserving the server's favorites-first ordering.
 func channelListEntries(payload protocol.ChannelsPayload) []channelListEntry {
-	fav := make(map[string]bool, len(payload.Favorites))
-	for _, id := range payload.Favorites {
-		fav[id] = true
-	}
+	fav := state.FavoriteSet(payload.Favorites)
 	entries := make([]channelListEntry, len(payload.Channels))
 	for i, ch := range payload.Channels {
 		entries[i] = channelListEntry{ID: ch.ID, Title: ch.Title, Genre: ch.Genre, Favorite: fav[ch.ID]}

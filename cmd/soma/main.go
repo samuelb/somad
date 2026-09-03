@@ -275,12 +275,6 @@ func runServer(args []string) {
 		defaultIdleTimeout = time.Duration(*cfg.Server.IdleTimeout)
 	}
 	defaultNoTray := cfg.Server.Tray != nil && !*cfg.Server.Tray
-	str := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
 
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	fs.Usage = func() {

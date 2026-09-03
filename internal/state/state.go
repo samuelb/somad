@@ -6,10 +6,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 
 	"somad/internal/atomicfile"
+	"somad/internal/xdg"
 )
 
 // State holds application state that persists between sessions.
@@ -105,6 +105,17 @@ func (s *State) ToggleFavorite(id string) {
 	s.FavoriteChannelIDs = append(slices.Clone(s.FavoriteChannelIDs), id)
 }
 
+// FavoriteSet turns a favorites list (from State.FavoriteChannelIDs, or a
+// protocol.ChannelsPayload's own copy of it) into a set for O(1) membership
+// checks when marking up a channel list.
+func FavoriteSet(ids []string) map[string]bool {
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
+
 const (
 	stateFileName = "state.json"
 	appDirName    = "somad"
@@ -114,28 +125,7 @@ const (
 // On Linux: $XDG_STATE_HOME/somad or ~/.local/state/somad
 // On macOS: ~/Library/Application Support/somad
 func getStateDir() (string, error) {
-	var baseDir string
-
-	// Check XDG override first (works on all platforms, enables testing)
-	if xdgState := os.Getenv("XDG_STATE_HOME"); xdgState != "" {
-		baseDir = xdgState
-	} else if runtime.GOOS == "darwin" {
-		// macOS: use Application Support
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		baseDir = filepath.Join(homeDir, "Library", "Application Support")
-	} else {
-		// Linux/other: fallback to ~/.local/state
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		baseDir = filepath.Join(homeDir, ".local", "state")
-	}
-
-	return filepath.Join(baseDir, appDirName), nil
+	return xdg.StateDir(appDirName)
 }
 
 // Dir returns the application state directory, creating it if needed. The
