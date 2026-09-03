@@ -6,6 +6,8 @@
 
 **✨ This project was entirely vibe-coded. ✨**
 
+Website: [samuelb.github.io/somad](https://samuelb.github.io/somad/)
+
 Somad is a client for streaming and exploring SomaFM radio channels, with a
 background playback daemon, a terminal UI, and headless CLI commands. Built for
 Linux and macOS — other platforms are not supported and may not work.

@@ -152,6 +152,18 @@ package-nix:
 	@echo "Building Nix package..."
 	nix build .#
 
+# Build the website (site/) into site/public with Hugo
+SITE_VERSION?=$(shell git describe --tags --abbrev=0 2>/dev/null)
+.PHONY: site
+site:
+	@echo "Building website..."
+	HUGO_PARAMS_VERSION="$(SITE_VERSION)" hugo --source site --minify --gc
+
+# Serve the website locally with live reload
+.PHONY: site-serve
+site-serve:
+	HUGO_PARAMS_VERSION="$(SITE_VERSION)" hugo server --source site --navigateToChanged
+
 # Format Go code
 .PHONY: fmt
 fmt:
@@ -222,6 +234,8 @@ help:
 	@echo "  uninstall         Remove binary from \$$GOBIN"
 	@echo "  package-deb       Build a .deb package in dist/ with nfpm"
 	@echo "  package-nix       Build the Nix flake package"
+	@echo "  site              Build the website into site/public with Hugo"
+	@echo "  site-serve        Serve the website locally with live reload"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
 	@echo "  security          Run security scan (gosec)"
@@ -235,3 +249,4 @@ help:
 	@echo "  COMMIT            Set commit hash (default: git sha or 'none')"
 	@echo "  DATE              Set build date (default: current UTC time)"
 	@echo "  DEB_ARCH          Debian architecture for package-deb (default: amd64)"
+	@echo "  SITE_VERSION      Release version shown on the website (default: latest git tag)"

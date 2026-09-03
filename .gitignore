@@ -4,6 +4,11 @@
 # GoReleaser
 dist/
 
+# Website (Hugo output and cache)
+site/public/
+site/resources/
+site/.hugo_build.lock
+
 # Test coverage
 coverage.out
 coverage.html

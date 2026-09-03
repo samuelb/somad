@@ -1,0 +1,56 @@
+baseURL = "https://samuelb.github.io/somad/"
+locale = "en"
+title = "Somad"
+enableRobotsTXT = true
+disableKinds = ["taxonomy", "term", "rss"]
+
+[params]
+  description = "Play and explore SomaFM radio from your terminal. Daemon-backed playback that outlives the TUI, plus a headless CLI. Linux and macOS."
+  repo = "https://github.com/samuelb/somad"
+  # Set from the latest git tag at build time (HUGO_PARAMS_VERSION); empty
+  # hides the version badge.
+  version = ""
+
+[menus]
+  [[menus.main]]
+    name = "Install"
+    pageRef = "/install"
+    weight = 10
+  [[menus.main]]
+    name = "Usage"
+    pageRef = "/usage"
+    weight = 20
+  [[menus.main]]
+    name = "GitHub"
+    url = "https://github.com/samuelb/somad"
+    weight = 30
+
+[markup]
+  [markup.goldmark.renderer]
+    # The keyboard table uses <kbd>.
+    unsafe = true
+  [markup.highlight]
+    noClasses = false
+    style = "monokai"
+
+[module]
+  [[module.mounts]]
+    source = "static"
+    target = "static"
+  [[module.mounts]]
+    # Reuse the README demo instead of keeping a second copy.
+    source = "../demo.gif"
+    target = "static/demo.gif"
+  [[module.mounts]]
+    source = "assets"
+    target = "assets"
+  [[module.mounts]]
+    source = "content"
+    target = "content"
+  [[module.mounts]]
+    source = "layouts"
+    target = "layouts"
+
+[markup.tableOfContents]
+  startLevel = 2
+  endLevel = 2
