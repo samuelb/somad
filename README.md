@@ -30,8 +30,8 @@ Linux and macOS — other platforms are not supported and may not work.
 - Mark channels as favorites for quick access
 - Browse and filter the full list of SomaFM radio channels
 - Plays each channel's best stream directly in your terminal — AAC on
-  macOS (via the system decoder), MP3 elsewhere, falling back to MP3
-  automatically if the AAC stream fails
+  macOS (via the system decoder, falling back to MP3 automatically if the
+  AAC stream fails), MP3 on Linux
 - View real-time track information (artist/title) from ICY metadata
 - Buffered streaming with automatic reconnection on network issues
 - Styled UI with color-coded playback states and visual indicators

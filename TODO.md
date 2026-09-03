@@ -1,117 +1,386 @@
 # TODO
 
-Open findings from the 2026-09 code assessment and the Codex reviews of the
+Open findings from the 2026-09 code assessment, the Codex reviews of the
 `improvements` branch (TLS 1.3, adaptive colors, jitter buffer, AAC playback —
-all landed there). Priorities: **P1** = known bugs or real exposure, fix next;
-**P2** = high-value improvements; **P3** = polish and nice-to-haves.
+all landed on `main`), and the 2026-09-03 follow-up analysis. Every item was
+re-verified against the tree on 2026-09-03; nothing here is already done.
+Items deliberately dropped are listed under "Not planned" at the end so they
+are not re-proposed.
+
+Priorities: **P1** = known bugs or real exposure, fix next; **P2** = high-value
+improvements; **P3** = polish and nice-to-haves. Each item carries a rough
+effort tag: **[S]** under an hour, **[M]** an afternoon, **[L]** multi-day or
+needs a decision.
 
 ## P1 — correctness and security
 
-- [ ] **TCP hardening bundle** (`internal/server/conn.go`): no read deadlines
-      anywhere — an unauthenticated peer can hold a connection (goroutine + fd)
-      open forever — and no cap on total connections. Add a pre-auth handshake
-      deadline (~10 s), an idle deadline after auth, and a max-connection cap.
-- [ ] **Auth throttling is per-connection only** (`conn.go:100`): the 1 s
-      failure delay costs nothing across parallel connections. Use a shared
-      limiter keyed on remote address.
-- [ ] **Pre-auth line size**: the protocol scanner allows 4 MiB lines
-      (`internal/protocol/codec.go`) before authentication. Cap pre-auth lines
-      at a few KB; only hello/auth traffic is legitimate there.
-- [ ] **Stop-vs-play supersede window** (`internal/server/playback.go`,
-      pre-existing, narrowed but not closed by the per-candidate guard): a Stop
-      landing between the last generation check and `player.Play` lets stale
-      audio start; the success path detects the supersede but returns without
-      stopping the committed session. Needs the server generation coupled to
-      the player generation (a stale request must never touch the player, and
-      a newer owner must be able to reap its audio).
-- [ ] **Crossfade track-title race** (`internal/audio/player.go`): during the
-      250 ms crossfade the old session's context is still live, so an ICY
-      title from the *old* channel can arrive after `drainTrackUpdates` and be
-      displayed under the new channel (`handleTrackUpdate` checks only
-      status). Stamp `TrackInfo` with the play generation.
-- [ ] **Decoder read errors are invisible mid-stream** (from Codex AAC review,
-      applies to MP3 too): a decode failure after `Play` returns surfaces
-      nowhere — oto stops pulling, playback goes silent until the 30 s stall
-      watchdog trips via buffer backpressure. Route post-construction decoder
-      `Read` errors into the player's error channel so reconnect/fallback
-      reacts promptly.
+- [ ] **Decoder read errors are invisible mid-stream** [S]
+      (`internal/audio/player.go`; from the Codex AAC review, applies to MP3
+      too). The reader handed to `ctx.NewPlayer` is the decoder (or resampler)
+      directly; oto's `Player.Err()` exists but the narrowed `outputPlayer`
+      interface omits it and nothing polls it, so a decode error after `Play`
+      returns is stored by oto and never observed. Playback goes silent while
+      status still says playing. Verified that the 30 s stall watchdog does
+      *not* rescue this: once oto stops pulling, `io.Copy` parks in the pipe
+      write, the jitter buffer fills, and the fill goroutine waits on the
+      buffer's condition variable (`buffer.go:90`), not on the socket, so the
+      watchdog's request cancel never reaches anything. Only a manual
+      stop/play recovers. Real error sources: `aac_darwin.go` sticky error,
+      "AAC stream parameters changed mid-stream", "decoding AAC frame", and
+      go-mp3 read errors.
+      **Fix:** wrap `decodedStream` before `NewPlayer` and push any non-EOF
+      read error through `reportError` with the *session's* ctx (so a
+      fading-out session cannot kill the newer one). Also decide what a
+      decoder `io.EOF` should mean — today only the network side reports
+      "stream ended unexpectedly". Re-arming the watchdog on buffer
+      *consumption* is a separate, optional guard that would also catch a
+      wedged audio device. No test covers a post-`Play` decoder error;
+      `fakeAudioContext` has no player-side `Err`.
+- [ ] **Stop-vs-play supersede window, and the crossfade title leak that
+      shares its fix** [M] (`internal/server/playback.go`,
+      `internal/audio/player.go`). The per-candidate guard (`playback.go:111`)
+      runs at the top of each candidate iteration, before `resolveStreamURL`
+      and before `s.player.Play`; nothing re-checks in between. The server
+      and the player keep *separate* generation counters, and the player's
+      is assigned when `player.Play` is *entered*, so whoever calls last
+      wins regardless of who was requested first. Two confirmed outcomes:
+      - **Race A:** a Stop landing after the guard but before `player.Play`
+        bumps both counters, then the late `Play` takes a fresh player
+        generation and commits. The post-commit check (`playback.go:135`)
+        sees the server supersede and returns without stopping the audio.
+        Audio plays under status `stopped`.
+      - **Race B:** play A (slow playlist resolve) and play B (newer). B
+        commits first; A enters `player.Play` later, takes the newest player
+        generation, commits, and its `old.requestStop()` kills B. A then
+        returns `ErrSuperseded`. Channel A's audio under channel B's status.
+      - **Crossfade title race:** `drainTrackUpdates` runs before
+        `old.requestStop()`, and `fadeOutAndClose` only cancels the old
+        session's ctx after the 250 ms fade (longer under load). An ICY
+        title from the old channel arriving in that window passes
+        `reportTrack`'s ctx check and `handleTrackUpdate` checks only
+        `status == playing`, so it is displayed under the new channel.
+        `TrackInfo` carries only `Title`.
+      **Fix:** collapse the two counters into one: thread the server's
+      `gen` into `Play(url, format, gen)` / `Stop(gen)` and have the player
+      refuse to commit a stale generation. Stamp `TrackInfo` with that same
+      generation and drop mismatches in `handleTrackUpdate`. Do *not* call
+      `player.Stop()` on the post-commit supersede path (it would stop the
+      newer legitimate session), and do not serialize the check and
+      `player.Play` under `s.mu` (Play blocks on network + decoder priming).
+      Existing tests (`TestPlay_SupersededByNewerPlay`,
+      `TestPlay_StopDuringFallbackDoesNotStartNextCandidate`) cover the
+      guard only; `mockPlayer` has no generation semantics. The `onPlay`
+      hook in `helpers_test.go` is the right place to inject a Stop into a
+      *succeeding* candidate for a regression test.
+- [ ] **Connect-phase timeout is shorter than the daemon's worst case** [S–M]
+      (`internal/client/client.go` `callTimeout` = 30 s applies to every
+      call; `internal/audio/player.go` `streamStallTimeout` = 30 s,
+      `audioReadyTimeout` = 15 s; `pkg/playlist/parser.go` resolves with a
+      15 s ctx). `security.HTTPClient` sets no `Timeout`, and the stream
+      fetch has no dial/first-byte deadline at all, only the stall watchdog.
+      A `play` can therefore spend up to (15 + 30) s per candidate × 2
+      candidates + 15 s device wait ≈ 105 s in the daemon, while the CLI
+      gives up at 30 s with "timed out waiting for play response" and the
+      daemon then succeeds on the MP3 fallback. Note the client's 5 s
+      `dialTimeout` covers only the socket/TLS connect to the daemon.
+      **Fix:** give the pre-first-byte stream phase its own ~10 s deadline
+      in `fetchStream`, and let `play` use a longer per-method client
+      timeout than the other calls.
+- [ ] **Release binaries embed the wrong commit** [S]
+      (`.github/workflows/release.yml:145` and `:176`). Both build jobs
+      stamp `-X main.commit=${GITHUB_SHA::7}`, the workflow-trigger SHA, but
+      the tag points at the "Release vX" bump commit that `prepare` pushes.
+      `needs.prepare.outputs.sha` already exists and is already used for
+      the `checkout` refs and `target_commitish`; only the two ldflags lines
+      are wrong. Every release reports its parent commit in
+      `soma --version`. Dry runs hide it because the bump is discarded.
+      Bash slicing does not work on an expression, so put the output in an
+      env var first.
+- [ ] **TCP hardening bundle** [M] (`internal/server/conn.go`,
+      `server.go` `acceptLoop`, `cmd/soma/main.go` `listenTCP`). Exposure
+      exists only when the operator opts into `--listen`, and
+      `checkTCPSecurity` already warns about open configurations, but once
+      enabled:
+      - No `SetDeadline`/`SetReadDeadline`/`SetWriteDeadline` anywhere.
+        An unauthenticated peer holds an fd, the `serveConn` goroutine
+        (parked in `Scan`), the `writeLoop` goroutine (started before
+        auth), and the scanner buffer forever. With TLS the handshake
+        happens lazily inside the first `Read`, so a peer can also stall
+        mid-handshake forever. No write deadline either: a stuck reader
+        blocks `c.write` while holding `writeMu` (goroutine/fd leak, not a
+        server stall — broadcasts use latest-wins channels).
+      - No cap on total connections: `acceptLoop` does an unconditional
+        `go s.serveConn(nc)`; `maxConcurrentRequests = 32` is per
+        connection, not a connection cap.
+      - **Auth throttling is per-connection only** (`conn.go:100`): the 1 s
+        failure delay is a plain sleep before the connection is closed, so
+        any new connection bypasses it and N parallel connections give N
+        attempts per second. Realistic severity is bounded by the
+        HMAC-SHA256 single-use-nonce challenge; resource exhaustion is the
+        actual threat, not key guessing. A limiter keyed on remote address
+        only bites once the connection cap exists, and the limiter map must
+        itself be bounded.
+      - **Pre-auth line size**: the server's one scanner is created before
+        auth with `MaxLineBytes = 4 MiB` (`internal/protocol/codec.go:11`),
+        so peak transient allocation is ~6 MiB per unauthenticated
+        connection. The 4 MiB budget exists for the server→client catalog
+        event; every client→server line is tiny. Better than a
+        pre-auth/post-auth switch (a `bufio.Scanner` cannot be resized and
+        a second scanner would drop buffered bytes): cap the *server's read
+        side* unconditionally at ~64 KiB and leave `MaxLineBytes` to the
+        client's scanner. `TestNewScanner_LargeLine` pins the current
+        behaviour and needs a companion.
+      **Fix:** scope deadlines to the TCP listener only (the Unix socket
+      dir is already `0700` and owner-checked, so a cap there guards only
+      against a buggy local client): ~10 s pre-auth handshake deadline, an
+      idle deadline after auth re-armed on every `Scan` and long enough not
+      to drop an idle TUI (or add a ping), `netutil.LimitListener` around
+      the TCP listener as the smallest possible cap, then the shared auth
+      limiter. Unauthenticated conns are already unregistered (no
+      broadcasts, do not hold off idle exit), so do not over-scope. No
+      deadline or cap test exists.
 
 ## P2 — features and hardening
 
-- [ ] **Track history**: `https://somafm.com/songs/<channel>.json` is already
-      inside the host allowlist, and the daemon sees every title change. TUI
-      pane (`h`) + `soma history [--json]`.
-- [ ] **Linux AAC decoding**: the format-preference plumbing is done
-      (`aac_other.go` is the stub); needs a decoder (fdk-aac/faad2 via cgo)
-      plus packaging fallout (CI apt, deb/rpm depends, brew, nix, PKGBUILD).
-- [ ] **Stream quality knob**: a `quality: low` config for metered
-      connections; selection currently always takes the best playlist.
-- [ ] **Finish `--json`** on `play`, `next`, `prev`, `pause`, `stop`,
-      `volume` (only `list`/`favorite`/`status` have it).
-- [ ] **PSK quality**: template suggests `psk: "change-me"`
-      (`internal/config/config.go`), nothing warns on weak keys, and PSK file
-      permissions go unchecked (`cmd/soma/endpoint.go`) although the socket
-      dir is strictly checked. Add `soma daemon --gen-psk` + an SSH-style
-      permissions check.
-- [ ] **Prefer https stream URLs** (`internal/security/validation.go` allows
-      plain http): audio and displayed ICY titles are MITM-able on hostile
-      networks; pick the https playlist entry when the channel offers one.
-- [ ] **Release supply chain**: provenance attestation
-      (`actions/attest-build-provenance`), SHA-pin actions, checksum the
-      curl'd nfpm .deb, pin golangci-lint/govulncheck versions, move
-      `contents: write` from workflow level down to the `prepare`/`release`
-      jobs, run govulncheck in the release job too.
-- [ ] **Compile-only CI matrix for release targets**: linux/arm64 and the
-      darwin universal (lipo) build are first exercised on release day.
-- [ ] **Split `cmd/soma/main.go`** (658 lines): extract a pure
-      `resolveDaemonOptions(cfg, args)` (the flag/config precedence merge is
-      untestable behind eight `log.Fatalf`s), split `daemon.go`/`tui.go`;
-      have `cli.go`'s `runX` return errors instead of `fail()` exiting so
-      tests can run in-process. `cmd/soma` is the lowest-covered package.
-- [ ] **Mute toggle** (`m` in the TUI, `soma volume mute`) restoring the
-      previous level.
-- [ ] **Search improvements**: an actual filter mode (matches-only view —
-      README already says "filter"), fuzzy matching via the already-vendored
-      `sahilm/fuzzy`, and `/` pre-filling the previous query instead of
-      resetting it (`internal/app/update.go`).
-- [ ] **Perceptual volume curve**: `SetVolume` maps percent linearly to
-      amplitude, so most audible change sits in the bottom quarter. Apply a
-      cubic/exponential mapping inside the player; keep the wire in percent.
-- [ ] **systemd unit / launchd plist in packages**: the README recommends
-      running the daemon under a service manager but nothing ships one.
-- [ ] **macOS signing + notarization**: the README's
-      `xattr -d com.apple.quarantine` workaround is the tell (needs an Apple
-      Developer ID, $99/yr — a decision, not just a task).
+Ordered roughly by value ÷ effort.
+
+- [ ] **Version-skew restart fires on "different", not "newer"** [S for
+      exempting `dev`, M for semver] (`internal/client/spawn.go:90` and
+      `:110`, `cmd/soma/cli.go:75` and `:324`, `Model.skewed` in
+      `internal/app/model.go:71`). All four sites are plain string
+      inequality, no semver import exists, and `version = "dev"` gets no
+      exemption. Two installations on one machine (a `go build` dev binary
+      and the brew one) restart the daemon onto each other on every channel
+      change, and `EnsureServer` silently *downgrades* too. Compare semver
+      and only restart onto a newer client, or at least exempt `dev`.
+- [ ] **Enter on the already-playing channel tears the stream down** [S]
+      (`internal/app/update.go:55`, and `playChannel` in
+      `internal/server/playback.go:60`). Neither side compares against the
+      current channel; the server bumps `playGen`, re-resolves the playlist,
+      and reconnects. Fix server-side (or both) since `soma play <current>`,
+      MPRIS `Play`, and the tray picker hit the same path. Promoted from P3:
+      it is a user-visible glitch, not polish.
+- [ ] **Prefer https stream URLs** [S]. Two separate chooser sites:
+      `internal/channels/select.go` ranks `.pls` entries by format and
+      quality only, and `pkg/playlist/parser.go:57` `parseFirstStreamURL`
+      returns the first `FileN=` entry regardless of scheme. The latter is
+      the one that matters for MITM of audio and ICY titles, since that is
+      what `fetchStream` connects to. `security.ValidateURL` allows plain
+      http by design (`validation.go:63`); prefer an https `FileN` and
+      optionally tighten `ValidateURL` behind a flag.
+- [ ] **PSK quality** [S]. Template suggests `psk: "change-me"`
+      (`internal/config/config.go:235` and `:258`, mirrored in README);
+      `Config.validate` checks only mutual exclusivity; `readPSKFile`
+      (`cmd/soma/endpoint.go:96`, reused by the daemon) rejects only an
+      empty file and never stats it, while the socket dir *is* checked for
+      `0o077` and owner uid in `internal/protocol/socket.go:32`. Add
+      `soma daemon --gen-psk` (32 random bytes at 0600, modelled on
+      `--show-cert`) plus an SSH-style permissions check in `readPSKFile`.
+- [ ] **Release supply chain** [S each, M total] (`release.yml`,
+      `ci.yml`). All seven sub-claims hold: no provenance attestation; all
+      30 `uses:` are floating tags (`samuelb/homebrew-tap/…@main` is a
+      branch); nfpm `.deb` is curl'd with a pinned version but no checksum
+      (`release.yml:225`); golangci-lint `version: latest` in both
+      workflows; `govulncheck@latest`; `contents: write` at workflow level
+      inherited by all six jobs (`prepare` needs it for the bump push and
+      `release` for the tag + gh-release, the build jobs do not); govulncheck
+      never runs in the release workflow. Add
+      `actions/attest-build-provenance`, SHA-pin, checksum, pin versions,
+      move permissions to the two jobs that need them, run govulncheck in
+      `prepare`.
+- [ ] **Compile-only CI matrix for release targets** [S]. `ci.yml` has
+      `test` (ubuntu), `test-macos`, `vuln`, `lint`; linux/arm64
+      (`ubuntu-24.04-arm` row) and the darwin universal `lipo` build are
+      first exercised in `release.yml`. The arm64 row needs a real arm
+      runner because `CGO_ENABLED=1`, so it is not a free `GOARCH=` cross
+      build.
+- [ ] **Play/pause toggle in the TUI** [S]. The `Backend` interface
+      (`internal/app/commands.go:14`) has `Status, Channels, Play, Stop,
+      SetVolume, ToggleFavorite, Shutdown` and no `PlayPause`, while
+      `*client.Client`, the CLI (`soma pause`), MPRIS, the tray, and the
+      server all have it. Today the TUI needs `s` then Enter. `p` is unbound
+      in both the model and the bubbles list keymap.
+- [ ] **Mute toggle** [S] (`m` in the TUI, `soma volume mute`) restoring
+      the previous level. Nothing stores a pre-mute level today
+      (`internal/state/state.go` keeps volume as a pointer so an explicit 0
+      is distinguishable, but that is all). `m` is unbound in both keymaps.
+- [ ] **Perceptual volume curve** [S]. Percent maps linearly to amplitude
+      end to end: `cli.go:452` `pct/100` → server clamp
+      (`playback.go:262`) → `AudioPlayer.SetVolume` (`player.go:396`) →
+      oto multiplies samples by it. Most audible change sits in the bottom
+      quarter. `AudioPlayer.SetVolume` is the single right place for a
+      cubic/exponential mapping; keep `Volume()` returning the un-curved
+      target so the wire stays in percent. The fade steps (`player.go:390`,
+      `:435`) scale linearly too and should go through the same curve.
+- [ ] **Stream quality knob** [S]. No `quality` key exists in any config
+      struct (`KnownFields(true)` makes it a hard error today).
+      `internal/channels/select.go` `selectBestQuality` always takes the
+      lowest rank in `{highest, high, low}`. Add `quality` to `ServerConfig`
+      and thread a preferred rank into `SelectPlaylists`.
+- [ ] **Finish `--json`** [S] on `play`, `next`, `prev`, `pause`, `stop`,
+      `volume`. `parseJSONFlag` (`cli.go:159`) is called only from `runList`,
+      `runFavorite`, `runStatus`; `soma play --json` is treated as a channel
+      query and `soma volume --json` as a bad number. All six already hold a
+      `protocol.PlaybackState`.
+- [ ] **Track history** [M]. `somafm.com` is allowed exactly by
+      `ValidateURL` (`validation.go:68`), so
+      `https://somafm.com/songs/<channel>.json` passes today, and the daemon
+      sees every title change. Needs a protocol method, server fetch/cache,
+      `soma history [--json]`, and a TUI pane. Note `h` is already bound by
+      the bubbles list as *previous page* (`left, h, pgup, b, u`); a
+      model-level `h` case would silently shadow pagination, so pick another
+      key or remove `h` from the list keymap.
+- [ ] **Search improvements** [M] (`internal/app/search.go`,
+      `internal/app/update.go:85`). `UpdateSearchMatches` only collects
+      indices and jumps; the list's own filtering is disabled at
+      `cmd/soma/main.go:556`, so there is no matches-only view although the
+      README says "Filter channels". Matching is lowercase substring.
+      `sahilm/fuzzy` is in `vendor/` only transitively via bubbles'
+      `DefaultFilter` (which this project switches off), so it is available
+      at zero dependency cost. `/` resets the query instead of pre-filling
+      it. The matches-only view is the real work: the delegate and
+      `SearchMatches` index arithmetic assume a stable full list.
+- [ ] **Split `cmd/soma/main.go`** [M] (658 lines). `runServer` has ten
+      `log.Fatal*` calls; the five in option resolution (config load,
+      tls-cert/key pairing, cert prep, cert load, PSK file) are what block a
+      pure, testable `resolveDaemonOptions(cfg, args)`; the rest are runtime
+      failures that can stay fatal. `cli.go` `fail()` calls `os.Exit(1)` at
+      31 sites, so `runX` cannot run in-process in tests. Split
+      `daemon.go`/`tui.go`. Coverage: `cmd/soma` is at 41.9%, the lowest
+      package with real logic (`internal/platform` at 0% and `tray` at 28.8%
+      are thin OS bindings).
+- [ ] **systemd unit / launchd plist in packages** [S]. `packaging/` has
+      only `arch/PKGBUILD`, `homebrew/…`, `macos/build-dmg.sh`, `nfpm.yaml`;
+      nfpm ships binary, README, LICENSE, completions and no unit. The
+      README recommends a service manager (lines ~239 and ~304). The daemon
+      already handles SIGTERM and ignores SIGHUP, so a user-level
+      `soma.service` plus a `~/Library/LaunchAgents` plist and two nfpm
+      `contents:` entries is all it takes.
+- [ ] **Desktop notification on track change** [M]: show the track
+      title and artist, opt-in via config. `handleTrackUpdate`
+      (`internal/server/playback.go`) only sets `s.trackTitle`, updates
+      MPRIS, and broadcasts today. `TrackInfo` carries the raw ICY
+      `StreamTitle` (`Artist - Title`) unsplit, and `updateMPRISLocked`
+      passes the channel title as `xesam:artist`, so split it once and let
+      MPRIS use the same artist/title. Linux: `notify-send`/D-Bus
+      `org.freedesktop.Notifications`; macOS: `osascript` or
+      `UNUserNotificationCenter` via the existing Cocoa bridge. Should
+      fire from the daemon, not the TUI, so it works with the TUI closed.
+- [ ] **Last.fm scrobbling** [L, wanted]. Now-playing on track change,
+      scrobble after the usual ≥30 s / half-track rule, API key + session
+      key in config, one-time auth flow (`soma lastfm login`). Two
+      constraints from the codebase: all outbound HTTP goes through
+      `security.NewRequest`, whose allowlist is SomaFM-only, so
+      `ws.audioscrobbler.com` needs an explicit second allowlist entry
+      rather than a widening; and the artist/title split above is a
+      prerequisite.
+- [ ] **macOS signing + notarization** [L, planned — research first].
+      README's `xattr -d com.apple.quarantine` workaround is the tell;
+      `build-darwin` goes `go build` → `lipo` → `build-dmg.sh` → upload
+      with no `codesign` or `notarytool` anywhere. Needs an Apple Developer
+      ID ($99/yr), .p12 secrets handling in the workflow, and a
+      hardened-runtime check against the cgo/Cocoa tray. The workflow
+      change itself is small once the identity exists. Blocked on reading
+      up on the notarization flow first.
 
 ## P3 — polish
 
-- [ ] Enter on the already-playing channel reconnects the stream
-      (`internal/app/update.go`); make it a no-op.
-- [ ] Sleep timer (`soma stop --in 45m`; the server already has timers).
-- [ ] Favorites-only view toggle in the TUI.
-- [ ] Desktop notification on track change (opt-in via config).
-- [ ] MPRIS `mpris:artUrl` from the channel image (~5 lines,
-      `internal/platform/mpris_linux.go`); GNOME/KDE popups show the logo.
-- [ ] Channel detail pane (descriptions truncate to one line; they are the
-      discovery mechanism).
-- [ ] Mouse support (`tea.WithMouseCellMotion()`).
-- [ ] Sort options (listeners/genre/name).
-- [ ] TLS 1.3 note: raise the TCP floor is done; consider a protocol
-      min/max version range in hello so remote pairs don't need lockstep
-      upgrades (`internal/protocol/protocol.go` exact-match).
-- [ ] Deduplicate: XDG/darwin base-dir resolution ×3 (`internal/state`,
-      `internal/config`, `internal/channels`), favorites `map[string]bool`
-      built ×4, `str(*string)` helper ×2.
-- [ ] Hoist per-frame lipgloss styles in `internal/ui/delegate.go`; make
-      `Model.IsMatch` a set lookup.
-- [ ] Fuzz targets for `parseICYMetadata`/`icyDemuxer`, the ADTS reader, and
-      `pkg/playlist`.
+Small hygiene fixes first, then features, then code quality.
+
+### Hygiene (each [S])
+
+- [ ] **gofmt drift the linter cannot see**: `gofmt -l` over tracked
+      non-vendor Go lists exactly one file, `internal/app/model.go`
+      (struct-field alignment at lines 46–51). `.golangci.yml` (v2) has no
+      `formatters:` section and `lefthook.yml` runs only `golangci-lint` and
+      `go test`, so nothing enforces `make fmt`. Run `gofmt -w`, then add
+      `formatters: enable: [gofmt, goimports]`.
+- [ ] **Docs contradict the default idle behaviour**: README:20 (features)
+      says the server "exits on its own once playback is stopped and no
+      client is connected" unconditionally, and AGENTS.md:45 says "after an
+      idle timeout"; `server.DefaultIdleTimeout` is 0 and README:245
+      ("keeps running until stopped explicitly") and README:342 (`"0" (the
+      default) never exits on idle`) already say so. Fix the two sentences.
+- [ ] **README "Keyboard Controls" vs in-app help disagree both ways**
+      (`README.md:310`, `NewHelpKeys` in `internal/app/update.go:192`):
+      README omits `a` (about) and `n`/`N` (next/prev match), which the help
+      shows; `c` (clear search) and `esc` (close about / cancel search) are
+      in *neither*, and the `=`/`_` volume aliases are documented nowhere;
+      the help omits `Enter`/`Space`, the primary action; README calls `/`
+      "Filter channels" while help says "search" (it is a search-and-jump,
+      see the P2 search item). Fix both lists.
+- [ ] `internal/channels/channels.go:184` warns about a failed cache write
+      via a raw `fmt.Fprintf(os.Stderr, ...)` (return value unchecked) while
+      the sibling corrupt-cache warnings at `:123`/`:125` use `log.Printf`,
+      so this one line lands in `server.log` without a timestamp.
+- [ ] **Makefile rot**: `make ci` (`deps test lint build`) lacks the
+      coverage gate and govulncheck that CI runs and adds `deps`/`build`
+      that CI never runs; `package-deb` calls `packaging/deb/build-deb.sh`,
+      which no longer exists (packaging moved to nfpm), and `help` still
+      advertises it along with `DEB_ARCH`; `make security` runs a bare
+      `gosec ./...` that does *not* apply the `G104` exclusion
+      `.golangci.yml` configures for its gosec linter, so the two can
+      disagree. Rewire or drop.
+- [ ] **AUR** [S, publishing planned]. README:101 already says "Once
+      published to the AUR", which matches the plan, so leave the wording.
+      The committed `packaging/arch/PKGBUILD` has `pkgver=0.13.0` vs tag
+      v0.14.1; the `pkgver()` function overrides it at build time and
+      `-X main.version` reads the updated value, so it is a misleading
+      placeholder, not a broken build — bump it when publishing.
+
+### Features
+
+- [ ] Sleep timer (`soma stop --in 45m`): `runStop` takes no args today.
+      Model it on the idle-exit `time.AfterFunc` in
+      `internal/server/server.go:467`. [S–M]
+- [ ] Favorites-only view toggle in the TUI. `sortItemsWithFavorites`
+      (`internal/app/favorites.go:81`) only partitions favorites first;
+      nothing filters. [S–M, shares the matches-only plumbing with search]
+- [ ] MPRIS `mpris:artUrl` from the channel image
+      (`internal/platform/mpris_linux.go`). `Channel` has `Image`,
+      `LargeImage`, `XLImage`, but `updateMPRISLocked` passes only three
+      strings, so the URL must be threaded through the server→platform
+      boundary and added to both metadata builders (`SetPlaying` and
+      `SetMetadata`). More than the "~5 lines" first estimated. [S]
+- [ ] Mouse support: sole `tea.NewProgram` call at `cmd/soma/main.go:571`
+      uses only `WithAltScreen`. [S]
+- [ ] Protocol min/max version range in hello so remote pairs need not
+      upgrade in lockstep. `protocol.Version = 1` is an exact match
+      (`conn.go:199`); `HelloParams`/`HelloResult` carry one scalar, so this
+      is a wire change to both structs. Only matters once there is a v2. [M]
+
+### Code quality
+
+- [ ] Deduplicate: XDG/darwin base-dir resolution ×2 (`internal/state`
+      and `internal/config` are structurally identical; `internal/channels`
+      uses a simpler `os.UserCacheDir` variant that should fold into the
+      same helper), favorites `map[string]bool` built ×4 (`cli.go:204`,
+      `cli.go:233`, `server.go:300`, `server.go:517`), and a byte-identical
+      `str(*string)` closure ×2 in package `main` (`endpoint.go:35`,
+      `main.go:270`). [S]
+- [ ] Hoist per-frame lipgloss styles in `internal/ui/delegate.go:98`:
+      four listener styles are built on every `Render` for every visible
+      row though only one is used, plus two more inside the switch. The
+      listener styles depend on `m.Width()`, so use a width-keyed cache or
+      apply `.Width(n)` to a hoisted base. Make `Model.IsMatch`
+      (`search.go:76`, called once per rendered row per frame) a set
+      lookup instead of a linear scan. [S]
+- [ ] Fuzz targets: none exist (`func Fuzz` has zero hits). Candidates:
+      `parseICYMetadata`/`icyDemuxer` (`internal/audio/metadata.go`), the
+      ADTS reader (`internal/audio/adts.go`), `pkg/playlist`. [S]
 - [ ] Repo hygiene: `SECURITY.md` (ships a network listener), CONTRIBUTING,
-      committed CHANGELOG via git-cliff.
-- [ ] Coverage gate: raise CI threshold from 60 % toward actual (~72 %).
-- [ ] AUR: README says installable "once published to the AUR" — publish or
-      reword; committed `packaging/arch/PKGBUILD` has a stale `pkgver`.
-- [ ] `make ci` target drifts from what CI actually runs.
-- [ ] Theming via config (palette is now tokenized in `internal/ui/styles.go`,
-      so a `theme:` section is straightforward).
-- [ ] Scrobbling (Last.fm) — optional integration, larger scope.
+      committed CHANGELOG via git-cliff (`cliff.toml` already exists). [S]
+- [ ] Coverage gate: raise CI `THRESHOLD` from 60 toward actual (73.1 % on
+      2026-09-03). [S]
+
+## Not planned (decided 2026-09-03)
+
+- **Linux AAC decoding.** AAC is only worth having where the platform ships
+  a decoder (macOS AudioToolbox). MP3 everywhere else is fine; do not add a
+  cgo decoder dependency for it.
+- **Theming via config.** The palette in `internal/ui/styles.go` follows the
+  somafm.com website colors and is adaptive so it works out of the box on
+  dark and light terminals (landed in 9b254e7). Keep that property; no
+  user-configurable theme.
+- **Channel detail pane.** Descriptions are short; there is not much to show.
+- **Sort options.** API order with favorites hoisted is enough.

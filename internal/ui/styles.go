@@ -2,9 +2,12 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Color palette - SomaFM inspired. Every color is adaptive: the Dark value
-// is the original palette, the Light value a darker take that stays readable
-// on light terminal backgrounds (lipgloss picks per the detected background).
+// Color palette, following the somafm.com website colors. Every color is
+// adaptive: the Dark value is the original palette, the Light value a darker
+// take that stays readable on light terminal backgrounds (lipgloss picks per
+// the detected background). The TUI must keep working out of the box on both
+// dark and light terminals; a user-configurable theme is deliberately not
+// planned (see TODO.md).
 var (
 	TitleColor       = lipgloss.AdaptiveColor{Light: "#C40608", Dark: "#ff0709"} // Red for title
 	PrimaryColor     = lipgloss.AdaptiveColor{Light: "#8F6400", Dark: "#D8A24D"} // Golden accent
