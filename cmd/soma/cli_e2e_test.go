@@ -36,6 +36,7 @@ type fakeDaemon struct {
 	payload       protocol.ChannelsPayload
 	history       []protocol.HistoryEntry
 	historyParams []protocol.HistoryParams // one entry per history request received
+	lastfmReloads int
 }
 
 func startFakeDaemon(t *testing.T) *fakeDaemon {
@@ -169,6 +170,9 @@ func (d *fakeDaemon) handle(req protocol.Request) any {
 		_ = json.Unmarshal(req.Params, &p)
 		d.historyParams = append(d.historyParams, p)
 		return protocol.HistoryResult{Entries: d.history}
+	case protocol.MethodReloadLastfm:
+		d.lastfmReloads++
+		return struct{}{}
 	case protocol.MethodShutdown:
 		d.shutdowns++
 		return struct{}{}

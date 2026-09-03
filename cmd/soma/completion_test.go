@@ -39,7 +39,7 @@ func TestPrintChannelCompletions_NoCache(t *testing.T) {
 func TestCompletionScriptsCoverCLI(t *testing.T) {
 	commands := []string{
 		"play", "list", "favorite", "next", "prev", "pause", "stop",
-		"status", "volume", "history", "daemon", "completion",
+		"status", "volume", "history", "lastfm", "daemon", "completion",
 	}
 	flags := []string{
 		// global connection/TUI flags

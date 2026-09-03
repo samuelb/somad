@@ -46,6 +46,7 @@ _soma() {
             'status:show what is playing'
             'volume:show, set, or adjust the playback volume'
             'history:show recent now-playing titles'
+            'lastfm:manage last.fm scrobbling (login, logout, status)'
             'daemon:run the playback server in the foreground'
             'completion:print a shell completion script'
             'help:show help'
@@ -87,6 +88,9 @@ _soma() {
                 '--json[print machine-readable JSON]' \
                 '-n[maximum number of entries to show]:count:' \
                 '1:channel:_soma_channels' && ret=0
+            ;;
+        lastfm)
+            _arguments '1:action:(login logout status)' && ret=0
             ;;
         daemon)
             _arguments \

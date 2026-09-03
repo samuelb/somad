@@ -154,6 +154,8 @@ func main() {
 		runVolume(rest[1:])
 	case "history":
 		runHistory(rest[1:])
+	case "lastfm":
+		runLastfm(rest[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "soma: unknown command %q\n\n", rest[0])
 		printUsage(os.Stderr)
@@ -221,6 +223,12 @@ func printUsage(w io.Writer) {
                                  show recent now-playing titles, newest first
                                  (all channels, or one when given; -n bounds
                                   how many, default 20)
+  soma lastfm login           authorize soma with your last.fm account and
+                                 save the session (requires lastfm.api_key
+                                 and lastfm.api_secret in the config file)
+  soma lastfm logout          remove the saved last.fm session
+  soma lastfm status [--json] show whether last.fm scrobbling is configured
+                                 and logged in
   soma daemon [flags]         run the playback server in the foreground
                                  (--no-tray hides the tray / menu-bar icon;
                                   --notify shows a desktop notification on
@@ -263,6 +271,11 @@ Server and connection flags can also be set in %s
     psk_file: ~/.config/somad/psk
   tui:
     shutdown_on_exit: true
+  lastfm:
+    api_key: your-api-key    # from https://www.last.fm/api/account/create
+    api_secret: your-api-secret
+    # session_key is normally left unset here: "soma lastfm login" saves it
+    # separately instead of editing this file.
 `, path)
 	}
 }

@@ -25,7 +25,7 @@ _soma() {
     local global_flags="--server --tls --tls-ca --tls-fingerprint --psk-file
         --shutdown-on-exit --version --help"
     local commands="play list favorite next prev pause stop status volume
-        history daemon completion help version"
+        history lastfm daemon completion help version"
 
     # Flags whose value is the next word (or follows "=").
     case "$prev" in
@@ -108,6 +108,9 @@ _soma() {
     daemon)
         COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --notify --quality --listen --tls
             --tls-cert --tls-key --psk-file --gen-psk --insecure --show-cert" -- "$cur"))
+        ;;
+    lastfm)
+        COMPREPLY=($(compgen -W "login logout status" -- "$cur"))
         ;;
     completion)
         COMPREPLY=($(compgen -W "bash zsh" -- "$cur"))

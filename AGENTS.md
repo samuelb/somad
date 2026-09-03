@@ -72,6 +72,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   - MPRIS, tray, and desktop notifications: 0019, 0030
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029
+  - Last.fm scrobbling: 0031
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its
   "Not planned" section only points at ADRs. Remove an item when you finish
   it.
@@ -94,14 +95,15 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
 **Subcommands** (`cmd/soma/main.go`): none → TUI; `daemon [flags]` runs the
 playback server in the foreground (`daemon stop` shuts it down); `play`,
 `list`, `favorite`/`fav`, `next`, `prev`, `pause`, `stop`, `status`,
-`volume`, `history [-n N] [channel]`, `completion <bash|zsh>`, `version`.
-Global connection flags (`--server`, `--tls`, `--tls-ca`, `--tls-fingerprint`,
-`--psk-file`) go before the command; daemon flags (`--idle-timeout`,
-`--no-tray`, `--notify`, `--quality`, `--listen`, `--tls`, `--tls-cert`,
-`--tls-key`, `--psk-file`, `--gen-psk`, `--insecure`, `--show-cert`) go after
-it. `play`, `list`, `favorite`, `next`, `prev`, `pause`, `stop`, `status`,
-`volume`, `history` all take `--json`. `stop` also takes `--in <duration>`
-(arm a sleep timer instead of stopping now, replacing any timer already
+`volume`, `history [-n N] [channel]`, `lastfm <login|logout|status>`,
+`completion <bash|zsh>`, `version`. Global connection flags (`--server`,
+`--tls`, `--tls-ca`, `--tls-fingerprint`, `--psk-file`) go before the
+command; daemon flags (`--idle-timeout`, `--no-tray`, `--notify`,
+`--quality`, `--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`,
+`--gen-psk`, `--insecure`, `--show-cert`) go after it. `play`, `list`,
+`favorite`, `next`, `prev`, `pause`, `stop`, `status`, `volume`, `history`,
+`lastfm status` all take `--json`. `stop` also takes `--in <duration>` (arm
+a sleep timer instead of stopping now, replacing any timer already
 pending) and `--cancel` (drop a pending timer without stopping); the two are
 mutually exclusive.
 

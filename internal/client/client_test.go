@@ -87,6 +87,8 @@ func defaultHandler(serverVersion string) func(req protocol.Request, send func(v
 			respond(protocol.HistoryResult{Entries: []protocol.HistoryEntry{
 				{ChannelID: p.ChannelID, ChannelTitle: "Groove Salad", Title: "Some Track"},
 			}})
+		case protocol.MethodReloadLastfm:
+			respond(struct{}{})
 		default:
 			send(protocol.Response{ID: req.ID, Error: "unknown method"})
 		}
@@ -128,6 +130,19 @@ func TestClient_History(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, "groovesalad", entries[0].ChannelID)
 	assert.Equal(t, "Some Track", entries[0].Title)
+}
+
+func TestClient_ReloadLastfm(t *testing.T) {
+	path := testSocketPath(t)
+	startFakeServer(t, path, defaultHandler("dev"))
+
+	c, err := Dial(path)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	_, err = c.Hello("dev")
+	require.NoError(t, err)
+
+	require.NoError(t, c.ReloadLastfm())
 }
 
 func TestClient_EventsDeliveredAndDecoded(t *testing.T) {

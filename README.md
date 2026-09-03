@@ -41,6 +41,9 @@ Linux and macOS — other platforms are not supported and may not work.
 - Browse recent now-playing history for a channel (`soma history`, or the
   <kbd>h</kbd> overlay in the TUI), backfilled from SomaFM when the
   daemon hasn't been running long
+- Optional Last.fm scrobbling (opt in with `soma lastfm login`): now-playing
+  updates and scrobbles after a track has played long enough, fired from the
+  daemon so it works with the TUI closed
 - Buffered streaming with automatic reconnection on network issues
 - Styled UI with color-coded playback states and visual indicators
 - Select and remember your last-played channel
@@ -236,6 +239,9 @@ background if one isn't running yet.
 | `soma volume [--json] [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
 | `soma volume mute [--json]` | Toggle mute, restoring the previous volume          |
 | `soma history [--json] [-n N] [channel]` | Show recent now-playing titles, newest first (all channels, or one when given; `-n` bounds how many, default 20) |
+| `soma lastfm login`        | Authorize soma with your Last.fm account and save the session (see [Last.fm](#lastfm)) |
+| `soma lastfm logout`       | Remove the saved Last.fm session                          |
+| `soma lastfm status [--json]` | Show whether Last.fm scrobbling is configured and logged in |
 | `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp); `--gen-psk` generates a pre-shared key) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
@@ -312,6 +318,40 @@ title as the heading, artist and channel as the body — every time the
 playing track changes. Off by default. It fires from the daemon itself, so
 it keeps working with the TUI closed, on Linux (D-Bus) and macOS
 (Notification Center).
+
+### Last.fm
+
+Somad can send now-playing updates and scrobbles to Last.fm, opt-in and
+driven from the daemon so it works with the TUI closed. First create an API
+key/secret pair at
+[last.fm/api/account/create](https://www.last.fm/api/account/create) and add
+them to the [configuration file](#configuration):
+
+```yaml
+lastfm:
+  api_key: your-api-key
+  api_secret: your-api-secret
+```
+
+Then authorize soma with your Last.fm account:
+
+```sh
+soma lastfm login
+```
+
+This prints an authorization URL (and tries to open it in a browser), waits
+for you to press Enter once you've approved it on last.fm, then saves the
+resulting session. `soma lastfm status` reports whether scrobbling is
+configured and logged in; `soma lastfm logout` removes the saved session.
+The session key lives in a separate file in the [state directory](#data-storage),
+not the config file, so logging in never edits your hand-written config; a
+running daemon picks up a fresh login immediately, without a restart.
+
+Once logged in, the daemon sends a now-playing update on every track change
+and scrobbles the previous track when it ends (next title change, stop, or
+channel switch) if it played for at least 30 seconds. A title with no
+identifiable artist (many ambient/genre streams don't follow the "Artist -
+Title" convention) is never sent, since Last.fm scrobbles need one.
 
 ### Remote control over TCP
 
@@ -459,6 +499,18 @@ tui:
   # Stop playback and shut down the server when the TUI exits.
   # Default: false. Same as --shutdown-on-exit.
   shutdown_on_exit: true
+
+lastfm:
+  # Now-playing updates and scrobbling on Last.fm (see "Last.fm" above),
+  # off unless both are set. Create a pair at
+  # https://www.last.fm/api/account/create.
+  api_key: your-api-key
+  api_secret: your-api-secret
+
+  # Normally left unset: "soma lastfm login" saves the session key to a
+  # separate state file instead of editing this one. Setting it here
+  # overrides that file.
+  session_key: your-session-key
 ```
 
 A config file that exists but fails to parse (or contains unknown keys)
@@ -469,8 +521,9 @@ a typo never silently falls back to defaults.
 
 - **Config**: `~/.config/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS)
 - **State**: `~/.local/state/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS) —
-  also holds `server.log`, the log of the auto-spawned playback daemon, and
-  the auto-generated TLS certificate (`tls-cert.pem`/`tls-key.pem`)
+  also holds `server.log`, the log of the auto-spawned playback daemon, the
+  auto-generated TLS certificate (`tls-cert.pem`/`tls-key.pem`), and
+  `lastfm.json`, the Last.fm session `soma lastfm login` saves (mode `0600`)
 - **Cache**: `~/.cache/somad/` (Linux) or `~/Library/Caches/somad/` (macOS)
 - **Socket**: `$XDG_RUNTIME_DIR/somad.sock` (Linux) or a per-user temp
   directory (macOS); override with `$SOMAD_SOCKET`
