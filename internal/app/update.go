@@ -128,6 +128,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.UpdateListSize()
 		return m, nil
 
+	case tea.MouseMsg:
+		// The vendored bubbles/list does not handle mouse events itself, so
+		// the wheel is wired to the same cursor movement as j/k here.
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.List.CursorUp()
+			return m, nil
+		case tea.MouseButtonWheelDown:
+			m.List.CursorDown()
+			return m, nil
+		}
+
 	case ServerStateMsg:
 		m.applySnapshot(msg.State)
 		return m, nil

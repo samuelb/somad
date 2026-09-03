@@ -43,7 +43,8 @@ Linux and macOS — other platforms are not supported and may not work.
 - Sleep timer (`soma stop --in 45m`) owned by the daemon, so it fires even
   if you close the TUI or the terminal
 - Fast startup with cached channels and background refresh
-- Smooth, keyboard-driven navigation and playback controls
+- Smooth, keyboard-driven navigation and playback controls, with mouse wheel
+  scrolling in the channel list
 - MPRIS desktop integration (Linux) — media keys keep working even with the
   TUI closed
 - System tray / menu-bar icon (macOS and Linux) — shows the current track,
@@ -359,8 +360,8 @@ speak the same protocol version.
 
 | Key                                 | Action                          |
 | ----------------------------------- | ------------------------------- |
-| <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up            |
-| <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down          |
+| <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up (mouse wheel scrolling works too) |
+| <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down (mouse wheel scrolling works too) |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel           |
 | <kbd>p</kbd>                        | Play / pause (pause stops the stream; play reconnects live) |
 | <kbd>s</kbd>                        | Stop playback                   |

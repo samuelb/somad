@@ -28,6 +28,28 @@ func TestUpdate_WindowSizeMsg(t *testing.T) {
 	assert.Equal(t, 40, m.Height)
 }
 
+func TestUpdate_MouseWheel_MovesListCursor(t *testing.T) {
+	m := newTestModel(t)
+	require.Equal(t, 0, m.List.Index(), "starts on the first item")
+
+	updated, _ := m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m = updated.(*Model)
+	assert.Equal(t, 1, m.List.Index(), "wheel down moves the cursor down like j")
+
+	updated, _ = m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	m = updated.(*Model)
+	assert.Equal(t, 0, m.List.Index(), "wheel up moves the cursor up like k")
+}
+
+func TestUpdate_MouseMotion_IsIgnored(t *testing.T) {
+	m := newTestModel(t)
+
+	updated, cmd := m.Update(tea.MouseMsg{Action: tea.MouseActionMotion})
+
+	assert.Equal(t, 0, updated.(*Model).List.Index())
+	assert.Nil(t, cmd)
+}
+
 func TestUpdate_QuitKey_DoesNotStopPlayback(t *testing.T) {
 	m := newTestModel(t)
 

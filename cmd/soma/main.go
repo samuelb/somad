@@ -654,8 +654,11 @@ func runTUI(shutdownOnExit bool) {
 	}
 	m.List = l
 
-	// Start the Bubble Tea program with window size handling
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Start the Bubble Tea program with window size handling. Mouse cell
+	// motion reporting lets the mouse wheel scroll the channel list (see
+	// internal/app/update.go's tea.MouseMsg handling: the vendored
+	// bubbles/list does not process mouse events on its own).
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Bridge server events into the Bubble Tea program, reconnecting (and
 	// respawning the server) when the connection drops.
