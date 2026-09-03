@@ -20,6 +20,7 @@ make check              # lint + test + vet — run before committing
 go test -race ./internal/server/ -run TestName   # single test
 make fmt                # gofmt -s (+ goimports if installed)
 make site               # stage the website (site/ + demo.gif) into dist/site
+make demo               # re-record demo.gif from demo.tape with VHS (brew install vhs; plays audio)
 ```
 
 - Tests need no network, audio device, or display: HTTP goes to `httptest`
@@ -52,7 +53,10 @@ make site               # stage the website (site/ + demo.gif) into dist/site
   **Keep it current:** any change to features, installation steps,
   commands, flags, keybindings, config keys, or file locations updates
   `site/index.html` in the same commit as the README. The page must never
-  describe behaviour the binary no longer has.
+  describe behaviour the binary no longer has. `demo.gif` (embedded in the
+  README and the website) is recorded from `demo.tape` by `make demo`;
+  re-record it after visible TUI changes and adjust the tape if the keys
+  it presses change.
 - **Decisions** live in `docs/adr/` (index: `docs/adr/README.md`). Read the
   relevant records before changing the architecture, wire protocol,
   security model, audio pipeline, or release process. When a change makes

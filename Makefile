@@ -166,6 +166,22 @@ site:
 site-serve: site
 	python3 -m http.server --directory dist/site 8000
 
+# Re-record demo.gif with VHS (brew install vhs). Uses an isolated soma
+# home under dist/demo and a private socket; plays audio while recording.
+DEMO_HOME=$(CURDIR)/dist/demo
+.PHONY: demo
+demo: build
+	@command -v vhs >/dev/null 2>&1 || { echo "vhs not installed: brew install vhs"; exit 1; }
+	rm -rf "$(DEMO_HOME)"
+	mkdir -p "$(DEMO_HOME)/config/somad"
+	printf 'server:\n  tray: false\ntui:\n  shutdown_on_exit: true\n' > "$(DEMO_HOME)/config/somad/config.yaml"
+	PATH="$(CURDIR):$$PATH" \
+	XDG_CONFIG_HOME="$(DEMO_HOME)/config" \
+	XDG_STATE_HOME="$(DEMO_HOME)/state" \
+	XDG_CACHE_HOME="$(DEMO_HOME)/cache" \
+	SOMAD_SOCKET="$${TMPDIR:-/tmp}/somad-demo.sock" \
+	vhs demo.tape
+
 # Format Go code
 .PHONY: fmt
 fmt:
@@ -238,6 +254,7 @@ help:
 	@echo "  package-nix       Build the Nix flake package"
 	@echo "  site              Stage the website into dist/site"
 	@echo "  site-serve        Serve the staged website on http://localhost:8000"
+	@echo "  demo              Re-record demo.gif with VHS (plays audio)"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
 	@echo "  security          Run security scan (gosec)"
