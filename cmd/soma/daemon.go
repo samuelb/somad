@@ -27,24 +27,52 @@ import (
 	"somad/internal/tlsutil"
 )
 
-// runServer runs the playback daemon: it owns audio, the channel catalog,
-// persisted state, and MPRIS, and serves clients on the Unix socket.
-func runServer(args []string) {
-	// On first start, materialize a commented-out template so the settings
-	// are discoverable; failing to (e.g. a read-only home) is no reason not
-	// to run.
-	if path, created, err := config.EnsureTemplate(server.DefaultIdleTimeout); err != nil {
-		log.Printf("warning: could not write the default config template: %v", err)
-	} else if created {
-		log.Printf("wrote a default config template to %s", path)
-	}
+// daemonAction is a resolveDaemonOptions outcome: either run the server, or
+// perform one "print (or write) and exit" action instead.
+type daemonAction int
 
-	// The config file supplies the flag defaults, so explicit flags override
-	// it, and an auto-spawned server (which gets no flags) still honors it.
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("error loading config: %v", err)
-	}
+const (
+	daemonActionRun daemonAction = iota
+	daemonActionGenPSK
+	daemonActionShowCert
+)
+
+// daemonOptions is the resolved, validated result of parsing `soma daemon`'s
+// flags against their config-file defaults. resolveDaemonOptions builds one
+// from a config and argv alone (no log.Fatal, no global state), so it can be
+// tested directly; runServer is the sole place that turns a resolution
+// failure into a fatal exit and acts on the result.
+type daemonOptions struct {
+	action daemonAction
+
+	// Fields for daemonActionRun.
+	idleTimeout time.Duration
+	noTray      bool
+	notify      bool
+	quality     string
+	listen      string
+	tlsEnabled  bool
+	certPath    string
+	keyPath     string
+	psk         string
+	insecure    bool
+
+	// genPSKPath is where daemonActionGenPSK should write the generated key.
+	genPSKPath string
+
+	// certFingerprint is the SHA-256 fingerprint daemonActionShowCert
+	// should print alongside certPath.
+	certFingerprint string
+}
+
+// resolveDaemonOptions parses `soma daemon`'s flags (seeded from cfg's
+// defaults), validates them, and resolves the files they name — a TLS
+// certificate pair (generating a self-signed one when none is configured),
+// a PSK file — into a daemonOptions. It returns an error instead of calling
+// log.Fatal for every failure that can occur during resolution: the
+// --quality validation, the --tls-cert/--tls-key pairing rule, certificate
+// preparation, certificate loading for --show-cert, and the PSK file read.
+func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, error) {
 	defaultIdleTimeout := server.DefaultIdleTimeout
 	if cfg.Server.IdleTimeout != nil {
 		defaultIdleTimeout = time.Duration(*cfg.Server.IdleTimeout)
@@ -88,26 +116,22 @@ func runServer(args []string) {
 		if path == "" {
 			dir, err := config.Dir()
 			if err != nil {
-				log.Fatalf("error resolving the config directory: %v", err)
+				return daemonOptions{}, fmt.Errorf("error resolving the config directory: %w", err)
 			}
 			path = filepath.Join(dir, "psk")
 		}
-		if err := writeGeneratedPSK(path); err != nil {
-			log.Fatalf("error generating the PSK file: %v", err)
-		}
-		fmt.Printf("generated a pre-shared key at %s\n", path)
-		return
+		return daemonOptions{action: daemonActionGenPSK, genPSKPath: path}, nil
 	}
 
 	switch *quality {
 	case "", "highest", "high", "low":
 	default:
-		log.Fatalf("--quality (or server.quality in the config) must be one of highest, high, low (got %q)", *quality)
+		return daemonOptions{}, fmt.Errorf("--quality (or server.quality in the config) must be one of highest, high, low (got %q)", *quality)
 	}
 
 	certPath, keyPath := *tlsCert, *tlsKey
 	if (certPath == "") != (keyPath == "") {
-		log.Fatal("--tls-cert and --tls-key (or tls_cert/tls_key in the config) must be set together")
+		return daemonOptions{}, errors.New("--tls-cert and --tls-key (or tls_cert/tls_key in the config) must be set together")
 	}
 	tlsEnabled := *tlsOn || certPath != ""
 	// The certificate is resolved (and generated) even for --show-cert with
@@ -115,24 +139,74 @@ func runServer(args []string) {
 	if tlsEnabled || *showCert {
 		var err error
 		if certPath, keyPath, err = ensureCertPair(certPath, keyPath, *listen); err != nil {
-			log.Fatalf("error preparing the TLS certificate: %v", err)
+			return daemonOptions{}, fmt.Errorf("error preparing the TLS certificate: %w", err)
 		}
 	}
 	if *showCert {
 		_, fingerprint, err := tlsutil.ServerTLSConfig(certPath, keyPath)
 		if err != nil {
-			log.Fatalf("error loading the TLS certificate: %v", err)
+			return daemonOptions{}, fmt.Errorf("error loading the TLS certificate: %w", err)
 		}
-		fmt.Printf("certificate: %s\nfingerprint: %s\n", certPath, fingerprint)
-		return
+		return daemonOptions{action: daemonActionShowCert, certPath: certPath, certFingerprint: fingerprint}, nil
 	}
 
 	psk := str(cfg.Server.PSK)
 	if *pskFile != "" {
 		var err error
 		if psk, err = readPSKFile(*pskFile); err != nil {
-			log.Fatalf("error reading the PSK file: %v", err)
+			return daemonOptions{}, fmt.Errorf("error reading the PSK file: %w", err)
 		}
+	}
+
+	return daemonOptions{
+		action:      daemonActionRun,
+		idleTimeout: *idleTimeout,
+		noTray:      *noTray,
+		notify:      *notify,
+		quality:     *quality,
+		listen:      *listen,
+		tlsEnabled:  tlsEnabled,
+		certPath:    certPath,
+		keyPath:     keyPath,
+		psk:         psk,
+		insecure:    *insecure,
+	}, nil
+}
+
+// runServer runs the playback daemon: it owns audio, the channel catalog,
+// persisted state, and MPRIS, and serves clients on the Unix socket.
+func runServer(args []string) {
+	// On first start, materialize a commented-out template so the settings
+	// are discoverable; failing to (e.g. a read-only home) is no reason not
+	// to run.
+	if path, created, err := config.EnsureTemplate(server.DefaultIdleTimeout); err != nil {
+		log.Printf("warning: could not write the default config template: %v", err)
+	} else if created {
+		log.Printf("wrote a default config template to %s", path)
+	}
+
+	// The config file supplies the flag defaults, so explicit flags override
+	// it, and an auto-spawned server (which gets no flags) still honors it.
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("error loading config: %v", err)
+	}
+
+	opts, err := resolveDaemonOptions(cfg, args)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	switch opts.action {
+	case daemonActionGenPSK:
+		if err := writeGeneratedPSK(opts.genPSKPath); err != nil {
+			log.Fatalf("error generating the PSK file: %v", err)
+		}
+		fmt.Printf("generated a pre-shared key at %s\n", opts.genPSKPath)
+		return
+	case daemonActionShowCert:
+		fmt.Printf("certificate: %s\nfingerprint: %s\n", opts.certPath, opts.certFingerprint)
+		return
 	}
 
 	// Bind the socket before the (potentially slow) audio init: a bound
@@ -152,8 +226,8 @@ func runServer(args []string) {
 	log.Printf("soma daemon %s listening on %s", version, socketPath)
 
 	listeners := []net.Listener{ln}
-	if *listen != "" {
-		tcpLn, err := listenTCP(*listen, tlsEnabled, certPath, keyPath, psk, *insecure)
+	if opts.listen != "" {
+		tcpLn, err := listenTCP(opts.listen, opts.tlsEnabled, opts.certPath, opts.keyPath, opts.psk, opts.insecure)
 		if err != nil {
 			cleanup()
 			log.Fatalf("error starting the TCP listener: %v", err)
@@ -183,7 +257,7 @@ func runServer(args []string) {
 	// server is running. It is skipped when disabled, unsupported, or when no
 	// GUI is present (a headless host), so the server still runs anywhere.
 	var tr *tray.Tray
-	if !*noTray && tray.Available() {
+	if !opts.noTray && tray.Available() {
 		tr = tray.New()
 	}
 
@@ -196,10 +270,10 @@ func runServer(args []string) {
 		State:               appState,
 		MPRIS:               mpris,
 		Tray:                tr,
-		IdleTimeout:         *idleTimeout,
-		PSK:                 psk,
-		Quality:             *quality,
-		Notify:              *notify,
+		IdleTimeout:         opts.idleTimeout,
+		PSK:                 opts.psk,
+		Quality:             opts.quality,
+		Notify:              opts.notify,
 		Scrobbler:           scrobbler,
 		ReloadLastfmSession: reloadLastfmSession,
 	})
