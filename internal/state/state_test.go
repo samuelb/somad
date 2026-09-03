@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -208,20 +209,6 @@ func TestSaveState_CreatesDirectory(t *testing.T) {
 	assert.Equal(t, "test", state.LastSelectedChannelID)
 }
 
-func TestIsFavorite(t *testing.T) {
-	state := &State{FavoriteChannelIDs: []string{"groovesalad", "dronezone"}}
-
-	assert.True(t, state.IsFavorite("groovesalad"))
-	assert.True(t, state.IsFavorite("dronezone"))
-	assert.False(t, state.IsFavorite("secretagent"))
-	assert.False(t, state.IsFavorite(""))
-}
-
-func TestIsFavorite_Empty(t *testing.T) {
-	state := &State{}
-	assert.False(t, state.IsFavorite("groovesalad"))
-}
-
 func TestFavoriteSet(t *testing.T) {
 	set := FavoriteSet([]string{"groovesalad", "dronezone"})
 
@@ -238,7 +225,7 @@ func TestToggleFavorite_Add(t *testing.T) {
 	state := &State{}
 
 	state.ToggleFavorite("groovesalad")
-	assert.True(t, state.IsFavorite("groovesalad"))
+	assert.True(t, slices.Contains(state.FavoriteChannelIDs, "groovesalad"))
 	assert.Equal(t, []string{"groovesalad"}, state.FavoriteChannelIDs)
 }
 
@@ -246,8 +233,8 @@ func TestToggleFavorite_Remove(t *testing.T) {
 	state := &State{FavoriteChannelIDs: []string{"groovesalad", "dronezone"}}
 
 	state.ToggleFavorite("groovesalad")
-	assert.False(t, state.IsFavorite("groovesalad"))
-	assert.True(t, state.IsFavorite("dronezone"))
+	assert.False(t, slices.Contains(state.FavoriteChannelIDs, "groovesalad"))
+	assert.True(t, slices.Contains(state.FavoriteChannelIDs, "dronezone"))
 	assert.Equal(t, []string{"dronezone"}, state.FavoriteChannelIDs)
 }
 
@@ -255,10 +242,10 @@ func TestToggleFavorite_AddAndRemove(t *testing.T) {
 	state := &State{}
 
 	state.ToggleFavorite("groovesalad")
-	assert.True(t, state.IsFavorite("groovesalad"))
+	assert.True(t, slices.Contains(state.FavoriteChannelIDs, "groovesalad"))
 
 	state.ToggleFavorite("groovesalad")
-	assert.False(t, state.IsFavorite("groovesalad"))
+	assert.False(t, slices.Contains(state.FavoriteChannelIDs, "groovesalad"))
 	assert.Empty(t, state.FavoriteChannelIDs)
 }
 
@@ -304,7 +291,7 @@ func TestLoadState_BackwardCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "groovesalad", state.LastSelectedChannelID)
 	assert.Empty(t, state.FavoriteChannelIDs)
-	assert.False(t, state.IsFavorite("groovesalad"))
+	assert.False(t, slices.Contains(state.FavoriteChannelIDs, "groovesalad"))
 }
 
 func TestGetStateDir_XDGOverride(t *testing.T) {

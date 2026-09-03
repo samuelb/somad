@@ -255,15 +255,11 @@ func (s *Server) Shutdown() {
 	s.shutdownOnce.Do(func() {
 		s.mu.Lock()
 		s.closing = true
-		s.playGen++ // any play still connecting must not commit after this
-		gen := s.playGen
-		s.cancelReconnectLocked()
-		s.cancelStopTimerLocked()
+		// Any play still connecting must not commit after this; the pending
+		// scrobble ends the same way Stop's does, or the last track played
+		// before shutdown would never be scrobbled at all.
+		gen := s.abandonSessionLocked(true)
 		s.disarmIdleLocked()
-		// Ends the pending scrobble (if it played long enough) the same way
-		// Stop does; without this, the last track played before shutdown was
-		// never scrobbled at all.
-		s.endLastfmTrackLocked()
 		lns := s.lns
 		open := make([]*conn, 0, len(s.conns))
 		for c := range s.conns {
@@ -461,8 +457,7 @@ func (s *Server) ToggleFavorite(channelID string) ([]string, error) {
 		return nil, fmt.Errorf("unknown channel: %s", channelID)
 	}
 	s.st.ToggleFavorite(channelID)
-	stateToSave := s.st.Clone()
-	saveSeq := s.nextSaveSeqLocked()
+	save := s.stageSaveLocked()
 	s.catalog = sortChannelsWithFavorites(s.catalog, s.st.FavoriteChannelIDs)
 	s.broadcastChannelsLocked()
 	// Clone: the caller marshals this after the lock is released; handing out
@@ -470,15 +465,20 @@ func (s *Server) ToggleFavorite(channelID string) ([]string, error) {
 	favorites := slices.Clone(s.st.FavoriteChannelIDs)
 	s.mu.Unlock()
 
-	s.saveState(saveSeq, stateToSave)
+	save()
 	return favorites, nil
 }
 
-// nextSaveSeqLocked stamps a state mutation with a monotonic sequence so
-// saveState can serialize writes and drop out-of-order ones. Caller holds s.mu.
-func (s *Server) nextSaveSeqLocked() uint64 {
+// stageSaveLocked snapshots the persisted state and stamps it with the next
+// save sequence, both under s.mu, and returns the write to run once the
+// lock is released. This is the one place that encodes the ordering
+// saveState relies on: the sequence is taken under the lock, the file
+// write happens off it. Caller holds s.mu.
+func (s *Server) stageSaveLocked() func() {
+	st := s.st.Clone()
 	s.saveSeq++
-	return s.saveSeq
+	seq := s.saveSeq
+	return func() { s.saveState(seq, st) }
 }
 
 // saveState persists st, serialized against other saves so writes never
@@ -560,31 +560,38 @@ func (s *Server) maybeArmIdleLocked() {
 }
 
 func (s *Server) disarmIdleLocked() {
-	if s.idleTimer != nil {
-		s.idleTimer.Stop()
-		s.idleTimer = nil
+	stopTimer(&s.idleTimer)
+}
+
+// stopTimer stops and clears a timer slot; a nil slot is a no-op.
+func stopTimer(t **time.Timer) {
+	if *t != nil {
+		(*t).Stop()
+		*t = nil
 	}
 }
 
-// broadcastStateLocked pushes the current playback snapshot to all clients.
-func (s *Server) broadcastStateLocked() {
-	ev, err := protocol.NewEvent(protocol.EventState, s.snapshotLocked())
-	if err != nil {
-		log.Printf("error encoding state event: %v", err)
-		return
-	}
-	for c := range s.conns {
-		c.sendEvent(ev)
-	}
+// broadcastStateLocked pushes the current playback snapshot to all clients
+// and returns it, so mutators can reply with the same snapshot they sent.
+func (s *Server) broadcastStateLocked() protocol.PlaybackState {
+	snap := s.snapshotLocked()
+	s.broadcastLocked(protocol.EventState, snap)
+	return snap
 }
 
 // broadcastChannelsLocked pushes the catalog payload to all clients and mirrors
 // it into the tray's channel picker.
 func (s *Server) broadcastChannelsLocked() {
 	s.pushChannelsToTrayLocked()
-	ev, err := protocol.NewEvent(protocol.EventChannels, s.channelsPayloadLocked())
+	s.broadcastLocked(protocol.EventChannels, s.channelsPayloadLocked())
+}
+
+// broadcastLocked encodes payload as the named event and pushes it to every
+// connected client. Caller holds s.mu.
+func (s *Server) broadcastLocked(event string, payload any) {
+	ev, err := protocol.NewEvent(event, payload)
 	if err != nil {
-		log.Printf("error encoding channels event: %v", err)
+		log.Printf("error encoding %s event: %v", event, err)
 		return
 	}
 	for c := range s.conns {

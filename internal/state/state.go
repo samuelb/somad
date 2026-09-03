@@ -88,11 +88,6 @@ func (s *State) UnmuteVolume() float64 {
 	return *s.PreMuteVolume
 }
 
-// IsFavorite returns true if the given channel ID is in the favorites list.
-func (s *State) IsFavorite(id string) bool {
-	return slices.Contains(s.FavoriteChannelIDs, id)
-}
-
 // ToggleFavorite adds or removes a channel ID from the favorites list. It is
 // copy-on-write: the old backing array is left untouched, so slice headers
 // handed out before the call (snapshots, clones in flight) never mutate

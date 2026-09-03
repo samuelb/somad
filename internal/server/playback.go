@@ -4,13 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
 	"somad/internal/audio"
 	"somad/internal/channels"
 	"somad/internal/protocol"
-	"somad/internal/state"
 	"somad/pkg/playlist"
 )
 
@@ -85,37 +85,31 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		s.mu.Unlock()
 		return snap, nil
 	}
-	s.playGen++
-	gen := s.playGen
-	s.cancelReconnectLocked()
+	// Ending the outgoing channel's pending scrobble also fires on a
+	// same-channel reconnect, which is fine: the stream did drop, and a
+	// resumed title starts a fresh now-playing entry via handleTrackUpdate.
+	// A pending sleep timer is deliberately kept: it must outlive channel
+	// switches.
+	gen := s.abandonSessionLocked(false)
 	s.disarmIdleLocked()
 	s.status = protocol.StatusConnecting
-	// Ends the outgoing channel's pending scrobble (if it played long
-	// enough); see lastfm.go. Also fires on a same-channel reconnect, which
-	// is fine: the stream did drop, and a resumed title starts a fresh
-	// now-playing entry via handleTrackUpdate.
-	s.endLastfmTrackLocked()
 	s.channelID = ch.ID
 	s.channelTitle = ch.Title
 	s.channelArtURL = channelArtURL(ch)
 	s.trackTitle = ""
 	s.streamErr = ""
-	var stateToSave *state.State
-	var saveSeq uint64
+	save := func() {}
 	if userInitiated {
 		s.reconnectAttempt = 0
 		s.st.LastSelectedChannelID = ch.ID
-		stateToSave = s.st.Clone()
-		saveSeq = s.nextSaveSeqLocked()
+		save = s.stageSaveLocked()
 	}
 	s.broadcastStateLocked()
 	playlists := ch.Playlists
 	title := ch.Title
 	s.mu.Unlock()
 
-	if stateToSave != nil {
-		s.saveState(saveSeq, stateToSave)
-	}
+	save()
 
 	// Try the playable playlists in preference order (AAC before MP3 where
 	// this build decodes it), falling back to the next when one fails to
@@ -171,8 +165,7 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		s.status = protocol.StatusPlaying
 		s.reconnectAttempt = 0 // connected: a later drop starts a fresh backoff
 		s.updateMPRISLocked()
-		s.broadcastStateLocked()
-		return s.snapshotLocked(), nil
+		return s.broadcastStateLocked(), nil
 	}
 	return s.failConnect(gen, lastErr, true)
 }
@@ -191,12 +184,19 @@ func (s *Server) failConnect(gen uint64, err error, retry bool) (protocol.Playba
 	// to resolve): stop it, or its audio would continue under a
 	// reconnecting or stopped status. A stop with the current generation
 	// is a no-op when no session is committed.
+	return s.failStreamLocked(gen, err, retry), err
+}
+
+// failStreamLocked is the shared tail of a connect failure and an async
+// stream error: release the player session identified by gen, record the
+// error, and move to reconnecting (or stopped). Returns the broadcast
+// snapshot. Caller holds s.mu.
+func (s *Server) failStreamLocked(gen uint64, err error, retry bool) protocol.PlaybackState {
 	s.player.Stop(gen)
 	s.streamErr = err.Error()
 	s.trackTitle = ""
 	s.scheduleReconnectOrStopLocked(retry)
-	s.broadcastStateLocked()
-	return s.snapshotLocked(), err
+	return s.broadcastStateLocked()
 }
 
 // handleStreamError reacts to an async error on the running stream: release
@@ -218,11 +218,7 @@ func (s *Server) handleStreamError(err error) {
 	// Stop the player so the failed session's goroutine and audio resources
 	// are released instead of lingering until the next play. The current
 	// generation targets exactly this session.
-	s.player.Stop(s.playGen)
-	s.trackTitle = ""
-	s.streamErr = err.Error()
-	s.scheduleReconnectOrStopLocked(true)
-	s.broadcastStateLocked()
+	s.failStreamLocked(s.playGen, err, true)
 }
 
 // scheduleReconnectOrStopLocked moves to reconnecting with capped
@@ -252,31 +248,74 @@ func (s *Server) scheduleReconnectOrStopLocked(retry bool) {
 	s.maybeArmIdleLocked()
 }
 
+// PlayCurrent plays the last-played channel (falling back to the top of the
+// catalog) unless something is already playing or connecting, in which case
+// it is a no-op. Used by MPRIS Play, the tray, and PlayPause.
+func (s *Server) PlayCurrent() (protocol.PlaybackState, error) {
+	s.mu.Lock()
+	if s.status != protocol.StatusStopped {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, nil
+	}
+	idx := s.currentIndexLocked()
+	s.mu.Unlock()
+	return s.playIndex(idx)
+}
+
+// PlayPause toggles between stopped and playing. SomaFM is live radio, so
+// "pause" tears the stream down and "unpause" reconnects to the live stream
+// rather than resuming a position. Used by MPRIS PlayPause and the pause CLI
+// command.
+func (s *Server) PlayPause() (protocol.PlaybackState, error) {
+	s.mu.Lock()
+	stopped := s.status == protocol.StatusStopped
+	s.mu.Unlock()
+	if stopped {
+		return s.PlayCurrent()
+	}
+	return s.Stop(), nil
+}
+
 // PlayRelative plays the channel delta positions away from the current (or
 // last played) one in catalog order (favorites first), wrapping around. Used
 // by MPRIS Next/Previous and the next/prev CLI commands.
 func (s *Server) PlayRelative(delta int) (protocol.PlaybackState, error) {
 	s.mu.Lock()
-	n := len(s.catalog)
-	if n == 0 {
-		snap := s.snapshotLocked()
-		s.mu.Unlock()
-		return snap, errors.New("no channels loaded")
-	}
-	idx := -1
-	for i, ch := range s.catalog {
-		if ch.ID == s.channelID {
-			idx = i
-			break
-		}
-	}
-	var id string
-	if idx < 0 {
-		id = s.catalog[0].ID
-	} else {
-		id = s.catalog[((idx+delta)%n+n)%n].ID
+	idx := s.currentIndexLocked()
+	if idx >= 0 {
+		n := len(s.catalog)
+		idx = ((idx+delta)%n + n) % n
 	}
 	s.mu.Unlock()
+	return s.playIndex(idx)
+}
+
+// currentIndexLocked returns the catalog index of the current (or last
+// played) channel, or 0 when it is not in the catalog, or -1 when the
+// catalog is empty. Caller holds s.mu.
+func (s *Server) currentIndexLocked() int {
+	if len(s.catalog) == 0 {
+		return -1
+	}
+	return max(0, slices.IndexFunc(s.catalog, func(ch channels.Channel) bool { return ch.ID == s.channelID }))
+}
+
+// playIndex plays the catalog entry at idx, as returned by
+// currentIndexLocked; a negative idx means the catalog is empty.
+func (s *Server) playIndex(idx int) (protocol.PlaybackState, error) {
+	if idx < 0 {
+		return s.Snapshot(), errors.New("no channels loaded")
+	}
+	s.mu.Lock()
+	var id string
+	if idx < len(s.catalog) {
+		id = s.catalog[idx].ID
+	}
+	s.mu.Unlock()
+	if id == "" {
+		return s.Snapshot(), errors.New("no channels loaded")
+	}
 	return s.Play(id)
 }
 
@@ -292,19 +331,32 @@ func (s *Server) Stop() protocol.PlaybackState {
 // (namely the StopIn sleep-timer callback, which must check stopGen and act
 // on it in the same critical section — see StopIn). Caller holds s.mu.
 func (s *Server) stopLocked() protocol.PlaybackState {
-	s.cancelStopTimerLocked()
-	s.playGen++
-	s.cancelReconnectLocked()
-	s.player.Stop(s.playGen)
+	gen := s.abandonSessionLocked(true)
+	s.player.Stop(gen)
 	s.status = protocol.StatusStopped
 	s.trackTitle = ""
 	s.streamErr = ""
 	s.reconnectAttempt = 0
-	s.endLastfmTrackLocked()
 	s.updateMPRISLocked()
 	s.maybeArmIdleLocked()
-	s.broadcastStateLocked()
-	return s.snapshotLocked()
+	return s.broadcastStateLocked()
+}
+
+// abandonSessionLocked disowns the current playback session: it bumps the
+// play generation (so a play still connecting cannot commit, and the
+// returned generation targets exactly the session being left), cancels a
+// pending reconnect, and ends the pending scrobble (if the track played
+// long enough; see lastfm.go). With cancelSleepTimer it also drops a
+// pending sleep-timer stop. Stop, Shutdown, and a channel switch all start
+// here; only what happens next differs. Caller holds s.mu.
+func (s *Server) abandonSessionLocked(cancelSleepTimer bool) uint64 {
+	if cancelSleepTimer {
+		s.cancelStopTimerLocked()
+	}
+	s.playGen++
+	s.cancelReconnectLocked()
+	s.endLastfmTrackLocked()
+	return s.playGen
 }
 
 // StopIn arms (or replaces) a sleep timer that stops playback after d. It
@@ -331,8 +383,7 @@ func (s *Server) StopIn(d time.Duration) protocol.PlaybackState {
 		}
 		s.stopLocked()
 	})
-	s.broadcastStateLocked()
-	return s.snapshotLocked()
+	return s.broadcastStateLocked()
 }
 
 // CancelPendingStop cancels a pending sleep-timer stop without stopping
@@ -345,8 +396,7 @@ func (s *Server) CancelPendingStop() protocol.PlaybackState {
 		return s.snapshotLocked()
 	}
 	s.cancelStopTimerLocked()
-	s.broadcastStateLocked()
-	return s.snapshotLocked()
+	return s.broadcastStateLocked()
 }
 
 // cancelStopTimerLocked cancels and clears any pending sleep-timer stop.
@@ -355,10 +405,7 @@ func (s *Server) CancelPendingStop() protocol.PlaybackState {
 // longer owns. Caller holds s.mu.
 func (s *Server) cancelStopTimerLocked() {
 	s.stopGen++
-	if s.stopTimer != nil {
-		s.stopTimer.Stop()
-		s.stopTimer = nil
-	}
+	stopTimer(&s.stopTimer)
 	s.stopAt = time.Time{}
 }
 
@@ -374,16 +421,14 @@ func (s *Server) SetVolume(v float64, mirrorToMPRIS bool) protocol.PlaybackState
 	s.mu.Lock()
 	s.player.SetVolume(v)
 	s.st.SetVolume(v)
-	stateToSave := s.st.Clone()
-	saveSeq := s.nextSaveSeqLocked()
+	save := s.stageSaveLocked()
 	if mirrorToMPRIS && s.mpris != nil {
 		s.mpris.SetVolume(v)
 	}
-	s.broadcastStateLocked()
-	snap := s.snapshotLocked()
+	snap := s.broadcastStateLocked()
 	s.mu.Unlock()
 
-	s.saveState(saveSeq, stateToSave)
+	save()
 	return snap
 }
 
@@ -403,16 +448,14 @@ func (s *Server) ToggleMute() protocol.PlaybackState {
 	}
 	s.player.SetVolume(target)
 	s.st.SetVolume(target) // clears the pre-mute level when target > 0
-	stateToSave := s.st.Clone()
-	saveSeq := s.nextSaveSeqLocked()
+	save := s.stageSaveLocked()
 	if s.mpris != nil {
 		s.mpris.SetVolume(target)
 	}
-	s.broadcastStateLocked()
-	snap := s.snapshotLocked()
+	snap := s.broadcastStateLocked()
 	s.mu.Unlock()
 
-	s.saveState(saveSeq, stateToSave)
+	save()
 	return snap
 }
 
@@ -467,10 +510,7 @@ func channelArtURL(ch channels.Channel) string {
 }
 
 func (s *Server) cancelReconnectLocked() {
-	if s.reconnectTimer != nil {
-		s.reconnectTimer.Stop()
-		s.reconnectTimer = nil
-	}
+	stopTimer(&s.reconnectTimer)
 }
 
 // updateMPRISLocked mirrors the playback state to the desktop integrations

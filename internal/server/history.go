@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -85,19 +86,10 @@ func (s *Server) History(channelID string, limit int) []protocol.HistoryEntry {
 	}
 	s.mu.Unlock()
 
-	// Newest first.
-	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-		entries[i], entries[j] = entries[j], entries[i]
-	}
+	slices.Reverse(entries) // newest first
 
 	if channelID != "" {
-		filtered := make([]historyEntry, 0, len(entries))
-		for _, e := range entries {
-			if e.channelID == channelID {
-				filtered = append(filtered, e)
-			}
-		}
-		entries = filtered
+		entries = slices.DeleteFunc(entries, func(e historyEntry) bool { return e.channelID != channelID })
 		if knownChannel && len(entries) < limit {
 			entries = s.backfillHistory(channelID, entries)
 		}

@@ -1,11 +1,6 @@
 package server
 
-import (
-	"errors"
-
-	"somad/internal/platform"
-	"somad/internal/protocol"
-)
+import "somad/internal/platform"
 
 // mprisSender routes incoming MPRIS commands (desktop media keys, applets)
 // into the server. Play-ish commands run on their own goroutine because they
@@ -41,42 +36,4 @@ func (m mprisSender) Send(msg any) {
 		// must not deadlock the dispatcher that delivered this message.
 		go m.s.Shutdown()
 	}
-}
-
-// PlayCurrent plays the last-played channel (falling back to the top of the
-// catalog) unless something is already playing or connecting, in which case
-// it is a no-op.
-func (s *Server) PlayCurrent() (protocol.PlaybackState, error) {
-	s.mu.Lock()
-	if s.status != protocol.StatusStopped {
-		snap := s.snapshotLocked()
-		s.mu.Unlock()
-		return snap, nil
-	}
-	id := s.channelID
-	if _, ok := s.findChannelLocked(id); !ok {
-		id = ""
-		if len(s.catalog) > 0 {
-			id = s.catalog[0].ID
-		}
-	}
-	s.mu.Unlock()
-	if id == "" {
-		return s.Snapshot(), errors.New("no channels loaded")
-	}
-	return s.Play(id)
-}
-
-// PlayPause toggles between stopped and playing. SomaFM is live radio, so
-// "pause" tears the stream down and "unpause" reconnects to the live stream
-// rather than resuming a position. Used by MPRIS PlayPause and the pause CLI
-// command.
-func (s *Server) PlayPause() (protocol.PlaybackState, error) {
-	s.mu.Lock()
-	stopped := s.status == protocol.StatusStopped
-	s.mu.Unlock()
-	if stopped {
-		return s.PlayCurrent()
-	}
-	return s.Stop(), nil
 }

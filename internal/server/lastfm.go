@@ -171,17 +171,14 @@ func (s *Server) logLastfmFailureOnce(kind string, err error) {
 // this daemon started takes effect without a restart. A no-op when
 // scrobbling is not configured at all.
 func (s *Server) ReloadLastfm() error {
-	s.mu.Lock()
-	scrobbler := s.scrobbler
-	reload := s.reloadLastfmSession
-	s.mu.Unlock()
-	if scrobbler == nil || reload == nil {
+	// Both fields are set once in New and never written again, so no lock.
+	if s.scrobbler == nil || s.reloadLastfmSession == nil {
 		return nil
 	}
-	key, err := reload()
+	key, err := s.reloadLastfmSession()
 	if err != nil {
 		return err
 	}
-	scrobbler.SetSessionKey(key)
+	s.scrobbler.SetSessionKey(key)
 	return nil
 }

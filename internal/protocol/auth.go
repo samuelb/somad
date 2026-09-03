@@ -17,9 +17,6 @@ import (
 // AuthNonceSize is the size of the server's challenge nonce in bytes.
 const AuthNonceSize = 32
 
-// AuthChallengeParams asks the server for a challenge nonce.
-type AuthChallengeParams struct{}
-
 // AuthChallengeResult carries the server's one-time nonce, base64-encoded
 // (standard encoding).
 type AuthChallengeResult struct {
