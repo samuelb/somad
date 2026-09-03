@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/godbus/dbus/v5/prop"
 )
@@ -59,6 +60,40 @@ func TestMPRIS_MethodsSafeWithoutSender(t *testing.T) {
 	p := &mprisPlayer{mpris: m}
 	assert.Nil(t, p.Play())
 	assert.Nil(t, m.onVolumeChange(&prop.Change{Value: 0.5}))
+}
+
+// TestMPRIS_SetPlayingSetMetadataSafeWithoutProps guards the nil-props early
+// return: m.props is only populated once a real D-Bus session bus connection
+// exports properties, which tests do not have, so SetPlaying/SetMetadata
+// must not panic on a bare MPRIS.
+func TestMPRIS_SetPlayingSetMetadataSafeWithoutProps(t *testing.T) {
+	m := &MPRIS{}
+	assert.NotPanics(t, func() { m.SetPlaying("Station", "Track", "Artist", "https://example.com/art.png") })
+	assert.NotPanics(t, func() { m.SetMetadata("Station", "Track", "Artist", "https://example.com/art.png") })
+}
+
+func TestBuildMetadata_IncludesArtUrlWhenPresent(t *testing.T) {
+	meta := buildMetadata("Station", "Track", "Artist", "https://example.com/art.png")
+
+	v, ok := meta["mpris:artUrl"]
+	require.True(t, ok, "mpris:artUrl must be present when the channel has artwork")
+	assert.Equal(t, "https://example.com/art.png", v.Value())
+	assert.Equal(t, "Track", meta["xesam:title"].Value())
+	assert.Equal(t, []string{"Artist"}, meta["xesam:artist"].Value())
+	assert.Equal(t, "Station", meta["xesam:album"].Value())
+}
+
+func TestBuildMetadata_OmitsArtUrlWhenEmpty(t *testing.T) {
+	meta := buildMetadata("Station", "Track", "Artist", "")
+
+	_, ok := meta["mpris:artUrl"]
+	assert.False(t, ok, "mpris:artUrl must be omitted, not sent empty, when the channel has no artwork")
+}
+
+func TestBuildMetadata_SanitizesArtUrl(t *testing.T) {
+	meta := buildMetadata("Station", "Track", "Artist", "https://example.com/art\xff.png")
+
+	assert.Equal(t, "https://example.com/art.png", meta["mpris:artUrl"].Value())
 }
 
 func TestMPRIS_QuitRoutesToSender(t *testing.T) {

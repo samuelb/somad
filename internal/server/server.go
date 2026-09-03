@@ -81,6 +81,7 @@ type Server struct {
 	status           string
 	channelID        string // active channel while not stopped
 	channelTitle     string
+	channelArtURL    string // largest available artwork for the active channel, for MPRIS mpris:artUrl
 	trackTitle       string
 	streamErr        string
 	reconnectAttempt int

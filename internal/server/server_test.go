@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"somad/internal/audio"
+	"somad/internal/channels"
 	"somad/internal/platform"
 	"somad/internal/protocol"
 	"somad/internal/state"
@@ -282,6 +283,19 @@ func TestReconnectDelay_DoublesThenCaps(t *testing.T) {
 	assert.Equal(t, 32*time.Second, reconnectDelay(5))
 	assert.Equal(t, reconnectMaxDelay, reconnectDelay(6), "backoff must cap, not keep doubling")
 	assert.Equal(t, reconnectMaxDelay, reconnectDelay(1000), "huge attempt counts must not overflow")
+}
+
+func TestChannelArtURL_PicksLargestAvailable(t *testing.T) {
+	assert.Equal(t, "xl.png", channelArtURL(channels.Channel{
+		Image: "small.png", LargeImage: "large.png", XLImage: "xl.png",
+	}), "XLImage must win when all three are set")
+	assert.Equal(t, "large.png", channelArtURL(channels.Channel{
+		Image: "small.png", LargeImage: "large.png",
+	}), "LargeImage must win when XLImage is unset")
+	assert.Equal(t, "small.png", channelArtURL(channels.Channel{
+		Image: "small.png",
+	}), "Image is the fallback")
+	assert.Equal(t, "", channelArtURL(channels.Channel{}), "no images set")
 }
 
 func TestStop_CancelsPendingReconnect(t *testing.T) {

@@ -207,15 +207,26 @@ func (m *MPRIS) send(msg any) {
 }
 
 // SetPlaying updates the playback status to playing and sets metadata.
-func (m *MPRIS) SetPlaying(station, track, artist string) {
+// artURL is the channel's artwork URL (mpris:artUrl), or "" when the channel
+// has none.
+func (m *MPRIS) SetPlaying(station, track, artist, artURL string) {
 	if m.props == nil {
 		return
 	}
 
+	m.props.SetMust(playerInterface, "PlaybackStatus", "Playing")
+	m.props.SetMust(playerInterface, "Metadata", buildMetadata(station, track, artist, artURL))
+}
+
+// buildMetadata assembles the MPRIS Metadata property for a playing track.
+// artURL is omitted from the map (rather than sent empty) when the channel
+// has no artwork.
+func buildMetadata(station, track, artist, artURL string) map[string]dbus.Variant {
 	// Sanitize strings to ensure valid UTF8 for D-Bus
 	station = SanitizeUTF8(station)
 	track = SanitizeUTF8(track)
 	artist = SanitizeUTF8(artist)
+	artURL = SanitizeUTF8(artURL)
 
 	metadata := map[string]dbus.Variant{
 		"mpris:trackid": dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/Track/1")),
@@ -223,9 +234,10 @@ func (m *MPRIS) SetPlaying(station, track, artist string) {
 		"xesam:artist":  dbus.MakeVariant([]string{artist}),
 		"xesam:album":   dbus.MakeVariant(station),
 	}
-
-	m.props.SetMust(playerInterface, "PlaybackStatus", "Playing")
-	m.props.SetMust(playerInterface, "Metadata", metadata)
+	if artURL != "" {
+		metadata["mpris:artUrl"] = dbus.MakeVariant(artURL)
+	}
+	return metadata
 }
 
 // SetVolume mirrors the player volume to the MPRIS Volume property.
@@ -254,25 +266,14 @@ func (m *MPRIS) SetStopped() {
 	m.props.SetMust(playerInterface, "Metadata", map[string]dbus.Variant{})
 }
 
-// SetMetadata updates the current track metadata.
-func (m *MPRIS) SetMetadata(station, track, artist string) {
+// SetMetadata updates the current track metadata. artURL is the channel's
+// artwork URL (mpris:artUrl), or "" when the channel has none.
+func (m *MPRIS) SetMetadata(station, track, artist, artURL string) {
 	if m.props == nil {
 		return
 	}
 
-	// Sanitize strings to ensure valid UTF8 for D-Bus
-	station = SanitizeUTF8(station)
-	track = SanitizeUTF8(track)
-	artist = SanitizeUTF8(artist)
-
-	metadata := map[string]dbus.Variant{
-		"mpris:trackid": dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/Track/1")),
-		"xesam:title":   dbus.MakeVariant(track),
-		"xesam:artist":  dbus.MakeVariant([]string{artist}),
-		"xesam:album":   dbus.MakeVariant(station),
-	}
-
-	m.props.SetMust(playerInterface, "Metadata", metadata)
+	m.props.SetMust(playerInterface, "Metadata", buildMetadata(station, track, artist, artURL))
 }
 
 // Close releases D-Bus resources.

@@ -20,13 +20,13 @@ func NewMPRIS() (*MPRIS, error) {
 func (m *MPRIS) SetSender(sender CmdSender) {}
 
 // SetPlaying is a no-op on non-Linux platforms.
-func (m *MPRIS) SetPlaying(station, track, artist string) {}
+func (m *MPRIS) SetPlaying(station, track, artist, artURL string) {}
 
 // SetStopped is a no-op on non-Linux platforms.
 func (m *MPRIS) SetStopped() {}
 
 // SetMetadata is a no-op on non-Linux platforms.
-func (m *MPRIS) SetMetadata(station, track, artist string) {}
+func (m *MPRIS) SetMetadata(station, track, artist, artURL string) {}
 
 // Close is a no-op on non-Linux platforms.
 func (m *MPRIS) Close() {}

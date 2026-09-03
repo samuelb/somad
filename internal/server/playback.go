@@ -85,6 +85,7 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 	s.status = protocol.StatusConnecting
 	s.channelID = ch.ID
 	s.channelTitle = ch.Title
+	s.channelArtURL = channelArtURL(ch)
 	s.trackTitle = ""
 	s.streamErr = ""
 	var stateToSave *state.State
@@ -318,6 +319,19 @@ func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {
 	s.broadcastStateLocked()
 }
 
+// channelArtURL picks the largest artwork URL a channel offers, for MPRIS
+// mpris:artUrl. Falls back to smaller sizes, then "" when none are set.
+func channelArtURL(ch channels.Channel) string {
+	switch {
+	case ch.XLImage != "":
+		return ch.XLImage
+	case ch.LargeImage != "":
+		return ch.LargeImage
+	default:
+		return ch.Image
+	}
+}
+
 func (s *Server) cancelReconnectLocked() {
 	if s.reconnectTimer != nil {
 		s.reconnectTimer.Stop()
@@ -333,7 +347,7 @@ func (s *Server) updateMPRISLocked() {
 		if playing {
 			// Use the channel title as artist since SomaFM streams don't have
 			// separate artist info.
-			s.mpris.SetPlaying(s.channelTitle, s.trackTitle, s.channelTitle)
+			s.mpris.SetPlaying(s.channelTitle, s.trackTitle, s.channelTitle, s.channelArtURL)
 		} else {
 			s.mpris.SetStopped()
 		}
