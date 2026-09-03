@@ -11,9 +11,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"somad/internal/atomicfile"
 	"somad/internal/xdg"
 
 	"gopkg.in/yaml.v3"
@@ -250,10 +252,21 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// validQualities are the accepted values of server.quality, mirroring the
-// keys of qualityRank in internal/channels/select.go (not imported here to
-// keep this low-level package free of the channels package's dependencies).
-var validQualities = map[string]bool{"highest": true, "high": true, "low": true}
+// Qualities are the accepted values of server.quality / --quality, best
+// first, mirroring the keys of qualityRank in internal/channels/select.go
+// (not imported here to keep this low-level package free of the channels
+// package's dependencies).
+var Qualities = []string{"highest", "high", "low"}
+
+// ValidQuality reports whether q names a stream quality.
+func ValidQuality(q string) bool {
+	return slices.Contains(Qualities, q)
+}
+
+// QualityList is Qualities as they appear in error messages.
+func QualityList() string {
+	return strings.Join(Qualities, ", ")
+}
 
 // validate rejects contradictory remote-transport settings and unknown
 // enum-like values, so a misconfigured setup fails at startup instead of at
@@ -266,8 +279,8 @@ func (c *Config) validate() error {
 	if set(c.Server.PSK) && set(c.Server.PSKFile) {
 		return errors.New("server.psk and server.psk_file are mutually exclusive")
 	}
-	if c.Server.Quality != nil && !validQualities[*c.Server.Quality] {
-		return fmt.Errorf("server.quality must be one of highest, high, low (got %q)", *c.Server.Quality)
+	if c.Server.Quality != nil && !ValidQuality(*c.Server.Quality) {
+		return fmt.Errorf("server.quality must be one of %s (got %q)", QualityList(), *c.Server.Quality)
 	}
 	if set(c.Client.PSK) && set(c.Client.PSKFile) {
 		return errors.New("client.psk and client.psk_file are mutually exclusive")
@@ -394,24 +407,12 @@ func EnsureTemplate(defaultIdleTimeout time.Duration) (path string, created bool
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return path, false, fmt.Errorf("failed to create config directory: %w", err)
 	}
-	// O_EXCL makes "create only if missing" atomic, so a user file can never
-	// be clobbered and concurrent server spawns cannot race each other.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- path derived from the user config dir, not user input
+	created, err = atomicfile.CreateExclusive(path, 0o600, func(w io.Writer) error {
+		_, err := fmt.Fprintf(w, templateFormat, defaultIdleTimeout)
+		return err
+	})
 	if err != nil {
-		if os.IsExist(err) {
-			return path, false, nil
-		}
-		return path, false, fmt.Errorf("failed to create config file: %w", err)
+		return path, false, fmt.Errorf("failed to write config file: %w", err)
 	}
-	_, werr := fmt.Fprintf(f, templateFormat, defaultIdleTimeout)
-	cerr := f.Close()
-	if werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		// Remove the partial file so the next server start retries cleanly.
-		_ = os.Remove(path)
-		return path, false, fmt.Errorf("failed to write config file: %w", werr)
-	}
-	return path, true, nil
+	return path, created, nil
 }

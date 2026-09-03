@@ -20,8 +20,8 @@ import (
 )
 
 // writeTestConfig writes soma's config.yaml where config.Load will find it,
-// via the XDG override.
-func writeTestConfig(t *testing.T, content string) {
+// via the XDG override, and returns it loaded the way main does.
+func writeTestConfig(t *testing.T, content string) *config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
@@ -29,6 +29,9 @@ func writeTestConfig(t *testing.T, content string) {
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	return cfg
 }
 
 // startFakeLastfm serves auth.getToken and auth.getSession, standing in for
@@ -72,14 +75,14 @@ func stubLoginInput(t *testing.T) {
 }
 
 func TestRunLastfmLogin_Success(t *testing.T) {
-	writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
+	cfg := writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	startFakeLastfm(t, "tok123", "sess456")
 	stubOpenURL(t)
 	stubLoginInput(t)
 	d := startFakeDaemon(t)
 
-	out := captureStdout(t, func() { runLastfmLogin(nil) })
+	out := captureStdout(t, func() { runLastfmLogin(cfg, nil) })
 
 	assert.Contains(t, out, "https://www.last.fm/api/auth/")
 	assert.Contains(t, out, "tok123")
@@ -95,7 +98,7 @@ func TestRunLastfmLogin_Success(t *testing.T) {
 }
 
 func TestRunLastfmLogin_WorksWithoutARunningDaemon(t *testing.T) {
-	writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
+	cfg := writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	startFakeLastfm(t, "tok123", "sess456")
 	stubOpenURL(t)
@@ -103,7 +106,7 @@ func TestRunLastfmLogin_WorksWithoutARunningDaemon(t *testing.T) {
 	// No fakeDaemon: point at a socket nothing is listening on.
 	setEndpoint(t, client.UnixEndpoint(filepath.Join(shortTempDir(t), "absent.sock")))
 
-	out := captureStdout(t, func() { runLastfmLogin(nil) })
+	out := captureStdout(t, func() { runLastfmLogin(cfg, nil) })
 
 	assert.Contains(t, out, "Logged in to last.fm.")
 	key, err := state.LoadLastfmSession()
@@ -129,36 +132,36 @@ func TestRunLastfmLogout_RemovesSessionAndReloadsDaemon(t *testing.T) {
 }
 
 func TestRunLastfmStatus_NotConfigured(t *testing.T) {
-	writeTestConfig(t, "")
+	cfg := writeTestConfig(t, "")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
-	out := captureStdout(t, func() { runLastfmStatus(nil) })
+	out := captureStdout(t, func() { runLastfmStatus(cfg, nil) })
 	assert.Contains(t, out, "not configured")
 }
 
 func TestRunLastfmStatus_ConfiguredNotLoggedIn(t *testing.T) {
-	writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
+	cfg := writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
-	out := captureStdout(t, func() { runLastfmStatus(nil) })
+	out := captureStdout(t, func() { runLastfmStatus(cfg, nil) })
 	assert.Contains(t, out, "configured, not logged in")
 }
 
 func TestRunLastfmStatus_ConfiguredAndLoggedIn(t *testing.T) {
-	writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
+	cfg := writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	require.NoError(t, state.SaveLastfmSession("sess456"))
 
-	out := captureStdout(t, func() { runLastfmStatus(nil) })
+	out := captureStdout(t, func() { runLastfmStatus(cfg, nil) })
 	assert.Contains(t, out, "configured and logged in")
 }
 
 func TestRunLastfmStatus_JSON(t *testing.T) {
-	writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
+	cfg := writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	require.NoError(t, state.SaveLastfmSession("sess456"))
 
-	out := captureStdout(t, func() { runLastfmStatus([]string{"--json"}) })
+	out := captureStdout(t, func() { runLastfmStatus(cfg, []string{"--json"}) })
 
 	var got lastfmStatusResult
 	require.NoError(t, json.Unmarshal([]byte(out), &got))
@@ -167,18 +170,18 @@ func TestRunLastfmStatus_JSON(t *testing.T) {
 }
 
 func TestRunLastfmStatus_SessionKeyConfigOverrideCountsAsLoggedIn(t *testing.T) {
-	writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n  session_key: overridden\n")
+	cfg := writeTestConfig(t, "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n  session_key: overridden\n")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	// No state file at all: the config override alone must be enough.
 
-	out := captureStdout(t, func() { runLastfmStatus(nil) })
+	out := captureStdout(t, func() { runLastfmStatus(cfg, nil) })
 	assert.Contains(t, out, "configured and logged in")
 }
 
 func TestRunLastfm_DispatchesToSubcommands(t *testing.T) {
-	writeTestConfig(t, "")
+	cfg := writeTestConfig(t, "")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
-	out := captureStdout(t, func() { runLastfm([]string{"status"}) })
+	out := captureStdout(t, func() { runLastfm(cfg, []string{"status"}) })
 	assert.Contains(t, out, "not configured")
 }

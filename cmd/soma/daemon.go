@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"somad/internal/atomicfile"
 	"somad/internal/audio"
 	"somad/internal/config"
 	"somad/internal/lastfm"
@@ -89,13 +91,13 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 		"exit after this long with no clients and stopped playback (0 disables)")
 	noTray := fs.Bool("no-tray", defaultNoTray,
 		"do not show the system tray / menu-bar icon while the server runs")
-	notify := fs.Bool("notify", cfg.Server.Notify != nil && *cfg.Server.Notify,
+	notify := fs.Bool("notify", boolVal(cfg.Server.Notify),
 		"show a desktop notification when the playing track changes")
 	quality := fs.String("quality", str(cfg.Server.Quality),
 		"preferred stream quality: highest, high, or low (falls back to the nearest available; default highest)")
 	listen := fs.String("listen", str(cfg.Server.Listen),
 		"also listen for frontends on this TCP host:port (empty: Unix socket only)")
-	tlsOn := fs.Bool("tls", cfg.Server.TLS != nil && *cfg.Server.TLS,
+	tlsOn := fs.Bool("tls", boolVal(cfg.Server.TLS),
 		"serve the TCP listener over TLS (a certificate is generated when none is configured)")
 	tlsCert := fs.String("tls-cert", str(cfg.Server.TLSCert),
 		"PEM certificate for the TCP listener (implies --tls; requires --tls-key)")
@@ -103,7 +105,7 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 		"PEM private key belonging to --tls-cert")
 	pskFile := fs.String("psk-file", str(cfg.Server.PSKFile),
 		"file holding the pre-shared key TCP clients must authenticate with")
-	insecure := fs.Bool("insecure", cfg.Server.Insecure != nil && *cfg.Server.Insecure,
+	insecure := fs.Bool("insecure", boolVal(cfg.Server.Insecure),
 		"serve a non-loopback --listen address even without TLS and a PSK")
 	showCert := fs.Bool("show-cert", false,
 		"print the TLS certificate path and fingerprint, then exit")
@@ -136,10 +138,8 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 		return daemonOptions{action: daemonActionGenPSK, genPSKPath: path}, nil
 	}
 
-	switch *quality {
-	case "", "highest", "high", "low":
-	default:
-		return daemonOptions{}, fmt.Errorf("--quality (or server.quality in the config) must be one of highest, high, low (got %q)", *quality)
+	if *quality != "" && !config.ValidQuality(*quality) {
+		return daemonOptions{}, fmt.Errorf("--quality (or server.quality in the config) must be one of %s (got %q)", config.QualityList(), *quality)
 	}
 
 	certPath, keyPath := *tlsCert, *tlsKey
@@ -187,7 +187,8 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 }
 
 // runServer runs the playback daemon: it owns audio, the channel catalog,
-// persisted state, and MPRIS, and serves clients on the Unix socket.
+// persisted state, and MPRIS, and serves clients on the Unix socket (and,
+// when configured, TCP).
 func runServer(args []string) {
 	// On first start, materialize a commented-out template so the settings
 	// are discoverable; failing to (e.g. a read-only home) is no reason not
@@ -222,58 +223,85 @@ func runServer(args []string) {
 		return
 	}
 
-	// Bind the socket before the (potentially slow) audio init: a bound
-	// socket is the readiness signal spawning clients poll for, and taking
-	// the lock early makes concurrent auto-spawns exit quickly. Connections
-	// arriving before Run starts simply queue in the listen backlog.
-	socketPath := protocol.SocketPath()
-	ln, cleanup, err := server.Listen(socketPath)
+	listeners, cleanup, err := openListeners(opts)
 	if errors.Is(err, server.ErrAlreadyRunning) {
 		// A concurrent auto-spawn lost the race; the winner serves everyone.
 		log.Print("soma daemon already running, exiting")
 		return
 	}
 	if err != nil {
-		log.Fatalf("error starting server: %v", err)
+		log.Fatalf("%v", err)
+	}
+
+	// cleanup must run on every path below, including the fatal ones, so it
+	// is called explicitly rather than deferred (log.Fatalf skips defers).
+	srv, tr, err := buildServer(cfg, opts)
+	if err == nil {
+		if err = serve(srv, tr, listeners); err != nil {
+			err = fmt.Errorf("server error: %w", err)
+		}
+	}
+	cleanup()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	// Shutdown's player.Stop fades out asynchronously; give it a moment so
+	// the audio doesn't cut off hard.
+	time.Sleep(400 * time.Millisecond)
+}
+
+// openListeners binds the Unix socket and, when configured, the TCP
+// listener. The socket is bound before the (potentially slow) audio init in
+// buildServer: a bound socket is the readiness signal spawning clients poll
+// for, and taking the lock early makes concurrent auto-spawns exit quickly.
+// Connections arriving before Run starts simply queue in the listen
+// backlog. The returned cleanup releases the socket and lock; it is safe to
+// call after Run has returned.
+func openListeners(opts daemonOptions) ([]net.Listener, func(), error) {
+	socketPath := protocol.SocketPath()
+	ln, cleanup, err := server.Listen(socketPath)
+	if err != nil {
+		if errors.Is(err, server.ErrAlreadyRunning) {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("error starting server: %w", err)
 	}
 	log.Printf("soma daemon %s listening on %s", version, socketPath)
 
 	listeners := []net.Listener{ln}
 	if opts.listen != "" {
-		tcpLn, err := listenTCP(opts.listen, opts.tlsEnabled, opts.certPath, opts.keyPath, opts.psk, opts.insecure)
+		tcpLn, err := listenTCP(opts)
 		if err != nil {
 			cleanup()
-			log.Fatalf("error starting the TCP listener: %v", err)
+			return nil, nil, fmt.Errorf("error starting the TCP listener: %w", err)
 		}
 		listeners = append(listeners, tcpLn)
 	}
+	return listeners, cleanup, nil
+}
 
+// buildServer assembles the server from its collaborators: the audio
+// player, persisted state, MPRIS, the tray, and the Last.fm scrobbler. The
+// tray is nil when disabled, unsupported, or when no GUI is present (a
+// headless host), so the server still runs anywhere.
+func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.Tray, error) {
 	player, err := audio.NewPlayer(userAgent())
 	if err != nil {
-		cleanup()
-		log.Fatalf("error initializing the audio player: %v", err)
+		return nil, nil, fmt.Errorf("error initializing the audio player: %w", err)
 	}
-
 	appState, err := state.LoadState()
 	if err != nil {
-		cleanup()
-		log.Fatalf("error loading state: %v", err)
+		return nil, nil, fmt.Errorf("error loading state: %w", err)
 	}
-
 	mpris, err := platform.NewMPRIS()
 	if err != nil {
 		// MPRIS is optional, continue without it
 		log.Printf("warning: MPRIS initialization failed: %v", err)
 	}
-
-	// The tray icon lives in the server process, so it appears whenever the
-	// server is running. It is skipped when disabled, unsupported, or when no
-	// GUI is present (a headless host), so the server still runs anywhere.
 	var tr *tray.Tray
 	if !opts.noTray && tray.Available() {
 		tr = tray.New()
 	}
-
 	scrobbler, reloadLastfmSession := setUpLastfm(cfg)
 
 	srv := server.New(server.Config{
@@ -290,7 +318,15 @@ func runServer(args []string) {
 		Scrobbler:           scrobbler,
 		ReloadLastfmSession: reloadLastfmSession,
 	})
+	return srv, tr, nil
+}
 
+// serve runs the server until it shuts down (a signal, the idle timer, the
+// tray's Quit item, or a shutdown RPC). The tray owns the process's native
+// GUI run loop and must run on the main goroutine, so with a tray the
+// connections are served on a goroutine and the tray blocks; srv.Shutdown
+// stops the tray, which unblocks Run. Without a tray, Run blocks directly.
+func serve(srv *server.Server, tr *tray.Tray, listeners []net.Listener) error {
 	// The server must survive its spawning terminal closing; SIGINT/SIGTERM
 	// shut it down cleanly.
 	signal.Ignore(syscall.SIGHUP)
@@ -301,51 +337,31 @@ func runServer(args []string) {
 		srv.Shutdown()
 	}()
 
-	// The tray owns the process's native GUI run loop and must run on the main
-	// goroutine, so serve connections on a goroutine and block on the tray.
-	// srv.Shutdown (from a signal, the idle timer, or the tray's Quit item)
-	// stops the tray, which unblocks Run. Without a tray, serve on the main
-	// goroutine as before.
-	var runErr error
-	if tr != nil {
-		runErrCh := make(chan error, 1)
-		go func() {
-			runErrCh <- srv.Run(listeners...)
-			srv.Shutdown() // idempotent; unblocks the tray on any exit path
-		}()
-		tr.Run(nil)
-		runErr = <-runErrCh
-	} else {
-		runErr = srv.Run(listeners...)
+	if tr == nil {
+		return srv.Run(listeners...)
 	}
-	cleanup()
-	if runErr != nil {
-		log.Fatalf("server error: %v", runErr)
-	}
-	// Shutdown's player.Stop fades out asynchronously; give it a moment so
-	// the audio doesn't cut off hard.
-	time.Sleep(400 * time.Millisecond)
+	runErrCh := make(chan error, 1)
+	go func() {
+		runErrCh <- srv.Run(listeners...)
+		srv.Shutdown() // idempotent; unblocks the tray on any exit path
+	}()
+	tr.Run(nil)
+	return <-runErrCh
 }
 
 // setUpLastfm builds the Last.fm scrobbler from the config's lastfm.*
 // keys (see internal/config), when both api_key and api_secret are set;
 // otherwise scrobbling is disabled entirely and both return values are
 // nil. The initial session key is resolveLastfmSession's result at
-// startup; the returned function recomputes it (config override, else
-// internal/state's persisted lastfm.json) for the reloadLastfm RPC that
-// "soma lastfm login" triggers after a successful login.
+// startup; the returned function recomputes it for the reloadLastfm RPC
+// that "soma lastfm login" triggers after a successful login.
 func setUpLastfm(cfg *config.Config) (server.Scrobbler, func() (string, error)) {
 	apiKey := str(cfg.Lastfm.APIKey)
 	if apiKey == "" {
 		return nil, nil
 	}
 	apiSecret := str(cfg.Lastfm.APISecret)
-	resolveSession := func() (string, error) {
-		if override := str(cfg.Lastfm.SessionKey); override != "" {
-			return override, nil
-		}
-		return state.LoadLastfmSession()
-	}
+	resolveSession := func() (string, error) { return resolveLastfmSession(cfg) }
 	sessionKey, err := resolveSession()
 	if err != nil {
 		log.Printf("warning: could not read the last.fm session: %v", err)
@@ -398,30 +414,23 @@ func generatePSK() (string, error) {
 }
 
 // writeGeneratedPSK generates a fresh pre-shared key and writes it to path
-// at 0600, refusing to overwrite an existing file: O_EXCL makes "create only
-// if missing" atomic, the same approach config.EnsureTemplate uses so a
-// hand-edited (or previously generated) file can never be clobbered.
+// at 0600, refusing to overwrite an existing file (the same exclusive
+// create config.EnsureTemplate uses, so a hand-edited or previously
+// generated file can never be clobbered).
 func writeGeneratedPSK(path string) error {
 	psk, err := generatePSK()
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- path comes from the user's own config/flags
+	created, err := atomicfile.CreateExclusive(path, 0o600, func(w io.Writer) error {
+		_, err := fmt.Fprintln(w, psk)
+		return err
+	})
 	if err != nil {
-		if os.IsExist(err) {
-			return fmt.Errorf("%s already exists; refusing to overwrite it", path)
-		}
-		return fmt.Errorf("creating PSK file: %w", err)
+		return err
 	}
-	_, werr := fmt.Fprintln(f, psk)
-	cerr := f.Close()
-	if werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		// Remove the partial file so a retry doesn't trip over O_EXCL.
-		_ = os.Remove(path)
-		return fmt.Errorf("writing PSK file: %w", werr)
+	if !created {
+		return fmt.Errorf("%s already exists; refusing to overwrite it", path)
 	}
 	return nil
 }
@@ -430,15 +439,15 @@ func writeGeneratedPSK(path string) error {
 // PSK, unless the user explicitly opted out with --insecure. Loopback binds
 // only warn (in listenTCP): the machine boundary already limits exposure,
 // like the Unix socket.
-func checkTCPSecurity(addr string, useTLS bool, psk string, insecure bool) error {
-	if insecure || isLoopbackAddr(addr) {
+func checkTCPSecurity(opts daemonOptions) error {
+	if opts.insecure || isLoopbackAddr(opts.listen) {
 		return nil
 	}
-	if psk == "" {
-		return fmt.Errorf("refusing to serve %s without authentication: anyone who can reach the port would control playback and could shut the daemon down; set a PSK (--psk-file or server.psk) or pass --insecure to serve it open", addr)
+	if opts.psk == "" {
+		return fmt.Errorf("refusing to serve %s without authentication: anyone who can reach the port would control playback and could shut the daemon down; set a PSK (--psk-file or server.psk) or pass --insecure to serve it open", opts.listen)
 	}
-	if !useTLS {
-		return fmt.Errorf("refusing to serve %s with a PSK but no TLS: without encryption an attacker on the network can hijack authenticated connections; pass --tls or --insecure", addr)
+	if !opts.tlsEnabled {
+		return fmt.Errorf("refusing to serve %s with a PSK but no TLS: without encryption an attacker on the network can hijack authenticated connections; pass --tls or --insecure", opts.listen)
 	}
 	return nil
 }
@@ -466,21 +475,21 @@ const maxTCPConns = 64
 // listenTCP binds the remote-frontend listener, wrapping it in TLS when
 // enabled, and logs what protections it runs with — including prominent
 // warnings for the combinations that leave it open.
-func listenTCP(addr string, useTLS bool, certPath, keyPath, psk string, insecure bool) (net.Listener, error) {
-	if err := checkTCPSecurity(addr, useTLS, psk, insecure); err != nil {
+func listenTCP(opts daemonOptions) (net.Listener, error) {
+	if err := checkTCPSecurity(opts); err != nil {
 		return nil, err
 	}
 	// The zero ListenConfig enables TCP keepalive on accepted connections,
 	// which is what reaps dead peers after hello (see server.handshakeTimeout).
-	tcpLn, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
+	tcpLn, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", opts.listen)
 	if err != nil {
 		return nil, err
 	}
 	// Cap open TCP connections before TLS so unfinished handshakes count
 	// too; a handful of frontends is the realistic load.
 	tcpLn = server.LimitListener(tcpLn, maxTCPConns)
-	if useTLS {
-		tlsCfg, fingerprint, err := tlsutil.ServerTLSConfig(certPath, keyPath)
+	if opts.tlsEnabled {
+		tlsCfg, fingerprint, err := tlsutil.ServerTLSConfig(opts.certPath, opts.keyPath)
 		if err != nil {
 			_ = tcpLn.Close()
 			return nil, err
@@ -490,7 +499,7 @@ func listenTCP(addr string, useTLS bool, certPath, keyPath, psk string, insecure
 	} else {
 		log.Printf("WARNING: the TCP listener on %s is unencrypted (no TLS); anyone on the network can observe it", tcpLn.Addr())
 	}
-	if psk == "" {
+	if opts.psk == "" {
 		log.Printf("WARNING: the TCP listener on %s requires no authentication (no PSK); anyone who can reach it controls playback", tcpLn.Addr())
 	}
 	return tcpLn, nil

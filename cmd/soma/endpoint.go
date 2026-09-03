@@ -1,17 +1,19 @@
 package main
 
 import (
+	"cmp"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"strings"
-	"syscall"
 
 	"somad/internal/client"
 	"somad/internal/config"
 	"somad/internal/protocol"
+	"somad/internal/security"
 	"somad/internal/tlsutil"
 )
 
@@ -21,8 +23,7 @@ import (
 var endpoint client.Endpoint
 
 // connFlags are the global client connection flags, given before the
-// command (e.g. `soma --server myserver:5454 play groovesalad`). main
-// registers them on its FlagSet.
+// command (e.g. `soma --server myserver:5454 play groovesalad`).
 type connFlags struct {
 	server         string
 	tls            bool
@@ -31,16 +32,19 @@ type connFlags struct {
 	pskFile        string
 }
 
+// register binds the connection flags on fs.
+func (f *connFlags) register(fs *flag.FlagSet) {
+	fs.StringVar(&f.server, "server", "", "connect to the soma daemon at this host:port instead of the local one")
+	fs.BoolVar(&f.tls, "tls", false, "use TLS for the --server connection")
+	fs.StringVar(&f.tlsCA, "tls-ca", "", "PEM certificate/CA file to trust (implies --tls)")
+	fs.StringVar(&f.tlsFingerprint, "tls-fingerprint", "", "pin the server certificate by SHA-256 fingerprint (implies --tls)")
+	fs.StringVar(&f.pskFile, "psk-file", "", "file holding the server's pre-shared key")
+}
+
 // resolveEndpoint turns the connection flags and config into the endpoint to
 // use: the Unix socket unless a remote server address is configured.
 func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
-	addr := f.server
-	if addr == "" {
-		addr = os.Getenv("SOMAD_SERVER")
-	}
-	if addr == "" {
-		addr = str(cfg.Client.Server)
-	}
+	addr := cmp.Or(f.server, os.Getenv("SOMAD_SERVER"), str(cfg.Client.Server))
 	if addr == "" {
 		// The remaining connection flags only mean something for a TCP
 		// endpoint; ignoring them silently would mask a typo'd setup.
@@ -68,8 +72,7 @@ func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
 		}
 		caPath, fingerprint = flagCA, f.tlsFingerprint
 	}
-	useTLS := f.tls || caPath != "" || fingerprint != "" ||
-		(cfg.Client.TLS != nil && *cfg.Client.TLS)
+	useTLS := f.tls || caPath != "" || fingerprint != "" || boolVal(cfg.Client.TLS)
 
 	psk := str(cfg.Client.PSK)
 	// Likewise for --psk-file: cfg.Client.PSKFile is already expanded, but a
@@ -78,7 +81,7 @@ func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
 	if err != nil {
 		return client.Endpoint{}, err
 	}
-	if pskFile := firstNonEmpty(flagPSKFile, str(cfg.Client.PSKFile)); pskFile != "" {
+	if pskFile := cmp.Or(flagPSKFile, str(cfg.Client.PSKFile)); pskFile != "" {
 		if psk, err = readPSKFile(pskFile); err != nil {
 			return client.Endpoint{}, err
 		}
@@ -93,13 +96,6 @@ func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
 	return ep, nil
 }
 
-func firstNonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
 // str returns the value of a possibly-nil config string field (config
 // fields are pointers so an explicit "" is distinguishable from an absent
 // key), or "" when unset. Used to seed flag defaults from the config file.
@@ -110,11 +106,15 @@ func str(p *string) string {
 	return *p
 }
 
+// boolVal is str for bool-valued config fields: unset reads as false.
+func boolVal(p *bool) bool {
+	return p != nil && *p
+}
+
 // readPSKFile reads a pre-shared key from a file, trimming surrounding
 // whitespace (hand-written key files inevitably end in a newline). The file
-// must pass the same SSH-style permission check the daemon (which also
-// calls this, for its own --psk-file) applies to the socket directory in
-// internal/protocol.EnsureSocketDir: anyone who can read the PSK controls
+// must pass the same SSH-style permission check (security.CheckOwnerOnly)
+// the daemon applies to the socket directory: anyone who can read the PSK controls
 // playback (and can shut the daemon down), so it must not be group- or
 // world-readable, nor owned by another user.
 //
@@ -154,20 +154,8 @@ func checkPSKFilePermissions(f *os.File) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("PSK file %s is not a regular file", f.Name())
 	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("PSK file %s must not be accessible by group or others (chmod 600 it, or regenerate it with soma daemon --gen-psk)", f.Name())
-	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fmt.Errorf("could not inspect owner of PSK file %s", f.Name())
-	}
-	uid := os.Getuid()
-	if uid < 0 || uid > int(^uint32(0)) {
-		return fmt.Errorf("current uid %d cannot be represented for PSK file owner check", uid)
-	}
-	currentUID := uint32(uid)
-	if st.Uid != currentUID {
-		return fmt.Errorf("PSK file %s is owned by uid %d, not current uid %d", f.Name(), st.Uid, currentUID)
+	if err := security.CheckOwnerOnly(info, "PSK file "+f.Name()); err != nil {
+		return fmt.Errorf("%w (chmod 600 it, or regenerate it with soma daemon --gen-psk)", err)
 	}
 	return nil
 }

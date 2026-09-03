@@ -21,6 +21,10 @@ func userAgent() string {
 	return "soma/" + version
 }
 
+func versionString() string {
+	return fmt.Sprintf("soma %s (commit: %s, built: %s)", version, commit, date)
+}
+
 func main() {
 	args := os.Args[1:]
 
@@ -28,7 +32,7 @@ func main() {
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "-v", "version":
-			fmt.Printf("soma %s (commit: %s, built: %s)\n", version, commit, date)
+			fmt.Println(versionString())
 			return
 		case "--help", "-h", "help":
 			printUsage(os.Stdout)
@@ -42,16 +46,12 @@ func main() {
 	fs := flag.NewFlagSet("soma", flag.ExitOnError)
 	fs.Usage = func() { printUsage(fs.Output()) }
 	var cf connFlags
-	fs.StringVar(&cf.server, "server", "", "connect to the soma daemon at this host:port instead of the local one")
-	fs.BoolVar(&cf.tls, "tls", false, "use TLS for the --server connection")
-	fs.StringVar(&cf.tlsCA, "tls-ca", "", "PEM certificate/CA file to trust (implies --tls)")
-	fs.StringVar(&cf.tlsFingerprint, "tls-fingerprint", "", "pin the server certificate by SHA-256 fingerprint (implies --tls)")
-	fs.StringVar(&cf.pskFile, "psk-file", "", "file holding the server's pre-shared key")
+	cf.register(fs)
 	shutdownOnExit := fs.Bool("shutdown-on-exit", false, "stop playback and shut down the server when the TUI exits")
 	showVersion := fs.Bool("version", false, "print version information")
 	_ = fs.Parse(args)
 	if *showVersion {
-		fmt.Printf("soma %s (commit: %s, built: %s)\n", version, commit, date)
+		fmt.Println(versionString())
 		return
 	}
 	rest := fs.Args()
@@ -90,13 +90,7 @@ func main() {
 	}
 
 	if len(rest) == 0 {
-		// The config file supplies the default only when the flag was not
-		// given explicitly.
-		so := *shutdownOnExit
-		if !flagWasSet(fs, "shutdown-on-exit") && cfg.TUI.ShutdownOnExit != nil {
-			so = *cfg.TUI.ShutdownOnExit
-		}
-		runTUI(so)
+		runTUI(resolveShutdownOnExit(fs, *shutdownOnExit, cfg))
 		return
 	}
 
@@ -127,12 +121,22 @@ func main() {
 	case "history":
 		runHistory(rest[1:])
 	case "lastfm":
-		runLastfm(rest[1:])
+		runLastfm(cfg, rest[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "soma: unknown command %q\n\n", rest[0])
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
+}
+
+// resolveShutdownOnExit applies the flag-beats-config rule for the TUI's
+// --shutdown-on-exit: the config file supplies the value only when the flag
+// was not given explicitly.
+func resolveShutdownOnExit(fs *flag.FlagSet, flagVal bool, cfg *config.Config) bool {
+	if !flagWasSet(fs, "shutdown-on-exit") && cfg.TUI.ShutdownOnExit != nil {
+		return *cfg.TUI.ShutdownOnExit
+	}
+	return flagVal
 }
 
 // flagWasSet reports whether the flag was given explicitly on the command

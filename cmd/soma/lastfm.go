@@ -38,31 +38,38 @@ func openURL(rawURL string) error {
 }
 
 // runLastfm dispatches soma lastfm's subcommands.
-func runLastfm(args []string) {
+func runLastfm(cfg *config.Config, args []string) {
 	usage := "usage: soma lastfm <login|logout|status>"
 	if len(args) == 0 {
 		fail("%s", usage)
 	}
 	switch args[0] {
 	case "login":
-		runLastfmLogin(args[1:])
+		runLastfmLogin(cfg, args[1:])
 	case "logout":
 		runLastfmLogout(args[1:])
 	case "status":
-		runLastfmStatus(args[1:])
+		runLastfmStatus(cfg, args[1:])
 	default:
 		fail("%s", usage)
 	}
 }
 
-// lastfmClientFromConfig loads the config and builds a lastfm.Client from
-// its lastfm.api_key/api_secret, failing with a helpful message (pointing
-// at where to create a key pair) when they are not set.
-func lastfmClientFromConfig() *lastfm.Client {
-	cfg, err := config.Load()
-	if err != nil {
-		fail("error loading config: %v", err)
+// resolveLastfmSession returns the Last.fm session key to scrobble under:
+// the config file's lastfm.session_key override when set, else the key
+// "soma lastfm login" persisted in internal/state's lastfm.json ("" when
+// not logged in). The daemon re-runs it on the reloadLastfm RPC.
+func resolveLastfmSession(cfg *config.Config) (string, error) {
+	if override := str(cfg.Lastfm.SessionKey); override != "" {
+		return override, nil
 	}
+	return state.LoadLastfmSession()
+}
+
+// lastfmClientFromConfig builds a lastfm.Client from the config's
+// lastfm.api_key/api_secret, failing with a helpful message (pointing at
+// where to create a key pair) when they are not set.
+func lastfmClientFromConfig(cfg *config.Config) *lastfm.Client {
 	apiKey, apiSecret := str(cfg.Lastfm.APIKey), str(cfg.Lastfm.APISecret)
 	if apiKey == "" || apiSecret == "" {
 		fail("lastfm.api_key and lastfm.api_secret must be set in the config file first; " +
@@ -77,11 +84,11 @@ func lastfmClientFromConfig() *lastfm.Client {
 // confirm, and persist that key (internal/state's lastfm.json). It then
 // asks a locally running daemon to reload it (best-effort: a daemon started
 // afterwards reads the file at startup anyway).
-func runLastfmLogin(args []string) {
+func runLastfmLogin(cfg *config.Config, args []string) {
 	if len(args) != 0 {
 		fail("usage: soma lastfm login")
 	}
-	c := lastfmClientFromConfig()
+	c := lastfmClientFromConfig(cfg)
 
 	token, err := c.GetToken()
 	if err != nil {
@@ -146,24 +153,16 @@ type lastfmStatusResult struct {
 // runLastfmStatus reports whether Last.fm scrobbling is configured
 // (lastfm.api_key/api_secret set) and logged in (a session key is
 // available, from the config override or internal/state's lastfm.json).
-func runLastfmStatus(args []string) {
+func runLastfmStatus(cfg *config.Config, args []string) {
 	args, jsonOut := parseJSONFlag("lastfm status", "soma lastfm status [--json]", args)
 	if len(args) != 0 {
 		fail("usage: soma lastfm status [--json]")
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		fail("error loading config: %v", err)
-	}
 	configured := str(cfg.Lastfm.APIKey) != "" && str(cfg.Lastfm.APISecret) != ""
-
-	sessionKey := str(cfg.Lastfm.SessionKey)
-	if sessionKey == "" {
-		sessionKey, err = state.LoadLastfmSession()
-		if err != nil {
-			fail("%v", err)
-		}
+	sessionKey, err := resolveLastfmSession(cfg)
+	if err != nil {
+		fail("%v", err)
 	}
 	loggedIn := sessionKey != ""
 
