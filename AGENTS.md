@@ -68,7 +68,6 @@ make site               # stage the website (site/ + demo.gif) into dist/site
   - MPRIS and tray: 0019
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025
-  - website: 0027
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its
   "Not planned" section only points at ADRs. Remove an item when you finish
   it.
