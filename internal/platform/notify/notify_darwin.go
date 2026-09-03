@@ -5,10 +5,8 @@ package notify
 import (
 	"context"
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,8 +20,7 @@ const notifyTimeout = 5 * time.Second
 // replace-by-id primitive, so unlike the Linux Notifier every call shows a
 // fresh notification.
 type Notifier struct {
-	mu     sync.Mutex
-	logged bool
+	failures failureLog
 }
 
 // New returns a Notifier.
@@ -46,12 +43,7 @@ func (n *Notifier) Notify(title, body string) {
 	// is no injection vector through either argument.
 	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
 	if err := cmd.Run(); err != nil {
-		n.mu.Lock()
-		defer n.mu.Unlock()
-		if !n.logged {
-			n.logged = true
-			log.Printf("desktop notification failed (further failures are not logged): %v", err)
-		}
+		n.failures.log(err)
 	}
 }
 

@@ -3,7 +3,6 @@
 package notify
 
 import (
-	"log"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -29,8 +28,8 @@ type Notifier struct {
 	// notification, passed back as replaces_id so a fast stream of track
 	// titles updates one notification bubble instead of stacking a new one
 	// per title. 0 (the D-Bus zero value) means "no previous notification".
-	lastID uint32
-	logged bool
+	lastID   uint32
+	failures failureLog
 }
 
 // New returns a Notifier. See the type doc: nothing happens until Notify is
@@ -52,7 +51,7 @@ func (n *Notifier) Notify(title, body string) {
 		n.conn, n.dialErr = dbus.ConnectSessionBus()
 	})
 	if n.dialErr != nil {
-		n.logFailureLocked(n.dialErr)
+		n.failures.log(n.dialErr)
 		return
 	}
 
@@ -68,22 +67,13 @@ func (n *Notifier) Notify(title, body string) {
 		int32(-1),                 // expire_timeout: server default
 	)
 	if call.Err != nil {
-		n.logFailureLocked(call.Err)
+		n.failures.log(call.Err)
 		return
 	}
 	var id uint32
 	if err := call.Store(&id); err != nil {
-		n.logFailureLocked(err)
+		n.failures.log(err)
 		return
 	}
 	n.lastID = id
-}
-
-// logFailureLocked logs a Notify failure once; caller holds n.mu.
-func (n *Notifier) logFailureLocked(err error) {
-	if n.logged {
-		return
-	}
-	n.logged = true
-	log.Printf("desktop notification failed (further failures are not logged): %v", err)
 }

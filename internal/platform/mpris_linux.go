@@ -4,9 +4,7 @@ package platform
 
 import (
 	"fmt"
-	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -19,12 +17,6 @@ const (
 	playerInterface = "org.mpris.MediaPlayer2.Player"
 	busName         = "org.mpris.MediaPlayer2.soma"
 )
-
-// CmdSender is an interface for sending commands to the application.
-// This matches the tea.Program's Send method signature (tea.Msg is any).
-type CmdSender interface {
-	Send(msg any)
-}
 
 // MPRIS handles D-Bus MPRIS integration for desktop media control.
 type MPRIS struct {
@@ -266,37 +258,12 @@ func (m *MPRIS) SetStopped() {
 	m.props.SetMust(playerInterface, "Metadata", map[string]dbus.Variant{})
 }
 
-// SetMetadata updates the current track metadata. artURL is the channel's
-// artwork URL (mpris:artUrl), or "" when the channel has none.
-func (m *MPRIS) SetMetadata(station, track, artist, artURL string) {
-	if m.props == nil {
-		return
-	}
-
-	m.props.SetMust(playerInterface, "Metadata", buildMetadata(station, track, artist, artURL))
-}
-
 // Close releases D-Bus resources.
 func (m *MPRIS) Close() {
 	if m.conn != nil {
 		_, _ = m.conn.ReleaseName(busName)
 		_ = m.conn.Close()
 	}
-}
-
-// SanitizeUTF8 removes invalid UTF8 characters from a string.
-// D-Bus requires all strings to be valid UTF8.
-func SanitizeUTF8(s string) string {
-	if utf8.ValidString(s) {
-		return s
-	}
-	var b strings.Builder
-	for _, r := range s {
-		if r != utf8.RuneError {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 // org.mpris.MediaPlayer2 methods
@@ -313,29 +280,6 @@ func (r *mprisRoot) Quit() *dbus.Error {
 }
 
 // org.mpris.MediaPlayer2.Player methods
-
-// MPRISPlayMsg is sent when MPRIS requests to play.
-type MPRISPlayMsg struct{}
-
-// MPRISStopMsg is sent when MPRIS requests to stop.
-type MPRISStopMsg struct{}
-
-// MPRISPlayPauseMsg is sent when MPRIS requests to toggle play/pause.
-type MPRISPlayPauseMsg struct{}
-
-// MPRISNextMsg is sent when MPRIS requests to go to next track.
-type MPRISNextMsg struct{}
-
-// MPRISPrevMsg is sent when MPRIS requests to go to previous track.
-type MPRISPrevMsg struct{}
-
-// MPRISVolumeMsg is sent when MPRIS requests a volume change.
-type MPRISVolumeMsg struct {
-	Volume float64
-}
-
-// MPRISQuitMsg is sent when MPRIS requests the player to quit.
-type MPRISQuitMsg struct{}
 
 func (p *mprisPlayer) Next() *dbus.Error {
 	p.mpris.send(MPRISNextMsg{})

@@ -6,3 +6,20 @@
 // Notify(title, body string) method. A Notifier never fails loudly: errors
 // are logged once and otherwise swallowed.
 package notify
+
+import (
+	"log"
+	"sync"
+)
+
+// failureLog logs the first notification failure and swallows the rest: a
+// desktop notification is a nice-to-have, never worth a log line per track.
+type failureLog struct {
+	once sync.Once
+}
+
+func (f *failureLog) log(err error) {
+	f.once.Do(func() {
+		log.Printf("desktop notification failed (further failures are not logged): %v", err)
+	})
+}

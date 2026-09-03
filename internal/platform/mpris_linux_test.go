@@ -62,14 +62,13 @@ func TestMPRIS_MethodsSafeWithoutSender(t *testing.T) {
 	assert.Nil(t, m.onVolumeChange(&prop.Change{Value: 0.5}))
 }
 
-// TestMPRIS_SetPlayingSetMetadataSafeWithoutProps guards the nil-props early
-// return: m.props is only populated once a real D-Bus session bus connection
-// exports properties, which tests do not have, so SetPlaying/SetMetadata
-// must not panic on a bare MPRIS.
-func TestMPRIS_SetPlayingSetMetadataSafeWithoutProps(t *testing.T) {
+// TestMPRIS_SetPlayingSafeWithoutProps guards the nil-props early return:
+// m.props is only populated once a real D-Bus session bus connection exports
+// properties, which tests do not have, so SetPlaying must not panic on a
+// bare MPRIS.
+func TestMPRIS_SetPlayingSafeWithoutProps(t *testing.T) {
 	m := &MPRIS{}
 	assert.NotPanics(t, func() { m.SetPlaying("Station", "Track", "Artist", "https://example.com/art.png") })
-	assert.NotPanics(t, func() { m.SetMetadata("Station", "Track", "Artist", "https://example.com/art.png") })
 }
 
 func TestBuildMetadata_IncludesArtUrlWhenPresent(t *testing.T) {
@@ -130,37 +129,4 @@ func TestMPRIS_SetSenderConcurrentWithHandlers(t *testing.T) {
 		}
 	}()
 	wg.Wait()
-}
-
-func TestSanitizeUTF8_ValidString(t *testing.T) {
-	input := "Hello, World!"
-	assert.Equal(t, input, SanitizeUTF8(input))
-}
-
-func TestSanitizeUTF8_ValidUnicode(t *testing.T) {
-	input := "Café del Mar — Música Ambiental 日本語"
-	assert.Equal(t, input, SanitizeUTF8(input))
-}
-
-func TestSanitizeUTF8_EmptyString(t *testing.T) {
-	assert.Equal(t, "", SanitizeUTF8(""))
-}
-
-func TestSanitizeUTF8_InvalidBytes(t *testing.T) {
-	// \xff is not valid UTF-8
-	input := "Hello\xff World"
-	result := SanitizeUTF8(input)
-	assert.Equal(t, "Hello World", result)
-}
-
-func TestSanitizeUTF8_AllInvalid(t *testing.T) {
-	input := "\xff\xfe\xfd"
-	result := SanitizeUTF8(input)
-	assert.Equal(t, "", result)
-}
-
-func TestSanitizeUTF8_MixedValidInvalid(t *testing.T) {
-	input := "A\xffB\xfeC"
-	result := SanitizeUTF8(input)
-	assert.Equal(t, "ABC", result)
 }
