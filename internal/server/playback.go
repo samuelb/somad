@@ -65,6 +65,19 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		s.mu.Unlock()
 		return snap, fmt.Errorf("unknown channel: %s", channelID)
 	}
+	if userInitiated && ch.ID == s.channelID &&
+		(s.status == protocol.StatusPlaying || s.status == protocol.StatusConnecting) {
+		// Already playing (or connecting to) this exact channel: re-running
+		// play would tear the stream down and reconnect for no reason.
+		// Enter on the current channel, `soma play <current>`, MPRIS Play,
+		// and the tray picker all funnel through here, so this is a no-op
+		// rather than an error. A reconnect attempt (userInitiated=false)
+		// and a channel that is reconnecting or stopped still go through
+		// the normal path below.
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, nil
+	}
 	s.playGen++
 	gen := s.playGen
 	s.cancelReconnectLocked()

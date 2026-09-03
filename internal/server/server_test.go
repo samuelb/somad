@@ -80,6 +80,38 @@ func TestPlay_HappyPath(t *testing.T) {
 	assert.Equal(t, "groovesalad", st2.LastSelectedChannelID)
 }
 
+func TestPlay_SameChannelWhilePlayingIsNoOp(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+	c.waitState("track title", func(st protocol.PlaybackState) bool {
+		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
+	})
+
+	player.mu.Lock()
+	urlsBefore := len(player.playURLs)
+	player.mu.Unlock()
+	genBefore := player.currentGen()
+
+	// Re-issuing play for the channel that is already playing must be a
+	// no-op: no new Play call, no reconnect, and the track title survives.
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"})
+	st := decodeState(t, resp)
+
+	assert.Equal(t, protocol.StatusPlaying, st.Status)
+	assert.Equal(t, "groovesalad", st.ChannelID)
+	assert.Equal(t, "Boards of Canada - Dayvan Cowboy", st.TrackTitle)
+
+	player.mu.Lock()
+	assert.Len(t, player.playURLs, urlsBefore, "Play must not be called again for the current channel")
+	player.mu.Unlock()
+	assert.Equal(t, genBefore, player.currentGen(), "no new play generation should be started")
+}
+
 func TestPlay_UnknownChannel(t *testing.T) {
 	s, _ := newTestServer(t, Config{})
 	c := connect(t, s)
