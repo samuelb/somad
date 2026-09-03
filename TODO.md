@@ -222,9 +222,6 @@ Small hygiene fixes first, then features, then code quality.
       `cli.go:233`, `server.go:300`, `server.go:517`), and a byte-identical
       `str(*string)` closure ×2 in package `main` (`endpoint.go:35`,
       `main.go:270`). [S]
-- [ ] Fuzz targets: none exist (`func Fuzz` has zero hits). Candidates:
-      `parseICYMetadata`/`icyDemuxer` (`internal/audio/metadata.go`), the
-      ADTS reader (`internal/audio/adts.go`), `pkg/playlist`. [S]
 - [ ] Add `SECURITY.md` (the daemon ships a network listener). [S]
 
 ## Not planned
