@@ -200,10 +200,10 @@ rm ~/.zcompdump && exec zsh
 ```
 
 Completions cover all subcommands, global connection flags, daemon flags, and
-`--json` options. The `soma play` and `soma favorite` commands also complete
-channel IDs from the locally cached channel catalog (in Zsh with the channel
-name shown alongside); completing never starts the daemon or touches the
-network.
+`--json` options. The `soma play`, `soma favorite`, and `soma history`
+commands also complete channel IDs from the locally cached channel catalog
+(in Zsh with the channel name shown alongside); completing never starts the
+daemon or touches the network.
 
 ## Usage
 
@@ -232,6 +232,7 @@ background if one isn't running yet.
 | `soma status [--json]`     | Show what is playing                                     |
 | `soma volume [--json] [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
 | `soma volume mute [--json]` | Toggle mute, restoring the previous volume          |
+| `soma history [--json] [-n N] [channel]` | Show recent now-playing titles, newest first (all channels, or one when given; `-n` bounds how many, default 20) |
 | `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp); `--gen-psk` generates a pre-shared key) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
@@ -245,8 +246,9 @@ to control a soma daemon running on another machine.
 `--json` on `play`, `next`, `prev`, `pause`, `stop`, `status`, and `volume`
 prints the resulting playback state as a single JSON line (channel, status,
 volume, track title, and so on) instead of the human-readable message, for
-status bars and scripts. `list` and `favorite` print their own JSON shapes
-(the channel catalog and the toggle result, respectively).
+status bars and scripts. `list`, `favorite`, and `history` print their own
+JSON shapes (the channel catalog, the toggle result, and the list of
+history entries, respectively).
 
 ### Background playback
 

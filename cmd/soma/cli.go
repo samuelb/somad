@@ -697,6 +697,66 @@ func showVolume(jsonOut bool) {
 	fmt.Printf("Volume:  %d%%\n", volumePercent(st.GetVolume()))
 }
 
+// historyDefaultLimit is how many entries `soma history` prints when -n is
+// not given, matching the TUI's history overlay.
+const historyDefaultLimit = 20
+
+// runHistory prints recent now-playing titles: time, channel, and title,
+// newest first. With a channel argument it filters to that channel (which
+// may let the server backfill from SomaFM's own song history); -n bounds how
+// many entries are shown. With --json, it prints the
+// []protocol.HistoryEntry result instead of the human-readable table.
+func runHistory(args []string) {
+	usage := "soma history [--json] [-n N] [channel-id-or-name]"
+	fs := flag.NewFlagSet("history", flag.ExitOnError)
+	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usage) }
+	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
+	n := fs.Int("n", historyDefaultLimit, "maximum number of entries to show")
+	_ = fs.Parse(args)
+	rest := fs.Args()
+	if len(rest) > 1 {
+		fail("usage: %s", usage)
+	}
+
+	c := ensureServer()
+	defer func() { _ = c.Close() }()
+
+	var channelID string
+	if len(rest) == 1 {
+		payload := waitForCatalog(c)
+		ch, err := resolveChannel(payload.Channels, rest[0])
+		if err != nil {
+			fail("%v", err)
+		}
+		channelID = ch.ID
+	}
+
+	entries, err := c.History(channelID, *n)
+	if err != nil {
+		fail("%v", err)
+	}
+	if *jsonOut {
+		printJSON(entries)
+		return
+	}
+	fmt.Print(formatHistory(entries))
+}
+
+// formatHistory renders history entries as one line per entry: local time,
+// channel, and title.
+func formatHistory(entries []protocol.HistoryEntry) string {
+	if len(entries) == 0 {
+		return "No history yet.\n"
+	}
+	var b strings.Builder
+	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	for _, e := range entries {
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", e.Time.Local().Format("2006-01-02 15:04"), e.ChannelTitle, e.Title)
+	}
+	_ = w.Flush()
+	return b.String()
+}
+
 func runServerStop() {
 	c, _, running := dialServer()
 	if !running {

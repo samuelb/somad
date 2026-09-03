@@ -23,17 +23,19 @@ import (
 // fakeDaemon is a scripted playback daemon for exercising the CLI commands
 // end-to-end over the wire protocol, without audio or spawning.
 type fakeDaemon struct {
-	mu          sync.Mutex
-	plays       []string
-	deltas      []int
-	stops       int
-	stopIns     []string // "in" durations passed to successive MethodStop calls
-	stopCancels int
-	shutdowns   int
-	mutes       int
-	preMute     float64 // remembered pre-mute volume; 0 means "none stored"
-	status      protocol.PlaybackState
-	payload     protocol.ChannelsPayload
+	mu            sync.Mutex
+	plays         []string
+	deltas        []int
+	stops         int
+	stopIns       []string // "in" durations passed to successive MethodStop calls
+	stopCancels   int
+	shutdowns     int
+	mutes         int
+	preMute       float64 // remembered pre-mute volume; 0 means "none stored"
+	status        protocol.PlaybackState
+	payload       protocol.ChannelsPayload
+	history       []protocol.HistoryEntry
+	historyParams []protocol.HistoryParams // one entry per history request received
 }
 
 func startFakeDaemon(t *testing.T) *fakeDaemon {
@@ -162,6 +164,11 @@ func (d *fakeDaemon) handle(req protocol.Request) any {
 			d.payload.Favorites = append(slices.Clone(d.payload.Favorites), p.ChannelID)
 		}
 		return protocol.FavoritesResult{Favorites: d.payload.Favorites}
+	case protocol.MethodHistory:
+		var p protocol.HistoryParams
+		_ = json.Unmarshal(req.Params, &p)
+		d.historyParams = append(d.historyParams, p)
+		return protocol.HistoryResult{Entries: d.history}
 	case protocol.MethodShutdown:
 		d.shutdowns++
 		return struct{}{}
@@ -466,4 +473,56 @@ func TestRunServerStop_NotRunning(t *testing.T) {
 
 func TestUserAgent_CarriesVersion(t *testing.T) {
 	assert.Contains(t, userAgent(), version)
+}
+
+func TestRunHistory_PlainAndJSON(t *testing.T) {
+	d := startFakeDaemon(t)
+	when := time.Date(2026, 1, 2, 15, 4, 0, 0, time.UTC)
+	d.mu.Lock()
+	d.history = []protocol.HistoryEntry{
+		{ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Title: "Some Track", Time: when},
+	}
+	d.mu.Unlock()
+
+	plain := captureStdout(t, func() { runHistory(nil) })
+	assert.Contains(t, plain, "Groove Salad")
+	assert.Contains(t, plain, "Some Track")
+
+	jsonOut := captureStdout(t, func() { runHistory([]string{"--json"}) })
+	var entries []protocol.HistoryEntry
+	require.NoError(t, json.Unmarshal([]byte(jsonOut), &entries))
+	require.Len(t, entries, 1)
+	assert.Equal(t, "Some Track", entries[0].Title)
+}
+
+func TestRunHistory_NoEntries(t *testing.T) {
+	startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runHistory(nil) })
+
+	assert.Contains(t, out, "No history yet.")
+}
+
+func TestRunHistory_ResolvesChannelAndPassesLimit(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	captureStdout(t, func() { runHistory([]string{"-n", "5", "groove"}) })
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	require.Len(t, d.historyParams, 1)
+	assert.Equal(t, "groovesalad", d.historyParams[0].ChannelID, "the substring must resolve to the channel ID")
+	assert.Equal(t, 5, d.historyParams[0].Limit)
+}
+
+func TestRunHistory_DefaultLimitWithNoChannel(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	captureStdout(t, func() { runHistory(nil) })
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	require.Len(t, d.historyParams, 1)
+	assert.Empty(t, d.historyParams[0].ChannelID)
+	assert.Equal(t, historyDefaultLimit, d.historyParams[0].Limit)
 }

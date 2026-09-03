@@ -151,6 +151,8 @@ func main() {
 		runStatus(rest[1:])
 	case "volume":
 		runVolume(rest[1:])
+	case "history":
+		runHistory(rest[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "soma: unknown command %q\n\n", rest[0])
 		printUsage(os.Stderr)
@@ -214,6 +216,10 @@ func printUsage(w io.Writer) {
   soma volume [--json] [<0-100>|+n|-n]
                                  show, set, or adjust the playback volume
   soma volume mute [--json]      toggle mute, restoring the previous level
+  soma history [--json] [-n N] [channel]
+                                 show recent now-playing titles, newest first
+                                 (all channels, or one when given; -n bounds
+                                  how many, default 20)
   soma daemon [flags]         run the playback server in the foreground
                                  (--no-tray hides the tray / menu-bar icon;
                                   --notify shows a desktop notification on

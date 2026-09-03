@@ -45,6 +45,7 @@ _soma() {
             'stop:stop playback'
             'status:show what is playing'
             'volume:show, set, or adjust the playback volume'
+            'history:show recent now-playing titles'
             'daemon:run the playback server in the foreground'
             'completion:print a shell completion script'
             'help:show help'
@@ -80,6 +81,12 @@ _soma() {
             _arguments \
                 '--json[print machine-readable JSON]' \
                 '1:volume (0-100, +n, -n, mute):(mute)' && ret=0
+            ;;
+        history)
+            _arguments \
+                '--json[print machine-readable JSON]' \
+                '-n[maximum number of entries to show]:count:' \
+                '1:channel:_soma_channels' && ret=0
             ;;
         daemon)
             _arguments \

@@ -25,7 +25,7 @@ _soma() {
     local global_flags="--server --tls --tls-ca --tls-fingerprint --psk-file
         --shutdown-on-exit --version --help"
     local commands="play list favorite next prev pause stop status volume
-        daemon completion help version"
+        history daemon completion help version"
 
     # Flags whose value is the next word (or follows "=").
     case "$prev" in
@@ -34,7 +34,7 @@ _soma() {
         COMPREPLY=()
         return
         ;;
-    --server | --tls-fingerprint | --listen | --idle-timeout | --in)
+    --server | --tls-fingerprint | --listen | --idle-timeout | --in | -n)
         COMPREPLY=()
         return
         ;;
@@ -91,6 +91,13 @@ _soma() {
         ;;
     volume)
         COMPREPLY=($(compgen -W "--json mute" -- "$cur"))
+        ;;
+    history)
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "--json -n" -- "$cur"))
+        else
+            COMPREPLY=($(compgen -W "$(soma completion channels 2>/dev/null | cut -f1)" -- "$cur"))
+        fi
         ;;
     list | status | next | prev | pause)
         COMPREPLY=($(compgen -W "--json" -- "$cur"))

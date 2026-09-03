@@ -94,15 +94,16 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
 **Subcommands** (`cmd/soma/main.go`): none → TUI; `daemon [flags]` runs the
 playback server in the foreground (`daemon stop` shuts it down); `play`,
 `list`, `favorite`/`fav`, `next`, `prev`, `pause`, `stop`, `status`,
-`volume`, `completion <bash|zsh>`, `version`. Global connection flags
-(`--server`, `--tls`, `--tls-ca`, `--tls-fingerprint`, `--psk-file`) go
-before the command; daemon flags (`--idle-timeout`, `--no-tray`, `--notify`,
-`--quality`, `--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`,
-`--gen-psk`, `--insecure`, `--show-cert`) go after it. `play`, `list`,
-`favorite`, `next`, `prev`, `pause`, `stop`, `status`, `volume` all take
-`--json`. `stop` also takes `--in <duration>` (arm a sleep timer instead of
-stopping now, replacing any timer already pending) and `--cancel` (drop a
-pending timer without stopping); the two are mutually exclusive.
+`volume`, `history [-n N] [channel]`, `completion <bash|zsh>`, `version`.
+Global connection flags (`--server`, `--tls`, `--tls-ca`, `--tls-fingerprint`,
+`--psk-file`) go before the command; daemon flags (`--idle-timeout`,
+`--no-tray`, `--notify`, `--quality`, `--listen`, `--tls`, `--tls-cert`,
+`--tls-key`, `--psk-file`, `--gen-psk`, `--insecure`, `--show-cert`) go after
+it. `play`, `list`, `favorite`, `next`, `prev`, `pause`, `stop`, `status`,
+`volume`, `history` all take `--json`. `stop` also takes `--in <duration>`
+(arm a sleep timer instead of stopping now, replacing any timer already
+pending) and `--cancel` (drop a pending timer without stopping); the two are
+mutually exclusive.
 
 **Environment**: `SOMAD_SOCKET` (socket path), `SOMAD_SERVER` (host:port,
 like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`
