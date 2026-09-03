@@ -40,3 +40,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0024](0024-packaging-nfpm-vcs-pkgbuild-universal-macos-binary.md) | Package with nfpm, keep the PKGBUILD as a VCS build, ship a universal macOS binary in a plain DMG | Accepted |
 | [0025](0025-quality-gates-lint-race-vulncheck-coverage-floor.md) | Quality gates: golangci-lint with gosec, race tests everywhere, govulncheck, a 60 % coverage floor | Accepted |
 | [0026](0026-keep-the-channel-list-flat.md) | Keep the channel list flat: no detail pane, no sort options, no render-path micro-optimizations | Rejected (the features); the list stays as it is |
+| [0027](0027-release-workflow-supply-chain-hardening.md) | Release workflow supply-chain hardening: SHA-pinned actions, pinned tool versions, checksummed nfpm download, minimal permissions, build provenance | Accepted |

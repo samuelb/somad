@@ -71,7 +71,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   - audio pipeline and formats: 0013–0017
   - MPRIS and tray: 0019
   - CLI scripting and completion: 0021
-  - process, vendoring, packaging, quality gates: 0022–0025
+  - process, vendoring, packaging, quality gates: 0022–0025, 0027
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its
   "Not planned" section only points at ADRs. Remove an item when you finish
   it.

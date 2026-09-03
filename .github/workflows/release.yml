@@ -19,7 +19,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -30,11 +30,13 @@ jobs:
   prepare:
     name: Prepare release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.cliff.outputs.version }}
       sha: ${{ steps.bump.outputs.sha }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # Full history + tags: git-cliff derives the next version from
           # conventional commits since the last tag.
@@ -42,7 +44,7 @@ jobs:
 
       - name: Compute next version and release notes
         id: cliff
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@3d96a18cc4ec17e9dc69ddcc424ccafaf1f78ce2 # v4
         with:
           config: cliff.toml
           args: --bump=${{ inputs.bump }} --unreleased
@@ -68,13 +70,13 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-notes
           path: release-notes.md
           if-no-files-found: error
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           check-latest: true
@@ -86,9 +88,14 @@ jobs:
         run: go test -v -race ./...
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: latest
+          version: v2.13.2
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
 
       # Keep the version recorded in flake.nix in sync with the release. On a
       # dry run the bump is rendered and discarded; on a real run it is
@@ -116,6 +123,8 @@ jobs:
   build:
     name: Linux ${{ matrix.goarch }}
     needs: prepare
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -124,11 +133,11 @@ jobs:
           - { goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           check-latest: true
@@ -147,7 +156,7 @@ jobs:
         run: |
           go build -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.tag }} -X main.commit=${RELEASE_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o soma_${{ matrix.goos }}_${{ matrix.goarch }} ./cmd/soma
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: soma-${{ matrix.goos }}-${{ matrix.goarch }}
           path: soma_${{ matrix.goos }}_${{ matrix.goarch }}
@@ -157,13 +166,15 @@ jobs:
   build-darwin:
     name: macOS (universal)
     needs: prepare
+    permissions:
+      contents: read
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           check-latest: true
@@ -187,7 +198,7 @@ jobs:
       - name: Build .dmg
         run: packaging/macos/build-dmg.sh dist/soma_darwin_universal dist
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: soma-darwin
           path: dist/*
@@ -197,14 +208,18 @@ jobs:
   release:
     name: Publish release
     needs: [prepare, build, build-darwin]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
       - name: Download release notes
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: release-notes
 
@@ -221,7 +236,7 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           pattern: soma-*
@@ -230,9 +245,13 @@ jobs:
       - name: Install nfpm
         env:
           NFPM_TOOL_VERSION: "2.43.0"
+          # sha256 of nfpm_${NFPM_TOOL_VERSION}_amd64.deb, from that release's
+          # published checksums.txt: https://github.com/goreleaser/nfpm/releases/download/v2.43.0/checksums.txt
+          NFPM_DEB_SHA256: "4a4402f8f9ea87c669d6a62b333f8e268439974754dd886a01731ecaf9fa6d66"
         run: |
           curl -fsSL -o /tmp/nfpm.deb \
             "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_TOOL_VERSION}/nfpm_${NFPM_TOOL_VERSION}_amd64.deb"
+          echo "${NFPM_DEB_SHA256}  /tmp/nfpm.deb" | sha256sum -c -
           sudo dpkg -i /tmp/nfpm.deb
 
       - name: Build .deb and .rpm packages
@@ -257,13 +276,22 @@ jobs:
       - name: Generate checksums
         run: (cd dist && sha256sum -- * > ../checksums.txt && mv ../checksums.txt .)
 
-      - uses: actions/upload-artifact@v7
+      # Only on a real publish: attesting a dry run would create a permanent,
+      # publicly verifiable provenance record for artifacts that were never
+      # released.
+      - name: Attest build provenance
+        if: inputs.dry_run == false
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: checksums
           path: dist/checksums.txt
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: inputs.dry_run == true
         with:
           name: release-artifacts
@@ -271,7 +299,7 @@ jobs:
             dist/*
             release-notes.md
 
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         if: inputs.dry_run == false
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
@@ -285,14 +313,16 @@ jobs:
   homebrew:
     name: Render Homebrew tap files
     needs: [prepare, release]
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
 
       - name: Download checksums
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: checksums
 
@@ -301,7 +331,7 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.tag }}
         run: scripts/stage-homebrew.sh "${VERSION#v}" checksums.txt rendered
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: homebrew-tap-files
           path: rendered/
@@ -311,7 +341,9 @@ jobs:
     name: Publish Homebrew tap
     needs: [prepare, homebrew]
     if: inputs.dry_run == false
-    uses: samuelb/homebrew-tap/.github/workflows/publish.yml@main
+    permissions:
+      contents: read
+    uses: samuelb/homebrew-tap/.github/workflows/publish.yml@853fd0dde720c3fdd6ffe0f1088a0c03e89ea423 # main
     with:
       artifact_name: homebrew-tap-files
       commit_message: "somad ${{ needs.prepare.outputs.tag }}"
