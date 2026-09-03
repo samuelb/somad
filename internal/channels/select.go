@@ -1,5 +1,7 @@
 package channels
 
+import "strings"
+
 // qualityRank orders SomaFM playlist quality levels, best first.
 var qualityRank = map[string]int{"highest": 0, "high": 1, "low": 2}
 
@@ -19,7 +21,9 @@ func SelectPlaylists(playlists []Playlist, formats []string) []Playlist {
 }
 
 // selectBestQuality returns the best-quality playlist of the given format
-// (highest > high > low > unknown), or false if the format is absent.
+// (highest > high > low > unknown), or false if the format is absent. Among
+// otherwise equal candidates (same quality rank) it prefers an https
+// playlist URL over a plain-http one.
 func selectBestQuality(playlists []Playlist, format string) (Playlist, bool) {
 	var best Playlist
 	found := false
@@ -35,11 +39,19 @@ func selectBestQuality(playlists []Playlist, format string) (Playlist, bool) {
 		if !ok {
 			rank = len(qualityRank)
 		}
-		if rank < bestRank {
+		switch {
+		case rank < bestRank:
+			best, bestRank, found = playlist, rank, true
+		case rank == bestRank && isHTTPSURL(playlist.URL) && !isHTTPSURL(best.URL):
 			best = playlist
-			bestRank = rank
-			found = true
 		}
 	}
 	return best, found
+}
+
+// isHTTPSURL reports whether url starts with an https scheme, matched
+// case-insensitively since playlist URLs are not always spec-exact.
+func isHTTPSURL(url string) bool {
+	const scheme = "https://"
+	return len(url) >= len(scheme) && strings.EqualFold(url[:len(scheme)], scheme)
 }

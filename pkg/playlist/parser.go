@@ -51,11 +51,16 @@ func GetStreamURLFromPlaylist(playlistURL, userAgent string) (string, error) {
 	return url, nil
 }
 
-// parseFirstStreamURL scans .pls content for the first FileN entry and
-// returns its URL, or "" when none is found. Real-world playlists are not
-// always spec-exact, so keys match case-insensitively and whitespace around
-// keys, values, and the "=" is tolerated.
+// parseFirstStreamURL scans .pls content for FileN entries and returns a
+// stream URL, or "" when none is found. It prefers the first https:// entry
+// over an earlier http:// (or other-scheme) one, since this is what
+// fetchStream connects to and a plain-http entry is vulnerable to MITM of
+// both the audio and its ICY titles; with no https entry present it falls
+// back to the first entry of any scheme. Real-world playlists are not always
+// spec-exact, so keys match case-insensitively and whitespace around keys,
+// values, and the "=" is tolerated.
 func parseFirstStreamURL(r io.Reader) (string, error) {
+	var first, firstHTTPS string
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -63,13 +68,34 @@ func parseFirstStreamURL(r io.Reader) (string, error) {
 		if !ok {
 			continue
 		}
-		if isFileKey(strings.TrimSpace(key)) {
-			if url := strings.TrimSpace(value); url != "" {
-				return url, nil
-			}
+		if !isFileKey(strings.TrimSpace(key)) {
+			continue
+		}
+		url := strings.TrimSpace(value)
+		if url == "" {
+			continue
+		}
+		if first == "" {
+			first = url
+		}
+		if firstHTTPS == "" && isHTTPSURL(url) {
+			firstHTTPS = url
 		}
 	}
-	return "", scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	if firstHTTPS != "" {
+		return firstHTTPS, nil
+	}
+	return first, nil
+}
+
+// isHTTPSURL reports whether url starts with an https scheme, matched
+// case-insensitively since playlists are not always spec-exact.
+func isHTTPSURL(url string) bool {
+	const scheme = "https://"
+	return len(url) >= len(scheme) && strings.EqualFold(url[:len(scheme)], scheme)
 }
 
 // isFileKey reports whether a .pls key names a stream entry: "file" followed

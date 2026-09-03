@@ -81,6 +81,51 @@ Version=2`,
 			wantErr:    true,
 		},
 		{
+			name: "prefers https entry over an earlier http entry",
+			content: `[playlist]
+NumberOfEntries=2
+File1=http://ice1.somafm.com/groovesalad-128-mp3
+File2=https://ice2.somafm.com/groovesalad-128-mp3
+Version=2`,
+			statusCode: http.StatusOK,
+			wantURL:    "https://ice2.somafm.com/groovesalad-128-mp3",
+			wantErr:    false,
+		},
+		{
+			name: "prefers the first https entry when several are present",
+			content: `[playlist]
+NumberOfEntries=3
+File1=http://ice1.somafm.com/groovesalad-128-mp3
+File2=https://ice2.somafm.com/groovesalad-128-mp3
+File3=https://ice3.somafm.com/groovesalad-128-mp3
+Version=2`,
+			statusCode: http.StatusOK,
+			wantURL:    "https://ice2.somafm.com/groovesalad-128-mp3",
+			wantErr:    false,
+		},
+		{
+			name: "https match is case-insensitive",
+			content: `[playlist]
+NumberOfEntries=2
+File1=http://ice1.somafm.com/groovesalad-128-mp3
+File2=HTTPS://ice2.somafm.com/groovesalad-128-mp3
+Version=2`,
+			statusCode: http.StatusOK,
+			wantURL:    "HTTPS://ice2.somafm.com/groovesalad-128-mp3",
+			wantErr:    false,
+		},
+		{
+			name: "falls back to the first entry of any scheme when no https entry exists",
+			content: `[playlist]
+NumberOfEntries=2
+File1=http://ice1.somafm.com/groovesalad-128-mp3
+File2=http://ice2.somafm.com/groovesalad-128-mp3
+Version=2`,
+			statusCode: http.StatusOK,
+			wantURL:    "http://ice1.somafm.com/groovesalad-128-mp3",
+			wantErr:    false,
+		},
+		{
 			name:       "server error",
 			content:    "",
 			statusCode: http.StatusInternalServerError,
