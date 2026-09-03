@@ -1,11 +1,10 @@
 package state
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"io/fs"
 	"os"
-	"path/filepath"
 
 	"somad/internal/atomicfile"
 )
@@ -23,14 +22,7 @@ type LastfmSession struct {
 // lastfmSessionFilePath returns the path to lastfm.json, creating the state
 // directory if needed.
 func lastfmSessionFilePath() (string, error) {
-	stateDir, err := getStateDir()
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(stateDir, 0750); err != nil {
-		return "", fmt.Errorf("failed to create state directory: %w", err)
-	}
-	return filepath.Join(stateDir, lastfmFileName), nil
+	return statePath(lastfmFileName)
 }
 
 // LoadLastfmSession reads the persisted Last.fm session key. A missing file
@@ -43,26 +35,18 @@ func LoadLastfmSession() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
-	data, err := os.ReadFile(path) // #nosec G304 -- path derived from the state dir, not user input
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
+	var sess LastfmSession
+	switch err := atomicfile.ReadJSON(path, &sess); {
+	case err == nil:
+		return sess.SessionKey, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return "", nil
+	case errors.Is(err, atomicfile.ErrCorrupt):
+		atomicfile.Quarantine(path, "last.fm session file", err)
+		return "", nil
+	default:
 		return "", fmt.Errorf("failed to read last.fm session file: %w", err)
 	}
-
-	var sess LastfmSession
-	if err := json.Unmarshal(data, &sess); err != nil {
-		backupPath := path + ".corrupt"
-		if renameErr := os.Rename(path, backupPath); renameErr != nil {
-			log.Printf("warning: last.fm session file is corrupt (%v) and could not be moved aside: %v", err, renameErr)
-		} else {
-			log.Printf("warning: last.fm session file is corrupt (%v), moved to %s, starting fresh", err, backupPath)
-		}
-		return "", nil
-	}
-	return sess.SessionKey, nil
 }
 
 // SaveLastfmSession persists the session key obtained by "soma lastfm
@@ -74,11 +58,7 @@ func SaveLastfmSession(sessionKey string) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(LastfmSession{SessionKey: sessionKey}, "", "  ") // #nosec G117 -- this file *is* the credential store, written at 0600 below
-	if err != nil {
-		return fmt.Errorf("failed to marshal last.fm session: %w", err)
-	}
-	if err := atomicfile.WriteFile(path, data, 0600); err != nil {
+	if err := atomicfile.WriteJSON(path, LastfmSession{SessionKey: sessionKey}, 0600); err != nil { // #nosec G117 -- this file *is* the credential store, written at 0600
 		return fmt.Errorf("failed to write last.fm session file: %w", err)
 	}
 	return nil

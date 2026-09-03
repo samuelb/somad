@@ -1,9 +1,9 @@
 package state
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -143,59 +143,45 @@ func Dir() (string, error) {
 
 // GetStateFilePath returns the absolute path to the state file.
 func GetStateFilePath() (string, error) {
-	stateDir, err := getStateDir()
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(stateDir, 0750); err != nil {
-		return "", fmt.Errorf("failed to create state directory: %w", err)
-	}
-	return filepath.Join(stateDir, stateFileName), nil
+	return statePath(stateFileName)
 }
 
 // GetLogFilePath returns the server log file path, kept in the state
 // directory next to state.json.
 func GetLogFilePath() (string, error) {
-	stateDir, err := getStateDir()
+	return statePath("server.log")
+}
+
+// statePath returns the path of name inside the state directory, creating
+// the directory if needed.
+func statePath(name string) (string, error) {
+	dir, err := Dir()
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(stateDir, 0750); err != nil {
-		return "", fmt.Errorf("failed to create state directory: %w", err)
-	}
-	return filepath.Join(stateDir, "server.log"), nil
+	return filepath.Join(dir, name), nil
 }
 
-// LoadState reads the application state from the state file.
-// If the file does not exist, it returns a default empty State.
+// LoadState reads the application state from the state file. A missing
+// file yields a default empty State; a corrupt one is moved aside
+// (ADR-0012) and likewise yields an empty State, so it never bricks startup.
 func LoadState() (*State, error) {
 	statePath, err := GetStateFilePath()
 	if err != nil {
 		return nil, err
 	}
-
-	data, err := os.ReadFile(statePath) // #nosec G304 -- path derived from os.UserHomeDir, not user input
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &State{}, nil
-		}
+	var state State
+	switch err := atomicfile.ReadJSON(statePath, &state); {
+	case err == nil:
+		return &state, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return &State{}, nil
+	case errors.Is(err, atomicfile.ErrCorrupt):
+		atomicfile.Quarantine(statePath, "state file", err)
+		return &State{}, nil
+	default:
 		return nil, fmt.Errorf("failed to read state file: %w", err)
 	}
-
-	var state State
-	if err := json.Unmarshal(data, &state); err != nil {
-		// A corrupt state file must not brick startup. Move it aside (so the
-		// next save doesn't destroy the evidence) and start fresh.
-		backupPath := statePath + ".corrupt"
-		if renameErr := os.Rename(statePath, backupPath); renameErr != nil {
-			log.Printf("warning: state file is corrupt (%v) and could not be moved aside: %v", err, renameErr)
-		} else {
-			log.Printf("warning: state file is corrupt (%v), moved to %s, starting fresh", err, backupPath)
-		}
-		return &State{}, nil
-	}
-
-	return &state, nil
 }
 
 // SaveState writes the given application state to the state file.
@@ -204,16 +190,9 @@ func SaveState(state *State) error {
 	if err != nil {
 		return err
 	}
-
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal state for saving: %w", err)
-	}
-
 	// Atomic write: a crash mid-save must not corrupt the state file.
-	if err := atomicfile.WriteFile(statePath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write state to file: %w", err)
+	if err := atomicfile.WriteJSON(statePath, state, 0600); err != nil {
+		return fmt.Errorf("failed to write state file: %w", err)
 	}
-
 	return nil
 }

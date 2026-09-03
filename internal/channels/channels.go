@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -86,43 +87,29 @@ func PeekChannelsFromCache() (*Channels, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(cachePath) // #nosec G304 -- path derived from os.UserCacheDir, not user input
-	if err != nil {
-		return nil, fmt.Errorf("failed to read cache file: %w", err)
-	}
 	var channels Channels
-	if err := json.Unmarshal(data, &channels); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal cached data: %w", err)
+	if err := atomicfile.ReadJSON(cachePath, &channels); err != nil {
+		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
 	return &channels, nil
 }
 
-// ReadChannelsFromCache attempts to read channel data from the local cache file.
+// ReadChannelsFromCache attempts to read channel data from the local cache
+// file. A corrupt cache is moved aside (so it does not repeatedly fail
+// silently) and reported as an error so the caller falls back to a network
+// fetch.
 func ReadChannelsFromCache() (*Channels, error) {
 	cachePath, err := GetCacheFilePath()
 	if err != nil {
 		return nil, err
 	}
-
-	data, err := os.ReadFile(cachePath) // #nosec G304 -- path derived from os.UserCacheDir, not user input
-	if err != nil {
+	var channels Channels
+	if err := atomicfile.ReadJSON(cachePath, &channels); err != nil {
+		if errors.Is(err, atomicfile.ErrCorrupt) {
+			atomicfile.Quarantine(cachePath, "channel cache", err)
+		}
 		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
-
-	var channels Channels
-	if err := json.Unmarshal(data, &channels); err != nil {
-		// A corrupt cache must not repeatedly fail silently. Move it aside
-		// (so the next save doesn't destroy the evidence) and let the caller
-		// fall back to a network fetch.
-		backupPath := cachePath + ".corrupt"
-		if renameErr := os.Rename(cachePath, backupPath); renameErr != nil {
-			log.Printf("warning: channel cache is corrupt (%v) and could not be moved aside: %v", err, renameErr)
-		} else {
-			log.Printf("warning: channel cache is corrupt (%v), moved to %s", err, backupPath)
-		}
-		return nil, fmt.Errorf("failed to unmarshal cached data: %w", err)
-	}
-
 	return &channels, nil
 }
 
@@ -132,17 +119,10 @@ func WriteChannelsToCache(channels *Channels) error {
 	if err != nil {
 		return err
 	}
-
-	data, err := json.MarshalIndent(channels, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal channels for caching: %w", err)
-	}
-
 	// Atomic write: a crash mid-save must not corrupt the cache file.
-	if err := atomicfile.WriteFile(cachePath, data, 0600); err != nil {
+	if err := atomicfile.WriteJSON(cachePath, channels, 0600); err != nil {
 		return fmt.Errorf("failed to write channels to cache file: %w", err)
 	}
-
 	return nil
 }
 

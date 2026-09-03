@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"somad/internal/atomicfile"
 	"somad/internal/security/securitytest"
 
 	"github.com/stretchr/testify/assert"
@@ -83,7 +84,7 @@ func TestReadChannelsFromCache_CorruptJSON(t *testing.T) {
 	channels, err := ReadChannelsFromCache()
 	assert.Error(t, err)
 	assert.Nil(t, channels)
-	assert.Contains(t, err.Error(), "unmarshal")
+	assert.ErrorIs(t, err, atomicfile.ErrCorrupt)
 
 	// A corrupt cache must not repeatedly fail silently: it is moved aside
 	// for inspection, like a corrupt state.json.
