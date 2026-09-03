@@ -10,7 +10,7 @@ Set FontSize 14
 Set Width 880
 Set Height 618
 Set Padding 16
-Set Theme "Catppuccin Mocha"
+Set Theme "Dark+"
 Set TypingSpeed 60ms
 
 Type "soma"
