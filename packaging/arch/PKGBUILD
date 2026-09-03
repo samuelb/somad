@@ -7,7 +7,7 @@
 # release.
 pkgname=somad
 _binname=soma
-pkgver=0.13.0
+pkgver=0.14.1
 pkgrel=1
 pkgdesc='A client for streaming SomaFM radio channels'
 arch=('x86_64' 'aarch64')
