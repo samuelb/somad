@@ -68,7 +68,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   - TUI: 0003, 0020, 0026
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
   - config and persisted state: 0011, 0012
-  - audio pipeline and formats: 0013–0017
+  - audio pipeline and formats: 0013–0017, 0028
   - MPRIS and tray: 0019
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025, 0027

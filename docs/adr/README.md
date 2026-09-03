@@ -41,3 +41,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0025](0025-quality-gates-lint-race-vulncheck-coverage-floor.md) | Quality gates: golangci-lint with gosec, race tests everywhere, govulncheck, a 60 % coverage floor | Accepted |
 | [0026](0026-keep-the-channel-list-flat.md) | Keep the channel list flat: no detail pane, no sort options, no render-path micro-optimizations | Rejected (the features); the list stays as it is |
 | [0027](0027-release-workflow-supply-chain-hardening.md) | Release workflow supply-chain hardening: SHA-pinned actions, pinned tool versions, checksummed nfpm download, minimal permissions, build provenance | Accepted |
+| [0028](0028-perceptual-volume-curve.md) | Volume is a linear percent on the wire and a cubic curve at the device | Accepted |

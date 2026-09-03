@@ -652,6 +652,56 @@ func TestSetVolume_ClampsAndStores(t *testing.T) {
 	assert.InDelta(t, 1.0, p.Volume(), 1e-9)
 }
 
+func TestPerceptualVolume_CubicMapping(t *testing.T) {
+	assert.Zero(t, perceptualVolume(0))
+	assert.InDelta(t, 1.0, perceptualVolume(1), 1e-9)
+	assert.InDelta(t, 0.125, perceptualVolume(0.5), 1e-9)
+	assert.InDelta(t, 0.001, perceptualVolume(0.1), 1e-9)
+	// The curve concentrates headroom at the low end: half the linear
+	// target maps to well under half the amplitude.
+	assert.Less(t, perceptualVolume(0.5), 0.5)
+}
+
+func TestSetVolume_AppliesPerceptualCurveToActiveSession(t *testing.T) {
+	p := newTestPlayer()
+	s := &session{volumeCh: make(chan float64, 1)}
+	p.current = s
+
+	p.SetVolume(0.5)
+
+	assert.InDelta(t, 0.5, p.Volume(), 1e-9, "Volume() stays the un-curved target")
+	select {
+	case v := <-s.volumeCh:
+		assert.InDelta(t, 0.125, v, 1e-9, "the session receives the curved amplitude")
+	default:
+		t.Fatal("expected a pending volume target")
+	}
+}
+
+func TestFadeIn_AppliesPerceptualCurve(t *testing.T) {
+	p, _, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	p.SetVolume(0.5)
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+
+	p.mu.Lock()
+	s := p.current
+	p.mu.Unlock()
+	require.NotNil(t, s)
+
+	want := perceptualVolume(0.5)
+	require.Eventually(t, func() bool {
+		v := s.player.Volume()
+		diff := v - want
+		if diff < 0 {
+			diff = -diff
+		}
+		return diff < 1e-9
+	}, time.Second, 10*time.Millisecond, "fade-in must settle on the curved amplitude, not the linear target")
+}
+
 func TestSessionSetVolume_NewestWins(t *testing.T) {
 	s := &session{volumeCh: make(chan float64, 1)}
 

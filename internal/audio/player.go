@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -572,10 +573,22 @@ func (p *AudioPlayer) fadeIn(s *session) bool {
 			return false
 		case <-time.After(step):
 			// Re-read the target each step so fades track live volume changes.
-			s.player.SetVolume(p.Volume() * float64(i) / fadeSteps)
+			s.player.SetVolume(perceptualVolume(p.Volume() * float64(i) / fadeSteps))
 		}
 	}
 	return true
+}
+
+// perceptualVolume maps a linear volume target in [0, 1] to the amplitude
+// handed to the oto player. Loudness perception is roughly the cube of
+// amplitude (a Stevens'-power-law approximation good enough for a radio
+// player), so a linear target concentrates most of the audible change in the
+// bottom quarter of the range; cubing spreads it evenly. This is the single
+// place that mapping happens — SetVolume, and the fade-in/fade-out steps
+// that scale the same target linearly, all route through it — so Volume()
+// keeps returning the plain, un-curved percent the wire protocol uses.
+func perceptualVolume(target float64) float64 {
+	return target * target * target
 }
 
 // SetVolume sets the target volume, clamped to [0, 1]. It applies to the
@@ -593,11 +606,11 @@ func (p *AudioPlayer) SetVolume(v float64) {
 	p.mu.Unlock()
 
 	if s != nil {
-		s.setVolume(v)
+		s.setVolume(perceptualVolume(v))
 	}
 }
 
-// Volume returns the current target volume in [0, 1].
+// Volume returns the current target volume in [0, 1], un-curved.
 func (p *AudioPlayer) Volume() float64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -608,9 +621,12 @@ func (p *AudioPlayer) Volume() float64 {
 // player, closes the stream, and cancels the HTTP fetch.
 func (p *AudioPlayer) fadeOutAndClose(s *session) {
 	step := fadeOutDuration / fadeSteps
-	startVolume := s.player.Volume()
+	// Start from the amplitude the player is actually at (a stop can land
+	// mid fade-in), mapped back to the linear target so the fade steps run
+	// through the same curve as everything else.
+	startTarget := math.Cbrt(s.player.Volume())
 	for i := fadeSteps - 1; i >= 0; i-- {
-		s.player.SetVolume(startVolume * float64(i) / fadeSteps)
+		s.player.SetVolume(perceptualVolume(startTarget * float64(i) / fadeSteps))
 		time.Sleep(step)
 	}
 	s.player.Pause()
