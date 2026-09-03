@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents when working with code in this repository.
 
 ## Project
 
@@ -20,6 +20,11 @@ go test -race ./internal/server/ -run TestName   # run a single test
 - On Linux, building needs `libasound2-dev` (ALSA headers); macOS needs nothing extra.
 - Git hooks via lefthook run `golangci-lint` and `go test -race` on pre-commit and pre-push.
 - CI enforces a minimum total test coverage of 60% (Linux job).
+
+## Branching
+
+This project follows trunk-based development. Commit changes directly to
+`main` — do not create feature branches, and do not open pull requests.
 
 ## Commits
 

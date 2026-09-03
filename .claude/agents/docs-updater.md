@@ -1,6 +1,6 @@
 ---
 name: docs-updater
-description: Keeps README.md, CLAUDE.md, and CLI help text in sync with code changes. Use after adding or changing commands, flags, config keys, or keybindings.
+description: Keeps README.md, AGENTS.md, and CLI help text in sync with code changes. Use after adding or changing commands, flags, config keys, or keybindings.
 tools: Read, Edit, Grep, Glob, Bash
 model: haiku
 ---
@@ -16,7 +16,7 @@ one, check all of them:
   template text) and the Configuration section in README.md
 - Keyboard controls: `internal/app/update.go` keymap and the Keyboard Controls
   table in README.md
-- Build/architecture facts: CLAUDE.md
+- Build/architecture facts: AGENTS.md
 
 When invoked:
 1. Run `git diff` to see what changed (or inspect the area named in the task).
