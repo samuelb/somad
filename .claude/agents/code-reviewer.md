@@ -13,17 +13,17 @@ verify and relay its findings.
 
 Pick the invocation matching the task:
 
-- Working-tree changes (default): `codex review -m gpt-5.5 --uncommitted`
-- Against a base branch: `codex review -m gpt-5.5 --base main`
-- A specific commit: `codex review -m gpt-5.5 --commit <sha>`
+- Working-tree changes (default): `codex review -c model=gpt-5.5 --uncommitted`
+- Against a base branch: `codex review -c model=gpt-5.5 --base main`
+- A specific commit: `codex review -c model=gpt-5.5 --commit <sha>`
 
 Pass project-specific focus as the prompt argument, e.g.:
 
 ```sh
-codex review -m gpt-5.5 --uncommitted "Focus on correctness and race conditions. Project invariants: all outbound HTTP must go through internal/security (NewRequest/ValidateURL); protocol.Version must be bumped on incompatible wire changes; _linux.go/_other.go build-tag pairs must stay in sync; crash-safe file writes go through internal/atomicfile."
+codex review -c model=gpt-5.5 --uncommitted "Focus on correctness and race conditions. Project invariants: all outbound HTTP must go through internal/security (NewRequest/ValidateURL); protocol.Version must be bumped on incompatible wire changes; _linux.go/_other.go build-tag pairs must stay in sync; crash-safe file writes go through internal/atomicfile."
 ```
 
-For ad-hoc questions that aren't diff reviews, use `codex exec -m gpt-5.5 "<prompt>"`.
+For ad-hoc questions that aren't diff reviews, use `codex exec -c model=gpt-5.5 "<prompt>" </dev/null`.
 
 Codex runs can take a few minutes, but they can also hang — never wait
 forever. Run every codex command with a 10-minute Bash timeout
