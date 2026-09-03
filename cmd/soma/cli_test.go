@@ -238,6 +238,39 @@ func TestStripJSONFlag(t *testing.T) {
 	rest, jsonOut = stripJSONFlag([]string{"--json", "-30"})
 	assert.Equal(t, []string{"-30"}, rest)
 	assert.True(t, jsonOut)
+
+	// The documented form of "soma volume mute [--json]" trails the
+	// subcommand rather than leading it.
+	rest, jsonOut = stripJSONFlag([]string{"mute", "--json"})
+	assert.Equal(t, []string{"mute"}, rest)
+	assert.True(t, jsonOut)
+}
+
+func TestParseStopInDuration(t *testing.T) {
+	tests := []struct {
+		arg     string
+		want    time.Duration
+		wantErr string
+	}{
+		{arg: "45m", want: 45 * time.Minute},
+		{arg: "1h30m", want: 90 * time.Minute},
+		{arg: "0", wantErr: "must be positive"},
+		{arg: "0s", wantErr: "must be positive"},
+		{arg: "-5m", wantErr: "must be positive"},
+		{arg: "soon", wantErr: "invalid --in duration"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.arg, func(t *testing.T) {
+			got, err := parseStopInDuration(tt.arg)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestChannelListEntries_MarksFavorites(t *testing.T) {

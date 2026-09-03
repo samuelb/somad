@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -103,11 +104,21 @@ func str(p *string) string {
 // internal/protocol.EnsureSocketDir: anyone who can read the PSK controls
 // playback (and can shut the daemon down), so it must not be group- or
 // world-readable, nor owned by another user.
+//
+// The file is opened once and the permission check runs against that same
+// descriptor's Stat, so a swap of the path between a separate stat and the
+// read (TOCTOU: e.g. a symlink dropped in after the check passes) cannot
+// slip an unchecked file through.
 func readPSKFile(path string) (string, error) {
-	if err := checkPSKFilePermissions(path); err != nil {
+	f, err := os.Open(path) // #nosec G304 -- path comes from the user's own config/flags
+	if err != nil {
+		return "", fmt.Errorf("opening PSK file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	if err := checkPSKFilePermissions(f); err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(path) // #nosec G304 -- path comes from the user's own config/flags
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return "", fmt.Errorf("reading PSK file: %w", err)
 	}
@@ -118,19 +129,24 @@ func readPSKFile(path string) (string, error) {
 	return psk, nil
 }
 
-// checkPSKFilePermissions rejects a PSK file that is readable by group or
-// others, or owned by a different user than the one running soma.
-func checkPSKFilePermissions(path string) error {
-	info, err := os.Stat(path)
+// checkPSKFilePermissions rejects a PSK file that is not a regular file, is
+// readable by group or others, or is owned by a different user than the one
+// running soma. It stats the already-open file, not the path, so the check
+// applies to exactly the bytes readPSKFile goes on to read.
+func checkPSKFilePermissions(f *os.File) error {
+	info, err := f.Stat()
 	if err != nil {
 		return fmt.Errorf("stat PSK file: %w", err)
 	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("PSK file %s is not a regular file", f.Name())
+	}
 	if info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("PSK file %s must not be accessible by group or others (chmod 600 it, or regenerate it with soma daemon --gen-psk)", path)
+		return fmt.Errorf("PSK file %s must not be accessible by group or others (chmod 600 it, or regenerate it with soma daemon --gen-psk)", f.Name())
 	}
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return fmt.Errorf("could not inspect owner of PSK file %s", path)
+		return fmt.Errorf("could not inspect owner of PSK file %s", f.Name())
 	}
 	uid := os.Getuid()
 	if uid < 0 || uid > int(^uint32(0)) {
@@ -138,7 +154,7 @@ func checkPSKFilePermissions(path string) error {
 	}
 	currentUID := uint32(uid)
 	if st.Uid != currentUID {
-		return fmt.Errorf("PSK file %s is owned by uid %d, not current uid %d", path, st.Uid, currentUID)
+		return fmt.Errorf("PSK file %s is owned by uid %d, not current uid %d", f.Name(), st.Uid, currentUID)
 	}
 	return nil
 }

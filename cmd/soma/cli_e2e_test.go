@@ -443,6 +443,21 @@ func TestRunVolume_Mute(t *testing.T) {
 	assert.InDelta(t, 0.5, d.status.Volume, 1e-9)
 }
 
+func TestRunVolume_MuteJSON(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	// "soma volume mute [--json]" is the documented form: --json trails the
+	// subcommand rather than leading it.
+	out := captureStdout(t, func() { runVolume([]string{"mute", "--json"}) })
+
+	var st protocol.PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.Zero(t, st.Volume)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Equal(t, 1, d.mutes)
+}
+
 func TestRunFavorite_ToggleWithJSON(t *testing.T) {
 	d := startFakeDaemon(t)
 

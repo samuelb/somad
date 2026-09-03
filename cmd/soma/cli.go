@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -187,12 +188,17 @@ func parseJSONFlag(name, usageLine string, args []string) (rest []string, jsonOu
 	return fs.Args(), *j
 }
 
-// stripJSONFlag strips a leading --json argument, for soma volume, whose own
-// positional argument may itself look like a flag (a relative decrease such
-// as "-30"), which rules out flag.FlagSet-based parsing (see parseJSONFlag).
+// stripJSONFlag strips a --json argument at either end, for soma volume,
+// whose own positional argument may itself look like a flag (a relative
+// decrease such as "-30"), which rules out flag.FlagSet-based parsing (see
+// parseJSONFlag). Both orders are documented ("soma volume mute [--json]"
+// as well as "soma volume [--json] ..."), so both must be accepted.
 func stripJSONFlag(args []string) (rest []string, jsonOut bool) {
 	if len(args) > 0 && args[0] == "--json" {
 		return args[1:], true
+	}
+	if len(args) > 0 && args[len(args)-1] == "--json" {
+		return args[:len(args)-1], true
 	}
 	return args, false
 }
@@ -418,9 +424,9 @@ func runStop(args []string) {
 	var delay time.Duration
 	if *in != "" {
 		var err error
-		delay, err = time.ParseDuration(*in)
+		delay, err = parseStopInDuration(*in)
 		if err != nil {
-			fail("invalid --in duration: %v", err)
+			fail("%v", err)
 		}
 	}
 
@@ -466,6 +472,21 @@ func runStop(args []string) {
 	default:
 		fmt.Println("Stopped")
 	}
+}
+
+// parseStopInDuration parses and validates the --in flag of soma stop: a
+// zero or negative duration would either stop immediately (misleadingly, by
+// a different path than an outright "soma stop") or never, so both are
+// rejected here rather than handed to the server.
+func parseStopInDuration(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid --in duration: %w", err)
+	}
+	if d <= 0 {
+		return 0, errors.New("--in duration must be positive")
+	}
+	return d, nil
 }
 
 // runStatus prints the playback state, as JSON with --json so status bars

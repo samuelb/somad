@@ -81,13 +81,23 @@ func TestReadPSKFile_RejectsEmpty(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// openPSKFile opens path for the checkPSKFilePermissions tests, which check
+// an already-open file the same way readPSKFile does.
+func openPSKFile(t *testing.T, path string) *os.File {
+	t.Helper()
+	f, err := os.Open(path) // #nosec G304 -- test-controlled path
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+	return f
+}
+
 func TestCheckPSKFilePermissions_RejectsGroupAndWorldReadable(t *testing.T) {
 	for _, mode := range []os.FileMode{0o640, 0o604, 0o644, 0o660} {
 		t.Run(mode.String(), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "psk")
 			require.NoError(t, os.WriteFile(path, []byte("secret\n"), mode)) // #nosec G306 -- intentionally permissive for the rejection test
 
-			err := checkPSKFilePermissions(path)
+			err := checkPSKFilePermissions(openPSKFile(t, path))
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "must not be accessible")
@@ -99,7 +109,20 @@ func TestCheckPSKFilePermissions_AcceptsOwnerOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "psk")
 	require.NoError(t, os.WriteFile(path, []byte("secret\n"), 0o600))
 
-	assert.NoError(t, checkPSKFilePermissions(path))
+	assert.NoError(t, checkPSKFilePermissions(openPSKFile(t, path)))
+}
+
+func TestCheckPSKFilePermissions_RejectsDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	f, err := os.Open(dir) // #nosec G304 -- test-controlled path
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	err = checkPSKFilePermissions(f)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a regular file")
 }
 
 func TestReadPSKFile_RejectsGroupReadable(t *testing.T) {
