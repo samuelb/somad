@@ -195,25 +195,35 @@ vet:
 	@echo "Running go vet..."
 	$(GOCMD) vet ./...
 
-# Check for security issues
-.PHONY: security
-security:
-	@echo "Running security scan..."
-	@if command -v gosec >/dev/null 2>&1; then \
-		gosec ./...; \
-	else \
-		echo "gosec not installed. Install with: go install github.com/securego/gosec/v2/cmd/gosec@latest"; \
-		exit 1; \
-	fi
+# Security scanning is covered by `make lint`: golangci-lint runs gosec
+# with the G104 exclusion configured in .golangci.yml. There is no separate
+# `security` target so the two never disagree.
 
 # Run all checks (lint, test, vet)
 .PHONY: check
 check: lint test vet
 	@echo "All checks passed!"
 
-# CI target - runs everything needed for CI
+# CI target - mirrors .github/workflows/ci.yml: lint, race tests gated at
+# 60% total coverage, and a vulnerability scan.
 .PHONY: ci
-ci: deps test lint build
+ci: lint
+	@echo "Running tests with coverage..."
+	$(GOTEST) -race -coverprofile=coverage.out ./...
+	$(GOCMD) tool cover -func=coverage.out
+	@echo "Enforcing minimum coverage..."
+	@total=$$($(GOCMD) tool cover -func=coverage.out | tail -1 | awk '{print $$3}' | tr -d '%'); \
+	threshold=60; \
+	echo "Total coverage: $${total}% (minimum: $${threshold}%)"; \
+	awk -v total="$$total" -v threshold="$$threshold" 'BEGIN { exit (total + 0 < threshold) }' \
+		|| { echo "Coverage dropped below $${threshold}%"; exit 1; }
+	@echo "Running vulnerability scan..."
+	@if command -v govulncheck >/dev/null 2>&1; then \
+		govulncheck ./...; \
+	else \
+		echo "govulncheck not installed. Install with: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
+		exit 1; \
+	fi
 	@echo "CI checks complete!"
 
 # Development mode - build and run with file watching (requires entr)
@@ -257,9 +267,8 @@ help:
 	@echo "  demo              Re-record demo.gif with VHS (plays audio)"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
-	@echo "  security          Run security scan (gosec)"
 	@echo "  check             Run lint, test, and vet"
-	@echo "  ci                Run CI pipeline (deps, test, lint, build)"
+	@echo "  ci                Mirror CI: lint, coverage-gated race tests, govulncheck"
 	@echo "  dev               Development mode with file watching"
 	@echo "  help              Show this help message"
 	@echo ""
