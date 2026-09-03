@@ -35,7 +35,8 @@ specific binaries.
   every push and PR too, not only on release day: `ci.yml`'s
   `build-linux-arm64` and `build-darwin-universal` jobs mirror the build
   steps `release.yml` runs, without the packaging around them.
-- The binary is unsigned; signing and notarization are planned and need an
-  Apple Developer ID first (TODO.md).
+- Signing and notarization are wired into the release workflow and switch
+  on once the Developer ID secrets exist (ADR-0029); until then the
+  binary ships unsigned.
 - No service unit is packaged yet although the README recommends a service
   manager (TODO.md).

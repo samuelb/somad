@@ -169,6 +169,12 @@ jobs:
     permissions:
       contents: read
     runs-on: macos-latest
+    env:
+      # Signing and notarization run only when the Developer ID secrets are
+      # configured (ADR-0029); without them the job ships an unsigned build
+      # exactly as before. `secrets` is not usable in a job-level `if`, so
+      # the presence check is materialized here.
+      HAS_SIGNING: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -195,8 +201,68 @@ jobs:
           lipo -create -output dist/soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
           lipo -info dist/soma_darwin_universal
 
+      - name: Import the Developer ID certificate
+        if: env.HAS_SIGNING == 'true'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          # A throwaway keychain holds the identity for this job only; it is
+          # deleted in the cleanup step below even when signing fails.
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -f pkcs12 -A -t cert -k "$KEYCHAIN"
+          rm -f "$RUNNER_TEMP/cert.p12"
+          # Let codesign use the key without a UI prompt.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+          if [ -z "$IDENTITY" ]; then
+            echo "no Developer ID Application identity in the imported certificate" >&2
+            exit 1
+          fi
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Sign the binary
+        if: env.HAS_SIGNING == 'true'
+        # Hardened runtime and a secure timestamp are what notarization
+        # requires. The Cocoa tray needs no entitlements.
+        run: |
+          codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp \
+            dist/soma_darwin_universal
+          codesign --verify --strict --verbose=2 dist/soma_darwin_universal
+
       - name: Build .dmg
         run: packaging/macos/build-dmg.sh dist/soma_darwin_universal dist
+
+      - name: Notarize and staple the .dmg
+        if: env.HAS_SIGNING == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        # Notarizing the image also registers the ticket for the signed binary
+        # inside it, so the bare soma_darwin_universal download passes
+        # Gatekeeper online too; only the .dmg can carry a stapled ticket.
+        run: |
+          codesign --force --sign "$SIGNING_IDENTITY" --timestamp dist/soma-macos.dmg
+          xcrun notarytool submit dist/soma-macos.dmg \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            --wait --timeout 30m
+          xcrun stapler staple dist/soma-macos.dmg
+          spctl --assess --type open --context context:primary-signature --verbose=2 dist/soma-macos.dmg
+
+      - name: Remove the signing keychain
+        if: always() && env.SIGNING_KEYCHAIN != ''
+        run: security delete-keychain "$SIGNING_KEYCHAIN"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

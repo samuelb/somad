@@ -71,15 +71,6 @@ Ordered roughly by value ÷ effort.
       `ws.audioscrobbler.com` needs an explicit second allowlist entry
       rather than a widening; and the artist/title split above is a
       prerequisite.
-- [ ] **macOS signing + notarization** [L, planned — research first].
-      README's `xattr -d com.apple.quarantine` workaround is the tell;
-      `build-darwin` goes `go build` → `lipo` → `build-dmg.sh` → upload
-      with no `codesign` or `notarytool` anywhere. Needs an Apple Developer
-      ID ($99/yr), .p12 secrets handling in the workflow, and a
-      hardened-runtime check against the cgo/Cocoa tray. The workflow
-      change itself is small once the identity exists. Blocked on reading
-      up on the notarization flow first.
-
 ## P3 — polish
 
 Small hygiene fixes first, then features, then code quality.

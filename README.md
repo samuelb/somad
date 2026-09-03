@@ -122,15 +122,16 @@ paru -S somad
 
 #### macOS
 
-After downloading, you may need to grant permission to run the application since it is not signed.
-
-To do this, open a terminal and run:
+Releases are signed and notarized when they were built with the project's
+Apple Developer ID; the `.dmg` then opens without any prompt. If macOS
+refuses to run the binary (a build from source, or a release made before
+signing was set up), remove the quarantine flag once:
 
 ```sh
 xattr -d com.apple.quarantine /path/to/soma
 ```
 
-Alternatively, you can go to `System Preferences > Security & Privacy > General` and click `Open Anyway`.
+Alternatively, go to `System Settings > Privacy & Security` and click `Open Anyway`.
 
 #### Linux
 

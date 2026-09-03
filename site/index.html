@@ -197,7 +197,9 @@ nix profile install github:samuelb/somad</code></pre>
             <li><code>soma_darwin_universal</code>: the same build as a bare binary.</li>
             <li><code>soma_linux_amd64</code> and <code>soma_linux_arm64</code>: Linux.</li>
           </ul>
-          <p>The macOS binary is not signed, so remove the quarantine flag once (or use
+          <p>Releases are signed and notarized when built with the project's Apple Developer ID.
+            If macOS still refuses to run the binary (a source build, or an older unsigned
+            release), remove the quarantine flag once (or use
             <em>Privacy &amp; Security › Open Anyway</em>). On Linux, make it executable:</p>
           <pre><code>xattr -d com.apple.quarantine ./soma   <span class="c"># macOS</span>
 chmod +x ./soma                        <span class="c"># Linux</span></code></pre>
