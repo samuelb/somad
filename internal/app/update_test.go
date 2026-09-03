@@ -479,6 +479,43 @@ func TestUpdate_FavoriteKey_TogglesSelected(t *testing.T) {
 	assert.Equal(t, []string{"dronezone"}, backend(m).favorites)
 }
 
+func TestUpdate_FavoritesOnlyKey_TogglesView(t *testing.T) {
+	m := newTestModel(t)
+	m.Favorites = []string{"dronezone"}
+	require.Len(t, m.List.Items(), len(testChannels()))
+
+	sendKey(m, 'F')
+
+	assert.True(t, m.FavoritesOnly)
+	require.Len(t, m.List.Items(), 1, "only the favorite channel is shown")
+	sel, ok := m.List.Items()[0].(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, "dronezone", sel.Channel.ID)
+	assert.Contains(t, m.RenderHeader(), "Favorites", "the active filter shows in the title line")
+
+	sendKey(m, 'F')
+
+	assert.False(t, m.FavoritesOnly)
+	assert.Len(t, m.List.Items(), len(testChannels()), "toggling off restores the full list")
+}
+
+func TestUpdate_FavoritesOnlyKey_CombinesWithSearch(t *testing.T) {
+	m := newTestModel(t)
+	m.Favorites = []string{"dronezone"}
+	m.SearchQuery = "ambient"
+	m.UpdateSearchMatches()
+	// Both Groove Salad's and Drone Zone's descriptions mention "ambient",
+	// but only Drone Zone is a favorite.
+	require.Len(t, m.List.Items(), 2)
+
+	sendKey(m, 'F')
+
+	require.Len(t, m.List.Items(), 1, "the favorites-only filter applies on top of the search filter")
+	sel, ok := m.List.Items()[0].(ui.Item)
+	require.True(t, ok)
+	assert.Equal(t, "dronezone", sel.Channel.ID)
+}
+
 func TestUpdate_ClearSearch_ClearsQuery(t *testing.T) {
 	m := newTestModel(t)
 	m.SearchQuery = "groove"

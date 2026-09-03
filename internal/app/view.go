@@ -18,7 +18,11 @@ import (
 func (m *Model) RenderHeader() string {
 	leftColWidth, listenerColWidth := ui.CalculateColumnWidths(m.List.Width())
 
-	title := ui.TitleStyle.Width(leftColWidth).Render("SomaFM Stations")
+	titleText := "SomaFM Stations"
+	if m.FavoritesOnly {
+		titleText += " · Favorites"
+	}
+	title := ui.TitleStyle.Width(leftColWidth).Render(titleText)
 	listenerHeader := lipgloss.NewStyle().
 		Foreground(ui.SubtleColor).
 		Width(listenerColWidth).

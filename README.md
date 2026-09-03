@@ -381,6 +381,7 @@ speak the same protocol version.
 | <kbd>+</kbd> / <kbd>-</kbd>         | Volume up / down (<kbd>=</kbd> / <kbd>_</kbd> work too) |
 | <kbd>m</kbd>                        | Toggle mute (restores the previous level) |
 | <kbd>f</kbd> / <kbd>*</kbd>         | Toggle favorite                 |
+| <kbd>F</kbd>                        | Toggle a favorites-only view (combines with the search filter) |
 | <kbd>/</kbd>                        | Search channels: type to filter the list, Enter keeps the filter |
 | <kbd>n</kbd> / <kbd>N</kbd>         | Next / previous search match    |
 | <kbd>c</kbd>                        | Clear the search                |

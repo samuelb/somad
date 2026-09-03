@@ -24,13 +24,19 @@ func PrintableRunes(runes []rune) string {
 }
 
 // refreshVisibleItems recomputes which of the model's allItems are shown in
-// m.List: everything while no search query is active, or a fuzzy
-// matches-only subset while one is. It keeps the cursor on the channel
-// identified by keepID when that channel is still visible, or on the first
-// item otherwise. Callers (search and the channels-event handler) all
-// funnel through this so the list and the search state never disagree.
+// m.List: the favorites-only filter (if active), then a fuzzy matches-only
+// subset on top of that (if a search query is active). It keeps the cursor
+// on the channel identified by keepID when that channel is still visible,
+// or on the first item otherwise. Callers (search, favorites, and the
+// channels-event handler) all funnel through this so the list and the
+// filter state never disagree.
 func (m *Model) refreshVisibleItems(keepID string) {
 	items := m.allItems
+	if m.FavoritesOnly {
+		items = filterItems(items, func(i ui.Item) bool {
+			return m.isFavoriteID(i.Channel.ID)
+		})
+	}
 
 	if m.SearchQuery == "" {
 		m.SearchMatches = nil
@@ -57,6 +63,18 @@ func (m *Model) refreshVisibleItems(keepID string) {
 	}
 	m.CurrentMatch = 0
 	m.List.Select(0)
+}
+
+// filterItems returns the items for which keep reports true, preserving
+// their relative order.
+func filterItems(items []list.Item, keep func(ui.Item) bool) []list.Item {
+	out := make([]list.Item, 0, len(items))
+	for _, it := range items {
+		if i, ok := it.(ui.Item); ok && keep(i) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // itemFieldSource adapts a []list.Item slice and a field accessor to

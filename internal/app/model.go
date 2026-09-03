@@ -68,10 +68,13 @@ type Model struct {
 	SearchQuery   string // Current search query
 	SearchMatches []int  // Indices into m.List.Items() of matching items
 	CurrentMatch  int    // Current position in searchMatches (-1 if none)
+	// FavoritesOnly restricts the list to favorite channels, applied on top
+	// of the search filter above; see refreshVisibleItems.
+	FavoritesOnly bool
 
 	// allItems is the full, favorites-sorted catalog. m.List.Items() shows
-	// either allItems or a filtered subset of it; see refreshVisibleItems
-	// in search.go.
+	// either allItems or a filtered subset of it (search and/or
+	// FavoritesOnly); see refreshVisibleItems in search.go.
 	allItems []list.Item
 }
 

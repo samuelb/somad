@@ -127,6 +127,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f", "*":
 			// Toggle favorite on selected channel
 			return m, m.ToggleFavorite()
+		case "F":
+			// Toggle a favorites-only view, applied on top of the search
+			// filter via the shared refreshVisibleItems plumbing.
+			m.FavoritesOnly = !m.FavoritesOnly
+			var selectedID string
+			if sel, ok := m.List.SelectedItem().(ui.Item); ok {
+				selectedID = sel.Channel.ID
+			}
+			m.refreshVisibleItems(selectedID)
+			return m, nil
 		case "+", "=":
 			return m, m.setVolumeCmd(m.Snapshot.Volume + volumeStep)
 		case "-", "_":
@@ -237,6 +247,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
 		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
 		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
+		key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "favorites-only view")),
 		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume (also =/_)")),
 		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
 		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter channels")),
