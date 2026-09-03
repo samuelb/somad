@@ -133,11 +133,18 @@ uninstall:
 	rm -f $(GOBIN)/$(BINARY_NAME)
 	@echo "Uninstall complete"
 
-# Build a Debian package from the local binary
+# Build a Debian package from the local binary with nfpm (the same config
+# the release workflow uses). The binary must be a Linux build for DEB_ARCH.
 .PHONY: package-deb
 package-deb: build
 	@echo "Building Debian package..."
-	packaging/deb/build-deb.sh "$(VERSION)" "$(BUILD_DIR)/$(BINARY_NAME)" "$(DEB_ARCH)" dist
+	@if ! command -v nfpm >/dev/null 2>&1; then \
+		echo "nfpm not installed. Install from https://nfpm.goreleaser.com/install/"; \
+		exit 1; \
+	fi
+	mkdir -p dist
+	NFPM_VERSION="$(VERSION:v%=%)" NFPM_ARCH="$(DEB_ARCH)" NFPM_BINARY="$(BUILD_DIR)/$(BINARY_NAME)" \
+		nfpm package -f packaging/nfpm.yaml -p deb -t "dist/somad_$(VERSION:v%=%)_linux_$(DEB_ARCH).deb"
 
 # Build the default Nix package
 .PHONY: package-nix
@@ -213,7 +220,7 @@ help:
 	@echo "  deps-update       Update dependencies"
 	@echo "  install           Install binary to \$$GOBIN"
 	@echo "  uninstall         Remove binary from \$$GOBIN"
-	@echo "  package-deb       Build a .deb package in dist/"
+	@echo "  package-deb       Build a .deb package in dist/ with nfpm"
 	@echo "  package-nix       Build the Nix flake package"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
