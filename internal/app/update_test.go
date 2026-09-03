@@ -271,6 +271,19 @@ func TestUpdate_PlayKey_DoesNotRestartWhenVersionsMatch(t *testing.T) {
 	assert.Equal(t, []string{"dronezone"}, backend(m).playIDs)
 }
 
+func TestUpdate_PlayKey_DoesNotRestartWhenClientIsDev(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "dev"
+	m.ServerVersion = "1.2.3" // differs, but a dev client is exempt
+	m.List.Select(1)
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(cmd)
+
+	assert.Zero(t, backend(m).shutdowns, "a dev client must not restart a differently-versioned server")
+	assert.Equal(t, []string{"dronezone"}, backend(m).playIDs)
+}
+
 func TestUpdate_VolumeKeys_AdjustVolume(t *testing.T) {
 	m := newTestModel(t)
 	m.Snapshot.Volume = 0.5

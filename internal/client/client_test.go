@@ -386,6 +386,26 @@ func TestEnsureServerForPlayback_RestartsPlayingSkewedServer(t *testing.T) {
 	}
 }
 
+func TestEnsureServerForPlayback_DevClientNeverRestartsSkewedServer(t *testing.T) {
+	path := testSocketPath(t)
+	startOutdatedServer(t, path, "1.2.3", protocol.StatusPlaying, "groovesalad", make(chan string, 1))
+
+	prev := spawnServer
+	spawned := false
+	spawnServer = func() error { spawned = true; return nil }
+	t.Cleanup(func() { spawnServer = prev })
+
+	c, hr, err := EnsureServerForPlayback(UnixEndpoint(path), "dev")
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	// A "dev" client is exempt from the skew restart even for a playback
+	// command, so two local installs (a go-build dev binary and a release)
+	// do not fight over restarting the daemon.
+	assert.Equal(t, "1.2.3", hr.ServerVersion)
+	assert.False(t, spawned, "a dev client must not restart a differently-versioned server")
+}
+
 func TestEnsureServer_FallsBackWhenStaleServerWontExit(t *testing.T) {
 	path := testSocketPath(t)
 	// A stubborn old server: answers Shutdown but keeps listening, as if it

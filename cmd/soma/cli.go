@@ -74,7 +74,7 @@ func dialServer() (*client.Client, string, bool) {
 // skewed server is tolerated (the hello handshake already checked that it
 // speaks our protocol version).
 func restartForUpgrade(c *client.Client, serverVersion string) *client.Client {
-	if serverVersion == version || !endpoint.IsLocal() {
+	if !client.VersionSkewed(version, serverVersion) || !endpoint.IsLocal() {
 		return c
 	}
 	nc, _, err := client.Restart(c, endpoint, version)
@@ -321,7 +321,7 @@ func runPause() {
 	}
 	defer func() { _ = c.Close() }()
 
-	if serverVersion != version && endpoint.IsLocal() {
+	if client.VersionSkewed(version, serverVersion) && endpoint.IsLocal() {
 		// Pausing interrupts playback anyway, so upgrade the server now. The
 		// fresh server starts stopped: if music was playing, that stopped state
 		// *is* the pause; if it was already paused, unpausing means resuming the

@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 
+	"somad/internal/client"
 	"somad/internal/protocol"
 	"somad/internal/ui"
 
@@ -69,7 +70,7 @@ func (m *Model) Init() tea.Cmd {
 // skewed reports whether the connected server runs a different version than the
 // client, meaning the next channel change or stop should restart it onto ours.
 func (m *Model) skewed() bool {
-	return m.ServerVersion != "" && m.ServerVersion != m.About.Version
+	return m.ServerVersion != "" && client.VersionSkewed(m.About.Version, m.ServerVersion)
 }
 
 // applySnapshot installs a playback snapshot and derives the delegate's

@@ -89,7 +89,7 @@ func EnsureServer(ep Endpoint, clientVersion string) (*Client, protocol.HelloRes
 	if err != nil {
 		return nil, hr, err
 	}
-	if hr.ServerVersion == clientVersion || !ep.IsLocal() {
+	if !VersionSkewed(clientVersion, hr.ServerVersion) || !ep.IsLocal() {
 		return c, hr, nil
 	}
 	// Skewed but playing: leave it be. Restarting would interrupt the stream,
@@ -114,7 +114,7 @@ func EnsureServerForPlayback(ep Endpoint, clientVersion string) (*Client, protoc
 	if err != nil {
 		return nil, hr, err
 	}
-	if hr.ServerVersion == clientVersion || !ep.IsLocal() {
+	if !VersionSkewed(clientVersion, hr.ServerVersion) || !ep.IsLocal() {
 		return c, hr, nil
 	}
 	return Restart(c, ep, clientVersion)

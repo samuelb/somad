@@ -1,8 +1,9 @@
 # ADR-0006: Restart a version-skewed daemon only at moments that already interrupt playback
 
 - **Status:** Accepted
-- **Date:** 2026-07-05 (refined 2026-07-12)
-- **Sources:** e5620c4, 9936858, 59fccbd, a396db0; `internal/client/spawn.go`; rejection of semver ordering on 2026-09-03
+- **Date:** 2026-07-05 (refined 2026-07-12, dev exemption added 2026-09-03)
+- **Sources:** e5620c4, 9936858, 59fccbd, a396db0; `internal/client/spawn.go`,
+  `internal/client/version.go`; rejection of semver ordering on 2026-09-03
 
 ## Context
 
@@ -21,14 +22,20 @@ is no urgency.
   the upgrade."
 - Remote (`--server`) endpoints are never spawned and never restarted; an
   unreachable one is an error and a skewed one is left alone.
+- Skew is plain string inequality (`client.VersionSkewed`, one exported
+  helper shared by `internal/client/spawn.go`, `cmd/soma/cli.go`, and
+  `Model.skewed` in `internal/app/model.go`), with one exemption: `"dev"`
+  on either side never counts as skew. A `go build` dev binary and an
+  installed release running on the same machine would otherwise restart
+  the daemon onto each other on every channel change.
 
 ## Consequences
 
 - Music is never cut off for an upgrade; the daemon upgrades itself at the
   next natural interruption.
-- Skew is detected by string inequality, so a `go build` dev binary and an
-  installed release restart the daemon onto each other. Exempting the
-  `dev` version is the planned fix (TODO.md).
+- Two local installs — a dev build and a release — coexist without fighting
+  over the daemon, at the cost of never auto-upgrading a dev daemon (or
+  onto a dev client): that pairing is left running whatever it already is.
 
 ## Rejected alternatives
 
