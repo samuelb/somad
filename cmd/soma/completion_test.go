@@ -47,7 +47,7 @@ func TestCompletionScriptsCoverCLI(t *testing.T) {
 		"--shutdown-on-exit",
 		// daemon flags
 		"--idle-timeout", "--no-tray", "--quality", "--listen", "--tls-cert", "--tls-key",
-		"--show-cert",
+		"--gen-psk", "--show-cert",
 		// per-command output flag
 		"--json",
 	}

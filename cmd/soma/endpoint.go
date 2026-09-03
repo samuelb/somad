@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"syscall"
 
 	"somad/internal/client"
 	"somad/internal/config"
@@ -93,8 +94,16 @@ func firstNonEmpty(a, b string) string {
 }
 
 // readPSKFile reads a pre-shared key from a file, trimming surrounding
-// whitespace (hand-written key files inevitably end in a newline).
+// whitespace (hand-written key files inevitably end in a newline). The file
+// must pass the same SSH-style permission check the daemon (which also
+// calls this, for its own --psk-file) applies to the socket directory in
+// internal/protocol.EnsureSocketDir: anyone who can read the PSK controls
+// playback (and can shut the daemon down), so it must not be group- or
+// world-readable, nor owned by another user.
 func readPSKFile(path string) (string, error) {
+	if err := checkPSKFilePermissions(path); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(path) // #nosec G304 -- path comes from the user's own config/flags
 	if err != nil {
 		return "", fmt.Errorf("reading PSK file: %w", err)
@@ -104,4 +113,29 @@ func readPSKFile(path string) (string, error) {
 		return "", fmt.Errorf("PSK file %s is empty", path)
 	}
 	return psk, nil
+}
+
+// checkPSKFilePermissions rejects a PSK file that is readable by group or
+// others, or owned by a different user than the one running soma.
+func checkPSKFilePermissions(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat PSK file: %w", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("PSK file %s must not be accessible by group or others (chmod 600 it, or regenerate it with soma daemon --gen-psk)", path)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("could not inspect owner of PSK file %s", path)
+	}
+	uid := os.Getuid()
+	if uid < 0 || uid > int(^uint32(0)) {
+		return fmt.Errorf("current uid %d cannot be represented for PSK file owner check", uid)
+	}
+	currentUID := uint32(uid)
+	if st.Uid != currentUID {
+		return fmt.Errorf("PSK file %s is owned by uid %d, not current uid %d", path, st.Uid, currentUID)
+	}
+	return nil
 }

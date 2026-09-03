@@ -226,7 +226,7 @@ background if one isn't running yet.
 | `soma status [--json]`     | Show what is playing                                     |
 | `soma volume [--json] [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
 | `soma volume mute [--json]` | Toggle mute, restoring the previous volume          |
-| `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp)) |
+| `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp); `--gen-psk` generates a pre-shared key) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
 | `soma --version`           | Print version information                                |
@@ -294,23 +294,31 @@ quality you asked for falls back to the nearest one it does have.
 
 By default the daemon only listens on a local Unix socket. To control a soma
 daemon on another machine — say, a server wired to the living-room speakers —
-make it additionally listen on TCP:
+generate a pre-shared key and make it additionally listen on TCP:
 
 ```sh
 # on the machine with the speakers
+soma daemon --gen-psk
 soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk
 ```
 
-`--tls` encrypts the connection; when you don't provide a certificate
+`soma daemon --gen-psk` writes 32 random bytes to the PSK file (the path
+from `--psk-file`/`server.psk_file`, defaulting to a `psk` file next to the
+[configuration file](#configuration)) at file mode `0600` and refuses to
+overwrite an existing one, so there's no need to invent or type a key by
+hand. `--tls` encrypts the connection; when you don't provide a certificate
 (`--tls-cert`/`--tls-key`), a self-signed one is generated once in the state
 directory and reused. The daemon prints its SHA-256 fingerprint at startup,
-and `soma daemon --show-cert` reprints it any time. `--psk-file` points at a
-file holding a pre-shared key (any secret string) that TCP clients must know;
-the key is verified with an HMAC challenge–response, so it never travels over
-the wire. Local Unix-socket clients are exempt from it.
+and `soma daemon --show-cert` reprints it any time. `--psk-file` points at
+that key, which TCP clients must know; it is verified with an HMAC
+challenge–response, so it never travels over the wire. Local Unix-socket
+clients are exempt from it. Both the daemon and any client reading a PSK
+file reject one that is readable by group or others, or owned by another
+user (`chmod 600` it, or let `--gen-psk` create it with the right mode).
 
-On the laptop, point the frontend at the server, pin the certificate by the
-fingerprint you just read, and hand it the same key:
+On the laptop, copy the key over (e.g. `scp myserver:~/.config/somad/psk
+~/somad-psk`), point the frontend at the server, and pin the certificate by
+the fingerprint you just read:
 
 ```sh
 soma --server myserver:5454 --tls-fingerprint sha256:... --psk-file ~/somad-psk
@@ -398,9 +406,11 @@ server:
   # tls_cert/tls_key point at your own PEM pair). Same as --tls.
   tls: true
 
-  # Require TCP clients to present this pre-shared key; psk_file reads it
-  # from a file instead (same as --psk-file). Set at most one of the two.
-  psk: "change-me"
+  # Require TCP clients to present this pre-shared key. Generate one with
+  # "soma daemon --gen-psk" and point psk_file at it (same as --psk-file)
+  # instead of writing the secret here; psk and psk_file are mutually
+  # exclusive.
+  psk_file: ~/.config/somad/psk
 
 client:
   # Connect the TUI and CLI to a remote soma daemon instead of the local
@@ -412,8 +422,9 @@ client:
   # `tls: true` uses the system trust store.
   tls_fingerprint: "sha256:..."
 
-  # Pre-shared key matching the server's psk; psk_file reads it from a file.
-  psk: "change-me"
+  # Pre-shared key matching the server's psk — read it from the same file
+  # "soma daemon --gen-psk" wrote instead of copying it here.
+  psk_file: ~/somad-psk
 
 tui:
   # Stop playback and shut down the server when the TUI exits.

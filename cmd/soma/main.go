@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -212,8 +214,9 @@ func printUsage(w io.Writer) {
                                   --quality prefers a stream quality; --listen
                                   <host:port> also serves frontends over TCP,
                                   --tls encrypts it, --psk-file requires a
-                                  pre-shared key, --show-cert prints the TLS
-                                  certificate fingerprint)
+                                  pre-shared key, --gen-psk generates one,
+                                  --show-cert prints the TLS certificate
+                                  fingerprint)
   soma daemon stop            shut down the playback server
   soma completion <bash|zsh>  print a completion script for the given shell
   soma --version              print version information
@@ -233,16 +236,16 @@ machine instead of the local one:
 Server and connection flags can also be set in %s
 (explicit flags take precedence), for example:
   server:
-    idle_timeout: 5m   # exit after this long idle (default "0": never)
-    tray: false        # hide the tray / menu-bar icon
-    quality: high      # preferred stream quality (default "highest")
-    listen: ":5454"    # also serve frontends over TCP
-    tls: true          # ...encrypted (auto-generated certificate)
-    psk: "secret"      # ...and authenticated
+    idle_timeout: 5m       # exit after this long idle (default "0": never)
+    tray: false            # hide the tray / menu-bar icon
+    quality: high          # preferred stream quality (default "highest")
+    listen: ":5454"        # also serve frontends over TCP
+    tls: true              # ...encrypted (auto-generated certificate)
+    psk_file: ~/.config/somad/psk  # ...and authenticated (soma daemon --gen-psk writes it)
   client:
     server: "myserver:5454"
     tls_fingerprint: "sha256:..."
-    psk: "secret"
+    psk_file: ~/.config/somad/psk
   tui:
     shutdown_on_exit: true
 `, path)
@@ -305,7 +308,25 @@ func runServer(args []string) {
 		"serve a non-loopback --listen address even without TLS and a PSK")
 	showCert := fs.Bool("show-cert", false,
 		"print the TLS certificate path and fingerprint, then exit")
+	genPSK := fs.Bool("gen-psk", false,
+		`generate a random pre-shared key at --psk-file (or a "psk" file in the config directory when unset), then exit`)
 	_ = fs.Parse(args)
+
+	if *genPSK {
+		path := *pskFile
+		if path == "" {
+			dir, err := config.Dir()
+			if err != nil {
+				log.Fatalf("error resolving the config directory: %v", err)
+			}
+			path = filepath.Join(dir, "psk")
+		}
+		if err := writeGeneratedPSK(path); err != nil {
+			log.Fatalf("error generating the PSK file: %v", err)
+		}
+		fmt.Printf("generated a pre-shared key at %s\n", path)
+		return
+	}
 
 	switch *quality {
 	case "", "highest", "high", "low":
@@ -472,6 +493,48 @@ func ensureCertPair(certPath, keyPath, listenAddr string) (string, string, error
 		log.Printf("generated a self-signed TLS certificate at %s", certPath)
 	}
 	return certPath, keyPath, nil
+}
+
+// pskBytes is the amount of randomness in a generated pre-shared key.
+const pskBytes = 32
+
+// generatePSK returns pskBytes of randomness, hex-encoded so the resulting
+// file is a single printable line suitable for --psk-file.
+func generatePSK() (string, error) {
+	b := make([]byte, pskBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating random key: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// writeGeneratedPSK generates a fresh pre-shared key and writes it to path
+// at 0600, refusing to overwrite an existing file: O_EXCL makes "create only
+// if missing" atomic, the same approach config.EnsureTemplate uses so a
+// hand-edited (or previously generated) file can never be clobbered.
+func writeGeneratedPSK(path string) error {
+	psk, err := generatePSK()
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- path comes from the user's own config/flags
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("%s already exists; refusing to overwrite it", path)
+		}
+		return fmt.Errorf("creating PSK file: %w", err)
+	}
+	_, werr := fmt.Fprintln(f, psk)
+	cerr := f.Close()
+	if werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		// Remove the partial file so a retry doesn't trip over O_EXCL.
+		_ = os.Remove(path)
+		return fmt.Errorf("writing PSK file: %w", werr)
+	}
+	return nil
 }
 
 // checkTCPSecurity rejects a non-loopback TCP listener that lacks TLS or a

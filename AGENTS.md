@@ -97,9 +97,9 @@ playback server in the foreground (`daemon stop` shuts it down); `play`,
 `volume`, `completion <bash|zsh>`, `version`. Global connection flags
 (`--server`, `--tls`, `--tls-ca`, `--tls-fingerprint`, `--psk-file`) go
 before the command; daemon flags (`--idle-timeout`, `--no-tray`, `--quality`,
-`--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`, `--insecure`,
-`--show-cert`) go after it. `play`, `list`, `favorite`, `next`, `prev`,
-`pause`, `stop`, `status`, `volume` all take `--json`.
+`--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`, `--gen-psk`,
+`--insecure`, `--show-cert`) go after it. `play`, `list`, `favorite`,
+`next`, `prev`, `pause`, `stop`, `status`, `volume` all take `--json`.
 
 **Environment**: `SOMAD_SOCKET` (socket path), `SOMAD_SERVER` (host:port,
 like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`

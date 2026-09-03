@@ -29,6 +29,19 @@ func TestPathUsesXDGOverride(t *testing.T) {
 	assert.Equal(t, filepath.Join("/custom/config", appDirName, configFileName), path)
 }
 
+func TestDirCreatesAndReturnsTheConfigDirectory(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", base)
+
+	dir, err := Dir()
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(base, appDirName), dir)
+	info, statErr := os.Stat(dir)
+	require.NoError(t, statErr)
+	assert.True(t, info.IsDir())
+}
+
 func TestLoadMissingFileIsEmptyConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg, err := Load()

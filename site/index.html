@@ -267,7 +267,7 @@ systemctl --user enable --now soma.service</code></pre>
               <tr><td><code>soma status [--json]</code></td><td>Show what is playing</td></tr>
               <tr><td><code>soma volume [--json] [&lt;0-100&gt;|+n|-n]</code></td><td>Show the volume, set it, or adjust it relative to the current value</td></tr>
               <tr><td><code>soma volume mute [--json]</code></td><td>Toggle mute, restoring the previous volume</td></tr>
-              <tr><td><code>soma daemon</code></td><td>Run the daemon in the foreground (<code>--no-tray</code> hides the tray icon; <code>--listen</code>, <code>--tls</code>, <code>--psk-file</code> serve <a href="#remote-control">remote frontends</a>)</td></tr>
+              <tr><td><code>soma daemon</code></td><td>Run the daemon in the foreground (<code>--no-tray</code> hides the tray icon; <code>--listen</code>, <code>--tls</code>, <code>--psk-file</code> serve <a href="#remote-control">remote frontends</a>; <code>--gen-psk</code> generates a pre-shared key)</td></tr>
               <tr><td><code>soma daemon stop</code></td><td>Shut down the daemon</td></tr>
               <tr><td><code>soma completion &lt;bash|zsh&gt;</code></td><td>Print a completion script for the given shell</td></tr>
               <tr><td><code>soma --version</code></td><td>Print version information</td></tr>
@@ -328,21 +328,28 @@ systemctl --user enable --now soma.service</code></pre>
       <div class="two-col">
         <div>
           <p>By default the daemon only listens on a local Unix socket. To control a daemon on
-            another machine, say a server wired to the living-room speakers, make it additionally
-            listen on TCP:</p>
+            another machine, say a server wired to the living-room speakers, generate a
+            pre-shared key and make it additionally listen on TCP:</p>
           <pre><code><span class="c"># on the machine with the speakers</span>
+soma daemon --gen-psk
 soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk</code></pre>
-          <p><code>--tls</code> encrypts the connection; without your own certificate
-            (<code>--tls-cert</code>/<code>--tls-key</code>) a self-signed one is generated once and
-            reused. The daemon prints its SHA-256 fingerprint at startup, and
-            <code>soma daemon --show-cert</code> reprints it. <code>--psk-file</code> points at a file
-            holding a pre-shared key that TCP clients must know; it is verified with an HMAC
-            challenge-response and never travels over the wire.</p>
+          <p><code>soma daemon --gen-psk</code> writes 32 random bytes to the PSK file
+            (<code>--psk-file</code>/<code>server.psk_file</code>, defaulting to a <code>psk</code>
+            file next to the <a href="#configuration">configuration file</a>) at mode
+            <code>0600</code>, refusing to overwrite an existing one. <code>--tls</code> encrypts
+            the connection; without your own certificate (<code>--tls-cert</code>/<code>--tls-key</code>)
+            a self-signed one is generated once and reused. The daemon prints its SHA-256
+            fingerprint at startup, and <code>soma daemon --show-cert</code> reprints it.
+            <code>--psk-file</code> points at that key, which TCP clients must know; it is verified
+            with an HMAC challenge-response and never travels over the wire. Both the daemon and
+            any client reject a PSK file that is readable by group or others, or owned by another
+            user.</p>
         </div>
         <div>
-          <p>On the laptop, point the frontend at the server, pin the certificate by its
-            fingerprint, and hand it the same key:</p>
-          <pre><code>soma --server myserver:5454 \
+          <p>On the laptop, copy the key over, point the frontend at the server, and pin the
+            certificate by its fingerprint:</p>
+          <pre><code>scp myserver:~/.config/somad/psk ~/somad-psk
+soma --server myserver:5454 \
      --tls-fingerprint sha256:... \
      --psk-file ~/somad-psk</code></pre>
           <p>That works with every command, or permanently via <code>$SOMAD_SERVER</code> and the
@@ -393,15 +400,15 @@ soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk</code></p
   <span class="c"># ... encrypted (auto-generated certificate unless
   # tls_cert/tls_key point at your own PEM pair) ...</span>
   tls: true
-  <span class="c"># ... and authenticated (psk_file reads it from a file).</span>
-  psk: "change-me"
+  <span class="c"># ... and authenticated (soma daemon --gen-psk writes this file).</span>
+  psk_file: ~/.config/somad/psk
 
 client:
   <span class="c"># Connect the TUI and CLI to a remote daemon.</span>
   server: "myserver:5454"
   <span class="c"># Pin the server certificate, or trust a PEM via tls_ca.</span>
   tls_fingerprint: "sha256:..."
-  psk: "change-me"
+  psk_file: ~/somad-psk
 
 tui:
   <span class="c"># Stop playback and the daemon when the TUI exits.</span>

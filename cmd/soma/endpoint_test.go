@@ -81,6 +81,37 @@ func TestReadPSKFile_RejectsEmpty(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestCheckPSKFilePermissions_RejectsGroupAndWorldReadable(t *testing.T) {
+	for _, mode := range []os.FileMode{0o640, 0o604, 0o644, 0o660} {
+		t.Run(mode.String(), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "psk")
+			require.NoError(t, os.WriteFile(path, []byte("secret\n"), mode)) // #nosec G306 -- intentionally permissive for the rejection test
+
+			err := checkPSKFilePermissions(path)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "must not be accessible")
+		})
+	}
+}
+
+func TestCheckPSKFilePermissions_AcceptsOwnerOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "psk")
+	require.NoError(t, os.WriteFile(path, []byte("secret\n"), 0o600))
+
+	assert.NoError(t, checkPSKFilePermissions(path))
+}
+
+func TestReadPSKFile_RejectsGroupReadable(t *testing.T) {
+	pskPath := filepath.Join(t.TempDir(), "psk")
+	require.NoError(t, os.WriteFile(pskPath, []byte("secret\n"), 0o640)) // #nosec G306 -- intentionally permissive for the rejection test
+
+	_, err := readPSKFile(pskPath)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must not be accessible")
+}
+
 func TestResolveEndpoint_ConnFlagsWithoutServerAreAnError(t *testing.T) {
 	t.Setenv("SOMAD_SERVER", "")
 	for name, f := range map[string]connFlags{

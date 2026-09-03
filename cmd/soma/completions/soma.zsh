@@ -85,6 +85,7 @@ _soma() {
                 '--tls-cert[PEM certificate for the TCP listener (implies --tls)]:file:_files' \
                 '--tls-key[PEM private key belonging to --tls-cert]:file:_files' \
                 '--psk-file[file holding the pre-shared key TCP clients must authenticate with]:file:_files' \
+                '--gen-psk[generate a random pre-shared key at --psk-file, then exit]' \
                 '--insecure[serve a non-loopback --listen address even without TLS and a PSK]' \
                 '--show-cert[print the TLS certificate path and fingerprint, then exit]' \
                 '1:action:(stop)' && ret=0
