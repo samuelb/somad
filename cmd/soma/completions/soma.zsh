@@ -55,7 +55,9 @@ _soma() {
     args)
         case $words[1] in
         play)
-            _arguments '1:channel:_soma_channels' && ret=0
+            _arguments \
+                '--json[print machine-readable JSON]' \
+                '1:channel:_soma_channels' && ret=0
             ;;
         favorite | fav)
             _arguments \
@@ -65,8 +67,13 @@ _soma() {
         list | status)
             _arguments '--json[print machine-readable JSON]' && ret=0
             ;;
+        next | prev | pause | stop)
+            _arguments '--json[print machine-readable JSON]' && ret=0
+            ;;
         volume)
-            _message 'volume: 0-100 to set, +n/-n to adjust' && ret=0
+            _arguments \
+                '--json[print machine-readable JSON]' \
+                '1:volume (0-100, +n, -n):' && ret=0
             ;;
         daemon)
             _arguments \

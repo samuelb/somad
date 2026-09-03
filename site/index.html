@@ -256,20 +256,24 @@ systemctl --user enable --now soma.service</code></pre>
             <thead><tr><th>Command</th><th>Description</th></tr></thead>
             <tbody>
               <tr><td><code>soma</code></td><td>Start the TUI (spawns the daemon if needed); <code>--shutdown-on-exit</code> stops playback and the daemon on quit</td></tr>
-              <tr><td><code>soma play [channel]</code></td><td>Play a channel by ID or name match, or resume the last played channel when omitted</td></tr>
+              <tr><td><code>soma play [--json] [channel]</code></td><td>Play a channel by ID or name match, or resume the last played channel when omitted</td></tr>
               <tr><td><code>soma list [--json]</code></td><td>List all channels (favorites first, marked with <code>*</code>)</td></tr>
               <tr><td><code>soma favorite [--json] &lt;channel&gt;</code></td><td>Toggle a channel's favorite flag (<code>fav</code> works too)</td></tr>
-              <tr><td><code>soma next</code> / <code>soma prev</code></td><td>Play the next / previous channel (favorites first, wraps around)</td></tr>
-              <tr><td><code>soma pause</code></td><td>Toggle pause (live radio: unpausing rejoins the live stream)</td></tr>
-              <tr><td><code>soma stop</code></td><td>Stop playback</td></tr>
-              <tr><td><code>soma status [--json]</code></td><td>Show what is playing (<code>--json</code> for status bars and scripts)</td></tr>
-              <tr><td><code>soma volume [&lt;0-100&gt;|+n|-n]</code></td><td>Show the volume, set it, or adjust it relative to the current value</td></tr>
+              <tr><td><code>soma next [--json]</code> / <code>soma prev [--json]</code></td><td>Play the next / previous channel (favorites first, wraps around)</td></tr>
+              <tr><td><code>soma pause [--json]</code></td><td>Toggle pause (live radio: unpausing rejoins the live stream)</td></tr>
+              <tr><td><code>soma stop [--json]</code></td><td>Stop playback</td></tr>
+              <tr><td><code>soma status [--json]</code></td><td>Show what is playing</td></tr>
+              <tr><td><code>soma volume [--json] [&lt;0-100&gt;|+n|-n]</code></td><td>Show the volume, set it, or adjust it relative to the current value</td></tr>
               <tr><td><code>soma daemon</code></td><td>Run the daemon in the foreground (<code>--no-tray</code> hides the tray icon; <code>--listen</code>, <code>--tls</code>, <code>--psk-file</code> serve <a href="#remote-control">remote frontends</a>)</td></tr>
               <tr><td><code>soma daemon stop</code></td><td>Shut down the daemon</td></tr>
               <tr><td><code>soma completion &lt;bash|zsh&gt;</code></td><td>Print a completion script for the given shell</td></tr>
               <tr><td><code>soma --version</code></td><td>Print version information</td></tr>
             </tbody>
           </table>
+          <p><code>--json</code> on <code>play</code>, <code>next</code>, <code>prev</code>,
+            <code>pause</code>, <code>stop</code>, <code>status</code>, and <code>volume</code>
+            prints the resulting playback state as a single JSON line instead of the
+            human-readable message, for status bars and scripts.</p>
 
       <div class="two-col">
         <div>

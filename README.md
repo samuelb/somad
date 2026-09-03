@@ -215,14 +215,14 @@ background if one isn't running yet.
 | Command                    | Description                                              |
 | -------------------------- | -------------------------------------------------------- |
 | `soma`                     | Start the TUI (spawns the playback daemon if needed); `--shutdown-on-exit` stops playback and the server on quit |
-| `soma play [channel]`      | Play a channel by ID or name match, or resume the last played channel when omitted |
+| `soma play [--json] [channel]` | Play a channel by ID or name match, or resume the last played channel when omitted |
 | `soma list [--json]`       | List all channels (favorites first, marked with `*`)     |
 | `soma favorite [--json] <channel>` | Toggle a channel's favorite flag (`fav` works too) |
-| `soma next` / `soma prev`  | Play the next / previous channel (favorites first, wraps around) |
-| `soma pause`               | Toggle pause (live radio: unpausing rejoins the live stream) |
-| `soma stop`                | Stop playback                                            |
-| `soma status [--json]`     | Show what is playing (`--json` for status bars/scripts)  |
-| `soma volume [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
+| `soma next [--json]` / `soma prev [--json]` | Play the next / previous channel (favorites first, wraps around) |
+| `soma pause [--json]`      | Toggle pause (live radio: unpausing rejoins the live stream) |
+| `soma stop [--json]`       | Stop playback                                            |
+| `soma status [--json]`     | Show what is playing                                     |
+| `soma volume [--json] [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
 | `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp)) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
@@ -232,6 +232,12 @@ Every client command also accepts the connection flags described under
 [Remote control over TCP](#remote-control-over-tcp) (`--server`, `--tls`,
 `--tls-ca`, `--tls-fingerprint`, `--psk-file`), given before the command,
 to control a soma daemon running on another machine.
+
+`--json` on `play`, `next`, `prev`, `pause`, `stop`, `status`, and `volume`
+prints the resulting playback state as a single JSON line (channel, status,
+volume, track title, and so on) instead of the human-readable message, for
+status bars and scripts. `list` and `favorite` print their own JSON shapes
+(the channel catalog and the toggle result, respectively).
 
 ### Background playback
 

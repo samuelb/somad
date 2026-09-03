@@ -72,7 +72,11 @@ _soma() {
 
     case "$cmd" in
     play)
-        COMPREPLY=($(compgen -W "$(soma completion channels 2>/dev/null | cut -f1)" -- "$cur"))
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "--json" -- "$cur"))
+        else
+            COMPREPLY=($(compgen -W "$(soma completion channels 2>/dev/null | cut -f1)" -- "$cur"))
+        fi
         ;;
     favorite | fav)
         if [[ "$cur" == -* ]]; then
@@ -81,7 +85,7 @@ _soma() {
             COMPREPLY=($(compgen -W "$(soma completion channels 2>/dev/null | cut -f1)" -- "$cur"))
         fi
         ;;
-    list | status)
+    list | status | next | prev | pause | stop | volume)
         COMPREPLY=($(compgen -W "--json" -- "$cur"))
         ;;
     daemon)

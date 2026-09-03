@@ -215,6 +215,30 @@ func TestParseJSONFlag(t *testing.T) {
 	assert.True(t, jsonOut)
 }
 
+func TestStripJSONFlag(t *testing.T) {
+	rest, jsonOut := stripJSONFlag(nil)
+	assert.Empty(t, rest)
+	assert.False(t, jsonOut)
+
+	rest, jsonOut = stripJSONFlag([]string{"80"})
+	assert.Equal(t, []string{"80"}, rest)
+	assert.False(t, jsonOut)
+
+	// A leading negative number must not be mistaken for a flag: this is
+	// exactly the case the flag package can't handle for soma volume.
+	rest, jsonOut = stripJSONFlag([]string{"-30"})
+	assert.Equal(t, []string{"-30"}, rest)
+	assert.False(t, jsonOut)
+
+	rest, jsonOut = stripJSONFlag([]string{"--json"})
+	assert.Empty(t, rest)
+	assert.True(t, jsonOut)
+
+	rest, jsonOut = stripJSONFlag([]string{"--json", "-30"})
+	assert.Equal(t, []string{"-30"}, rest)
+	assert.True(t, jsonOut)
+}
+
 func TestChannelListEntries_MarksFavorites(t *testing.T) {
 	payload := protocol.ChannelsPayload{
 		Channels: []channels.Channel{

@@ -181,6 +181,19 @@ func TestRunPlay_NoArgResumesLastChannel(t *testing.T) {
 	assert.Equal(t, []string{"groovesalad"}, d.plays)
 }
 
+func TestRunPlay_JSON(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runPlay([]string{"--json", "groove"}) })
+
+	var st protocol.PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.Equal(t, protocol.StatusPlaying, st.Status)
+	assert.Equal(t, "groovesalad", st.ChannelID)
+	assert.Equal(t, "Groove Salad", st.ChannelTitle)
+	assert.Equal(t, []string{"groovesalad"}, d.plays)
+}
+
 func TestRunList_PlainAndJSON(t *testing.T) {
 	startFakeDaemon(t)
 
@@ -198,9 +211,22 @@ func TestRunList_PlainAndJSON(t *testing.T) {
 func TestRunStop_StopsPlayback(t *testing.T) {
 	d := startFakeDaemon(t)
 
-	out := captureStdout(t, func() { runStop() })
+	out := captureStdout(t, func() { runStop(nil) })
 
 	assert.Contains(t, out, "Stopped")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Equal(t, 1, d.stops)
+}
+
+func TestRunStop_JSON(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runStop([]string{"--json"}) })
+
+	var st protocol.PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.Equal(t, protocol.StatusStopped, st.Status)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	assert.Equal(t, 1, d.stops)
@@ -209,22 +235,48 @@ func TestRunStop_StopsPlayback(t *testing.T) {
 func TestRunPause_TogglesBothWays(t *testing.T) {
 	startFakeDaemon(t)
 
-	out := captureStdout(t, func() { runPause() })
+	out := captureStdout(t, func() { runPause(nil) })
 	assert.Contains(t, out, "Playing: Groove Salad", "pause while stopped resumes the last channel")
 
-	out = captureStdout(t, func() { runPause() })
+	out = captureStdout(t, func() { runPause(nil) })
 	assert.Contains(t, out, "Paused")
+}
+
+func TestRunPause_JSON(t *testing.T) {
+	startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runPause([]string{"--json"}) })
+	var st protocol.PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.Equal(t, protocol.StatusPlaying, st.Status, "pause while stopped resumes the last channel")
+
+	out = captureStdout(t, func() { runPause([]string{"--json"}) })
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.Equal(t, protocol.StatusStopped, st.Status)
 }
 
 func TestRunPlayRelative_PassesDelta(t *testing.T) {
 	d := startFakeDaemon(t)
 
-	out := captureStdout(t, func() { runPlayRelative(-1) })
+	out := captureStdout(t, func() { runPlayRelative(-1, "prev", nil) })
 
 	assert.Contains(t, out, "Playing:")
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	assert.Equal(t, []int{-1}, d.deltas)
+}
+
+func TestRunPlayRelative_JSON(t *testing.T) {
+	d := startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runPlayRelative(1, "next", []string{"--json"}) })
+
+	var st protocol.PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.Equal(t, protocol.StatusPlaying, st.Status)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Equal(t, []int{1}, d.deltas)
 }
 
 func TestRunStatus_HumanReadable(t *testing.T) {
@@ -256,6 +308,19 @@ func TestRunVolume_ShowSetAndAdjust(t *testing.T) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	assert.InDelta(t, 0.5, d.status.Volume, 1e-9)
+}
+
+func TestRunVolume_JSON(t *testing.T) {
+	startFakeDaemon(t)
+
+	out := captureStdout(t, func() { runVolume([]string{"--json"}) })
+	var st protocol.PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.InDelta(t, 0.5, st.Volume, 1e-9)
+
+	out = captureStdout(t, func() { runVolume([]string{"--json", "80"}) })
+	require.NoError(t, json.Unmarshal([]byte(out), &st))
+	assert.InDelta(t, 0.8, st.Volume, 1e-9)
 }
 
 func TestRunFavorite_ToggleWithJSON(t *testing.T) {

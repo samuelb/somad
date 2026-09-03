@@ -134,8 +134,9 @@ func resolveChannel(catalog []channels.Channel, query string) (channels.Channel,
 }
 
 func runPlay(args []string) {
+	args, jsonOut := parseJSONFlag("play", "soma play [--json] [channel-id-or-name]", args)
 	if len(args) > 1 {
-		fail("usage: soma play [channel-id-or-name]")
+		fail("usage: soma play [--json] [channel-id-or-name]")
 	}
 	c := ensureServerForPlayback()
 	defer func() { _ = c.Close() }()
@@ -145,7 +146,7 @@ func runPlay(args []string) {
 	if len(args) == 0 {
 		// Without an argument, resume the last played channel.
 		if payload.LastChannelID == "" {
-			fail("no previously played channel; usage: soma play <channel-id-or-name>")
+			fail("no previously played channel; usage: soma play [--json] <channel-id-or-name>")
 		}
 		var ok bool
 		ch, ok = findChannelByID(payload.Channels, payload.LastChannelID)
@@ -164,17 +165,36 @@ func runPlay(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
+	if jsonOut {
+		printJSON(st)
+		return
+	}
 	fmt.Printf("Playing: %s\n", st.ChannelTitle)
 }
 
 // parseJSONFlag parses a client command's arguments, which may lead with
 // --json for machine-readable output, and returns the positional rest.
+//
+// It is not used for soma volume: the flag package treats any argument
+// starting with "-" as a flag, and volume's own positional argument can be
+// a relative decrease like "-30" — stripJSONFlag handles that command
+// instead.
 func parseJSONFlag(name, usageLine string, args []string) (rest []string, jsonOut bool) {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usageLine) }
 	j := fs.Bool("json", false, "print machine-readable JSON")
 	_ = fs.Parse(args)
 	return fs.Args(), *j
+}
+
+// stripJSONFlag strips a leading --json argument, for soma volume, whose own
+// positional argument may itself look like a flag (a relative decrease such
+// as "-30"), which rules out flag.FlagSet-based parsing (see parseJSONFlag).
+func stripJSONFlag(args []string) (rest []string, jsonOut bool) {
+	if len(args) > 0 && args[0] == "--json" {
+		return args[1:], true
+	}
+	return args, false
 }
 
 // runList prints the channel catalog, favorites first and marked with a
@@ -296,8 +316,15 @@ func findChannelByID(catalog []channels.Channel, id string) (channels.Channel, b
 }
 
 // runPlayRelative plays the next (+1) or previous (-1) channel relative to
-// the current or last played one, in catalog order (favorites first).
-func runPlayRelative(delta int) {
+// the current or last played one, in catalog order (favorites first). name is
+// the command word ("next" or "prev") used in usage and error messages.
+func runPlayRelative(delta int, name string, args []string) {
+	usage := "soma " + name + " [--json]"
+	args, jsonOut := parseJSONFlag(name, usage, args)
+	if len(args) != 0 {
+		fail("usage: %s", usage)
+	}
+
 	c := ensureServerForPlayback()
 	defer func() { _ = c.Close() }()
 
@@ -308,14 +335,29 @@ func runPlayRelative(delta int) {
 	if err != nil {
 		fail("%v", err)
 	}
+	if jsonOut {
+		printJSON(st)
+		return
+	}
 	fmt.Printf("Playing: %s\n", st.ChannelTitle)
 }
 
 // runPause toggles between stopped and playing. Live radio has no real
-// pause: unpausing reconnects to the live stream of the last channel.
-func runPause() {
+// pause: unpausing reconnects to the live stream of the last channel. With
+// --json, it prints the resulting protocol.PlaybackState instead of the
+// human-readable message.
+func runPause(args []string) {
+	args, jsonOut := parseJSONFlag("pause", "soma pause [--json]", args)
+	if len(args) != 0 {
+		fail("usage: soma pause [--json]")
+	}
+
 	c, serverVersion, running := dialServer()
 	if !running {
+		if jsonOut {
+			printJSON(statusSnapshot())
+			return
+		}
 		fmt.Println("soma: not playing (server not running)")
 		return
 	}
@@ -332,6 +374,14 @@ func runPause() {
 		}
 		c = restartForUpgrade(c, serverVersion)
 		if wasPlaying {
+			if jsonOut {
+				st, err := c.Status()
+				if err != nil {
+					fail("%v", err)
+				}
+				printJSON(st)
+				return
+			}
 			fmt.Println("Paused")
 			return
 		}
@@ -341,6 +391,10 @@ func runPause() {
 	if err != nil {
 		fail("%v", err)
 	}
+	if jsonOut {
+		printJSON(st)
+		return
+	}
 	if st.Status == protocol.StatusStopped {
 		fmt.Println("Paused")
 	} else {
@@ -348,9 +402,20 @@ func runPause() {
 	}
 }
 
-func runStop() {
+// runStop stops playback. With --json, it prints the resulting
+// protocol.PlaybackState instead of the human-readable message.
+func runStop(args []string) {
+	args, jsonOut := parseJSONFlag("stop", "soma stop [--json]", args)
+	if len(args) != 0 {
+		fail("usage: soma stop [--json]")
+	}
+
 	c, serverVersion, running := dialServer()
 	if !running {
+		if jsonOut {
+			printJSON(statusSnapshot())
+			return
+		}
 		fmt.Println("soma: not playing (server not running)")
 		return
 	}
@@ -358,8 +423,13 @@ func runStop() {
 	// Stopping interrupts playback anyway, so upgrade an out-of-date server now;
 	// the fresh server starts stopped, which is the state stop leaves us in.
 	c = restartForUpgrade(c, serverVersion)
-	if _, err := c.Stop(); err != nil {
+	st, err := c.Stop()
+	if err != nil {
 		fail("%v", err)
+	}
+	if jsonOut {
+		printJSON(st)
+		return
 	}
 	fmt.Println("Stopped")
 }
@@ -465,14 +535,17 @@ func printJSON(v any) {
 }
 
 // runVolume shows the volume when called without an argument, sets it for an
-// absolute percentage, and adjusts it for an explicitly signed one.
+// absolute percentage, and adjusts it for an explicitly signed one. With
+// --json, it prints a protocol.PlaybackState instead of the human-readable
+// line, in every case (show, set, and adjust).
 func runVolume(args []string) {
+	args, jsonOut := stripJSONFlag(args)
 	if len(args) == 0 {
-		showVolume()
+		showVolume(jsonOut)
 		return
 	}
 	if len(args) != 1 {
-		fail("usage: soma volume [<0-100> | +<n> | -<n>]")
+		fail("usage: soma volume [--json] [<0-100> | +<n> | -<n>]")
 	}
 	pct, relative, err := parseVolumeArg(args[0])
 	if err != nil {
@@ -495,6 +568,10 @@ func runVolume(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
+	if jsonOut {
+		printJSON(st)
+		return
+	}
 	fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
 }
 
@@ -511,12 +588,16 @@ func parseVolumeArg(arg string) (pct int, relative bool, err error) {
 
 // showVolume prints the current volume without spawning a server: with no
 // server running, the persisted state has the volume the next one will use.
-func showVolume() {
+func showVolume(jsonOut bool) {
 	if c, _, running := dialServer(); running {
 		defer func() { _ = c.Close() }()
 		st, err := c.Status()
 		if err != nil {
 			fail("%v", err)
+		}
+		if jsonOut {
+			printJSON(st)
+			return
 		}
 		fmt.Printf("Volume:  %d%%\n", volumePercent(st.Volume))
 		return
@@ -524,6 +605,10 @@ func showVolume() {
 	st, err := state.LoadState()
 	if err != nil {
 		fail("%v", err)
+	}
+	if jsonOut {
+		printJSON(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: st.GetVolume()})
+		return
 	}
 	fmt.Printf("Volume:  %d%%\n", volumePercent(st.GetVolume()))
 }

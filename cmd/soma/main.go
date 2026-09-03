@@ -138,13 +138,13 @@ func main() {
 	case "favorite", "fav":
 		runFavorite(rest[1:])
 	case "next":
-		runPlayRelative(1)
+		runPlayRelative(1, "next", rest[1:])
 	case "prev", "previous":
-		runPlayRelative(-1)
+		runPlayRelative(-1, "prev", rest[1:])
 	case "pause":
-		runPause()
+		runPause(rest[1:])
 	case "stop":
-		runStop()
+		runStop(rest[1:])
 	case "status":
 		runStatus(rest[1:])
 	case "volume":
@@ -193,17 +193,19 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Usage:
   soma                        start the TUI (spawns the playback server if needed)
                                  (--shutdown-on-exit stops playback and server on quit)
-  soma play [channel]         play a channel by ID or name, or resume the
+  soma play [--json] [channel]
+                                 play a channel by ID or name, or resume the
                                  last played channel (spawns the server if needed)
   soma list [--json]          list all channels (favorites first, marked *)
   soma favorite [--json] <channel>
                                  toggle a channel's favorite flag
-  soma next                   play the next channel (favorites first, wraps)
-  soma prev                   play the previous channel
-  soma pause                  toggle pause (reconnects the live stream on unpause)
-  soma stop                   stop playback
+  soma next [--json]          play the next channel (favorites first, wraps)
+  soma prev [--json]          play the previous channel
+  soma pause [--json]         toggle pause (reconnects the live stream on unpause)
+  soma stop [--json]          stop playback
   soma status [--json]        show what is playing
-  soma volume [<0-100>|+n|-n] show, set, or adjust the playback volume
+  soma volume [--json] [<0-100>|+n|-n]
+                                 show, set, or adjust the playback volume
   soma daemon [flags]         run the playback server in the foreground
                                  (--no-tray hides the tray / menu-bar icon;
                                   --listen <host:port> also serves frontends
