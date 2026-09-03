@@ -18,15 +18,6 @@ needs a decision.
 
 Ordered roughly by value ÷ effort.
 
-- [ ] **Split `cmd/soma/main.go`** [M] (658 lines). `runServer` has ten
-      `log.Fatal*` calls; the five in option resolution (config load,
-      tls-cert/key pairing, cert prep, cert load, PSK file) are what block a
-      pure, testable `resolveDaemonOptions(cfg, args)`; the rest are runtime
-      failures that can stay fatal. `cli.go` `fail()` calls `os.Exit(1)` at
-      31 sites, so `runX` cannot run in-process in tests. Split
-      `daemon.go`/`tui.go`. Coverage: `cmd/soma` is at 41.9%, the lowest
-      package with real logic (`internal/platform` at 0% and `tray` at 28.8%
-      are thin OS bindings).
 ## P3 — polish
 
 Small hygiene fixes first, then features, then code quality.
