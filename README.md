@@ -37,6 +37,7 @@ Linux and macOS — other platforms are not supported and may not work.
   AAC stream fails), MP3 on Linux; stream quality (`highest`/`high`/`low`)
   is configurable with `soma daemon --quality`
 - View real-time track information (artist/title) from ICY metadata
+- Optional desktop notification on track change (opt in with `soma daemon --notify`)
 - Buffered streaming with automatic reconnection on network issues
 - Styled UI with color-coded playback states and visual indicators
 - Select and remember your last-played channel
@@ -231,7 +232,7 @@ background if one isn't running yet.
 | `soma status [--json]`     | Show what is playing                                     |
 | `soma volume [--json] [<0-100>\|+n\|-n]` | Show the volume, set it, or adjust it relative to the current value |
 | `soma volume mute [--json]` | Toggle mute, restoring the previous volume          |
-| `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp); `--gen-psk` generates a pre-shared key) |
+| `soma daemon`              | Run the playback daemon in the foreground (`--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control-over-tcp); `--gen-psk` generates a pre-shared key) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
 | `soma --version`           | Print version information                                |
@@ -299,6 +300,13 @@ default. Pass `soma daemon --quality <highest|high|low>` (or set
 `server.quality` in the [configuration file](#configuration)) to prefer a
 lower one instead, e.g. to save bandwidth — a channel that lacks the exact
 quality you asked for falls back to the nearest one it does have.
+
+Pass `soma daemon --notify` (or set `server.notify: true` in the
+[configuration file](#configuration)) to show a desktop notification —
+title as the heading, artist and channel as the body — every time the
+playing track changes. Off by default. It fires from the daemon itself, so
+it keeps working with the TUI closed, on Linux (D-Bus) and macOS
+(Notification Center).
 
 ### Remote control over TCP
 
@@ -407,6 +415,10 @@ server:
   # channel lacking a playlist at exactly that quality falls back to the
   # nearest one it does have. Same as --quality.
   quality: high
+
+  # Show a desktop notification when the playing track changes. Default:
+  # false. Same as --notify.
+  notify: true
 
   # Also listen for remote frontends on TCP (see "Remote control over TCP").
   # Default: unset (Unix socket only). Same as --listen.

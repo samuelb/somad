@@ -856,6 +856,76 @@ func TestTrackUpdate_StaleGenerationIsDropped(t *testing.T) {
 	assert.Equal(t, "dronezone", st.ChannelID)
 }
 
+func TestTrackUpdate_NotifiesWithSplitArtistAndTitle(t *testing.T) {
+	type notification struct{ title, body string }
+	notified := make(chan notification, 4)
+	s, player := newTestServer(t, Config{
+		Notify: true,
+		Notifier: func(title, body string) {
+			notified <- notification{title: title, body: body}
+		},
+	})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+
+	select {
+	case got := <-notified:
+		assert.Equal(t, "Dayvan Cowboy", got.title)
+		assert.Equal(t, "Boards of Canada · Groove Salad", got.body)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the notifier to be called")
+	}
+}
+
+func TestTrackUpdate_NotifiesWithChannelOnlyWhenTitleHasNoArtist(t *testing.T) {
+	type notification struct{ title, body string }
+	notified := make(chan notification, 4)
+	s, player := newTestServer(t, Config{
+		Notify: true,
+		Notifier: func(title, body string) {
+			notified <- notification{title: title, body: body}
+		},
+	})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Ambient Soundscape", Gen: player.currentGen()}
+
+	select {
+	case got := <-notified:
+		assert.Equal(t, "Ambient Soundscape", got.title)
+		assert.Equal(t, "Groove Salad", got.body, "no artist to split off, so the body is just the channel")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the notifier to be called")
+	}
+}
+
+func TestTrackUpdate_NoNotificationWhenDisabled(t *testing.T) {
+	s, player := newTestServer(t, Config{
+		// Notify defaults to false; the notifier must never run even though
+		// one is configured, matching the opt-in requirement.
+		Notifier: func(title, body string) {
+			t.Errorf("notifier must not be called when server.notify is disabled, got %q / %q", title, body)
+		},
+	})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+
+	c.waitState("track title", func(st protocol.PlaybackState) bool {
+		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
+	})
+}
+
 func TestStreamError_FromOldGenerationIsIgnored(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	go s.watchPlayerErrors()

@@ -85,6 +85,7 @@ _soma() {
             _arguments \
                 '--idle-timeout[exit after this long with no clients and stopped playback (0 disables)]:duration:' \
                 '--no-tray[do not show the system tray / menu-bar icon]' \
+                '--notify[show a desktop notification when the playing track changes]' \
                 '--quality[preferred stream quality]:quality:(highest high low)' \
                 '--listen[also listen for frontends on this TCP host:port]:host\:port:' \
                 '--tls[serve the TCP listener over TLS]' \

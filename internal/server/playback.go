@@ -399,6 +399,24 @@ func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {
 	s.trackTitle = ti.Title
 	s.updateMPRISLocked()
 	s.broadcastStateLocked()
+	s.notifyTrackLocked()
+}
+
+// notifyTrackLocked queues a desktop notification for the just-updated
+// track, when notifications are enabled and there is a title to show. The
+// actual send happens off s.mu and off this hot path: notifyPipeline.queue
+// only enqueues the payload (and, if none is already in flight, starts the
+// goroutine that sends it).
+func (s *Server) notifyTrackLocked() {
+	if s.notifyPipe == nil || s.trackTitle == "" {
+		return
+	}
+	artist, title := audio.SplitTitle(s.trackTitle)
+	body := s.channelTitle
+	if artist != "" {
+		body = artist + " · " + s.channelTitle
+	}
+	s.notifyPipe.queue(title, body)
 }
 
 // channelArtURL picks the largest artwork URL a channel offers, for MPRIS

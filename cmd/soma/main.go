@@ -216,10 +216,12 @@ func printUsage(w io.Writer) {
   soma volume mute [--json]      toggle mute, restoring the previous level
   soma daemon [flags]         run the playback server in the foreground
                                  (--no-tray hides the tray / menu-bar icon;
-                                  --quality prefers a stream quality; --listen
-                                  <host:port> also serves frontends over TCP,
-                                  --tls encrypts it, --psk-file requires a
-                                  pre-shared key, --gen-psk generates one,
+                                  --notify shows a desktop notification on
+                                  track change; --quality prefers a stream
+                                  quality; --listen <host:port> also serves
+                                  frontends over TCP, --tls encrypts it,
+                                  --psk-file requires a pre-shared key,
+                                  --gen-psk generates one,
                                   --show-cert prints the TLS certificate
                                   fingerprint)
   soma daemon stop            shut down the playback server
@@ -243,6 +245,7 @@ Server and connection flags can also be set in %s
   server:
     idle_timeout: 5m       # exit after this long idle (default "0": never)
     tray: false            # hide the tray / menu-bar icon
+    notify: true           # desktop notification on track change (default false)
     quality: high          # preferred stream quality (default "highest")
     listen: ":5454"        # also serve frontends over TCP
     tls: true              # ...encrypted (auto-generated certificate)
@@ -291,6 +294,8 @@ func runServer(args []string) {
 		"exit after this long with no clients and stopped playback (0 disables)")
 	noTray := fs.Bool("no-tray", defaultNoTray,
 		"do not show the system tray / menu-bar icon while the server runs")
+	notify := fs.Bool("notify", cfg.Server.Notify != nil && *cfg.Server.Notify,
+		"show a desktop notification when the playing track changes")
 	quality := fs.String("quality", str(cfg.Server.Quality),
 		"preferred stream quality: highest, high, or low (falls back to the nearest available; default highest)")
 	listen := fs.String("listen", str(cfg.Server.Listen),
@@ -425,6 +430,7 @@ func runServer(args []string) {
 		IdleTimeout: *idleTimeout,
 		PSK:         psk,
 		Quality:     *quality,
+		Notify:      *notify,
 	})
 
 	// The server must survive its spawning terminal closing; SIGINT/SIGTERM

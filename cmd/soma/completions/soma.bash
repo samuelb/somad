@@ -99,7 +99,7 @@ _soma() {
         COMPREPLY=($(compgen -W "--json --in --cancel" -- "$cur"))
         ;;
     daemon)
-        COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --quality --listen --tls
+        COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --notify --quality --listen --tls
             --tls-cert --tls-key --psk-file --gen-psk --insecure --show-cert" -- "$cur"))
         ;;
     completion)

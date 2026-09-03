@@ -43,3 +43,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0027](0027-release-workflow-supply-chain-hardening.md) | Release workflow supply-chain hardening: SHA-pinned actions, pinned tool versions, checksummed nfpm download, minimal permissions, build provenance | Accepted |
 | [0028](0028-perceptual-volume-curve.md) | Volume is a linear percent on the wire and a cubic curve at the device | Accepted |
 | [0029](0029-macos-signing-and-notarization.md) | macOS releases are signed with a Developer ID and notarized when the secrets exist | Accepted |
+| [0030](0030-desktop-notifications-are-opt-in-and-live-in-the-daemon.md) | Desktop notifications are opt-in and live in the daemon | Accepted |

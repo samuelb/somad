@@ -69,7 +69,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
   - config and persisted state: 0011, 0012
   - audio pipeline and formats: 0013–0017, 0028
-  - MPRIS and tray: 0019
+  - MPRIS, tray, and desktop notifications: 0019, 0030
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its
@@ -96,13 +96,13 @@ playback server in the foreground (`daemon stop` shuts it down); `play`,
 `list`, `favorite`/`fav`, `next`, `prev`, `pause`, `stop`, `status`,
 `volume`, `completion <bash|zsh>`, `version`. Global connection flags
 (`--server`, `--tls`, `--tls-ca`, `--tls-fingerprint`, `--psk-file`) go
-before the command; daemon flags (`--idle-timeout`, `--no-tray`, `--quality`,
-`--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`, `--gen-psk`,
-`--insecure`, `--show-cert`) go after it. `play`, `list`, `favorite`,
-`next`, `prev`, `pause`, `stop`, `status`, `volume` all take `--json`.
-`stop` also takes `--in <duration>` (arm a sleep timer instead of stopping
-now, replacing any timer already pending) and `--cancel` (drop a pending
-timer without stopping); the two are mutually exclusive.
+before the command; daemon flags (`--idle-timeout`, `--no-tray`, `--notify`,
+`--quality`, `--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`,
+`--gen-psk`, `--insecure`, `--show-cert`) go after it. `play`, `list`,
+`favorite`, `next`, `prev`, `pause`, `stop`, `status`, `volume` all take
+`--json`. `stop` also takes `--in <duration>` (arm a sleep timer instead of
+stopping now, replacing any timer already pending) and `--cancel` (drop a
+pending timer without stopping); the two are mutually exclusive.
 
 **Environment**: `SOMAD_SOCKET` (socket path), `SOMAD_SERVER` (host:port,
 like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`
@@ -110,7 +110,7 @@ like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`
 
 **Config keys** (`internal/config`, YAML, all optional pointers; unknown keys
 and parse errors are fatal by design): `server.{idle_timeout, tray, quality,
-listen, tls, tls_cert, tls_key, psk, psk_file, insecure}`, `client.{server,
+notify, listen, tls, tls_cert, tls_key, psk, psk_file, insecure}`, `client.{server,
 tls, tls_ca, tls_fingerprint, psk, psk_file}`, `tui.shutdown_on_exit`.
 `server.quality` is one of `highest`/`high`/`low` (validated); a channel
 lacking that exact quality falls back to the nearest one it has. Config
@@ -185,7 +185,9 @@ delegate and lipgloss styles.
   re-validate redirects; tests add hosts via `securitytest`
 - `internal/tlsutil` — self-signed cert generation (persisted in the state
   dir) and client trust via CA file, pinned SHA-256 fingerprint, or system roots
-- `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_other.go`) and `tray/`
+- `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_other.go`), `tray/`,
+  and `notify/` (desktop notification on track change, D-Bus on Linux,
+  `osascript` on macOS)
 - `internal/atomicfile` — temp-file + rename writes used by state and cache
 - `internal/xdg` — `ConfigDir`/`StateDir`/`CacheDir(app)`: shared base-directory
   resolution behind `$XDG_CONFIG_HOME`/`$XDG_STATE_HOME`/`$XDG_CACHE_HOME`

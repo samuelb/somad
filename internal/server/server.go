@@ -14,6 +14,7 @@ import (
 	"somad/internal/audio"
 	"somad/internal/channels"
 	"somad/internal/platform"
+	"somad/internal/platform/notify"
 	"somad/internal/platform/tray"
 	"somad/internal/protocol"
 	"somad/internal/state"
@@ -46,6 +47,15 @@ type Config struct {
 	// other value) means no preference, which selects the best available
 	// quality.
 	Quality string
+	// Notify enables a desktop notification on every track change (see the
+	// --notify flag / server.notify config key). Off by default: a
+	// notification-center popup on every song is not for everyone.
+	Notify bool
+	// Notifier fires the desktop notification when Notify is true, given
+	// the track title and a "artist · channel" (or just "channel" when the
+	// title has no artist) body. Defaults to notify.New().Notify; tests
+	// inject a stub so they never touch D-Bus or osascript.
+	Notifier func(title, body string)
 }
 
 // Server is the soma daemon. All mutable fields are guarded by mu; the
@@ -60,6 +70,10 @@ type Server struct {
 	idleTimeout time.Duration
 	psk         string
 	quality     string
+	// notifyPipe is nil when notifications are disabled (Config.Notify was
+	// false); otherwise it coalesces desktop-notification requests off the
+	// hot path, see notify.go.
+	notifyPipe *notifyPipeline
 
 	// persist writes user state to disk. It defaults to state.SaveState;
 	// tests override it to avoid fsync-heavy disk writes on every mutation.
@@ -122,6 +136,13 @@ func New(cfg Config) *Server {
 		done:        make(chan struct{}),
 		conns:       make(map[*conn]struct{}),
 		status:      protocol.StatusStopped,
+	}
+	if cfg.Notify {
+		send := cfg.Notifier
+		if send == nil {
+			send = notify.New().Notify
+		}
+		s.notifyPipe = newNotifyPipeline(send)
 	}
 	s.player.SetVolume(cfg.State.GetVolume())
 	// MPRIS Play with no prior play in this process targets the last-played

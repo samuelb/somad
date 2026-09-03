@@ -66,6 +66,10 @@ type ServerConfig struct {
 	// behavior). Same as the --quality flag. The valid values mirror
 	// internal/channels/select.go's qualityRank.
 	Quality *string `yaml:"quality"`
+	// Notify shows a desktop notification whenever the playing track
+	// changes. Opt-in: unset (or false) shows none, the pre-existing
+	// behavior. Same as the --notify flag.
+	Notify *bool `yaml:"notify"`
 }
 
 // ClientConfig configures how the TUI and CLI reach the server. It mirrors
@@ -262,6 +266,10 @@ const templateFormat = `# Soma configuration file.
 #  # A non-loopback "listen" normally requires both TLS and a PSK; set this
 #  # to serve it unprotected anyway. Same as the --insecure flag.
 #  insecure: false
+#
+#  # Show a desktop notification when the playing track changes. Same as
+#  # the --notify flag.
+#  notify: false
 #
 #client:
 #  # Connect the TUI and CLI to a remote soma daemon instead of the local

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,6 +49,7 @@ func TestLoadMissingFileIsEmptyConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	assert.Nil(t, cfg.Server.Tray)
+	assert.Nil(t, cfg.Server.Notify)
 	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 }
 
@@ -57,6 +59,7 @@ func TestLoadEmptyFileIsEmptyConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	assert.Nil(t, cfg.Server.Tray)
+	assert.Nil(t, cfg.Server.Notify)
 	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 }
 
@@ -142,6 +145,7 @@ func TestEnsureTemplateCreatesParseableDefaults(t *testing.T) {
 	assert.Nil(t, cfg.Server.IdleTimeout)
 	assert.Nil(t, cfg.Server.Tray)
 	assert.Nil(t, cfg.Server.Quality)
+	assert.Nil(t, cfg.Server.Notify)
 	assert.Nil(t, cfg.TUI.ShutdownOnExit)
 
 	// The commented-out settings must be real: uncommenting them (dropping
@@ -165,6 +169,8 @@ func TestEnsureTemplateCreatesParseableDefaults(t *testing.T) {
 	assert.True(t, *cfg.Server.Tray)
 	require.NotNil(t, cfg.Server.Quality)
 	assert.Equal(t, "highest", *cfg.Server.Quality)
+	require.NotNil(t, cfg.Server.Notify)
+	assert.False(t, *cfg.Server.Notify)
 	require.NotNil(t, cfg.TUI.ShutdownOnExit)
 	assert.False(t, *cfg.TUI.ShutdownOnExit)
 }
@@ -218,6 +224,18 @@ func TestLoadQuality(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, cfg.Server.Quality)
 			assert.Equal(t, quality, *cfg.Server.Quality)
+		})
+	}
+}
+
+func TestLoadNotify(t *testing.T) {
+	for _, notify := range []bool{true, false} {
+		t.Run(fmt.Sprint(notify), func(t *testing.T) {
+			writeConfig(t, fmt.Sprintf("server:\n  notify: %v\n", notify))
+			cfg, err := Load()
+			require.NoError(t, err)
+			require.NotNil(t, cfg.Server.Notify)
+			assert.Equal(t, notify, *cfg.Server.Notify)
 		})
 	}
 }
