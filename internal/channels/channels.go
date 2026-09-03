@@ -181,7 +181,7 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 	// Write to cache for future use
 	if err := WriteChannelsToCache(&fetchedChannels); err != nil {
 		// Log error but don't fail
-		fmt.Fprintf(os.Stderr, "Warning: Failed to write channels to cache: %v\n", err)
+		log.Printf("warning: failed to write channels to cache: %v", err)
 	}
 
 	return &fetchedChannels, nil
