@@ -31,6 +31,18 @@ const (
 // so tests can shrink it.
 var spawnWait = 15 * time.Second
 
+// spawnRetryInterval is how often connectOrSpawn repeats the spawn while the
+// socket stays down. A freshly spawned daemon can lose the single-instance
+// lock to an old one still finishing its shutdown: the old daemon closes its
+// listeners first (which is what a client sees as "gone") and releases the
+// lock only after flushing state and waiting for pending Last.fm
+// submissions. The new daemon then exits at once with "already running",
+// and a single spawn would leave the client polling a dead socket for the
+// whole spawnWait. Repeating the spawn covers that gap, and any other early
+// exit, at no cost: concurrent spawns are safe by construction (ADR-0004).
+// A variable so tests can shrink it.
+var spawnRetryInterval = time.Second
+
 // restartWait is how long an old server gets to exit before a version-skew
 // restart gives up and falls back to the still-running server. A variable so
 // tests can shrink it.
@@ -161,10 +173,17 @@ func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloR
 			return nil, protocol.HelloResult{}, err
 		}
 		deadline := time.Now().Add(spawnWait)
+		nextSpawn := time.Now().Add(spawnRetryInterval)
 		for {
 			c, err = DialEndpoint(ep)
 			if err == nil {
 				break
+			}
+			if now := time.Now(); now.After(nextSpawn) && now.Before(deadline) {
+				if err := spawnServer(); err != nil {
+					return nil, protocol.HelloResult{}, err
+				}
+				nextSpawn = now.Add(spawnRetryInterval)
 			}
 			if time.Now().After(deadline) {
 				spawnErr := fmt.Errorf("soma daemon did not come up on %s: %w", ep.Address, err)

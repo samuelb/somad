@@ -372,6 +372,37 @@ func TestEnsureServer_KeepsPlayingSkewedServer(t *testing.T) {
 	assert.False(t, spawned, "a playing server must not be restarted by EnsureServer")
 }
 
+func TestEnsureServer_RespawnsWhenFirstSpawnLosesTheLockRace(t *testing.T) {
+	path := testSocketPath(t)
+	startOutdatedServer(t, path, "old", protocol.StatusStopped, "", make(chan string, 1))
+
+	prevInterval := spawnRetryInterval
+	spawnRetryInterval = 50 * time.Millisecond
+	t.Cleanup(func() { spawnRetryInterval = prevInterval })
+
+	prev := spawnServer
+	var spawns atomic.Int32
+	spawnServer = func() error {
+		// The old daemon stops listening before it releases its lock, so the
+		// first spawn finds the lock held and exits at once; nothing comes up.
+		if spawns.Add(1) == 1 {
+			return nil
+		}
+		startFakeServer(t, path, defaultHandler("new"))
+		return nil
+	}
+	t.Cleanup(func() { spawnServer = prev })
+
+	c, hr, err := EnsureServer(UnixEndpoint(path), "new")
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	// The restart must not fail (or wait out spawnWait) just because the
+	// first spawn lost the race: it is repeated until the socket answers.
+	assert.Equal(t, "new", hr.ServerVersion)
+	assert.GreaterOrEqual(t, spawns.Load(), int32(2))
+}
+
 func TestEnsureServer_RestartsIdleSkewedServer(t *testing.T) {
 	path := testSocketPath(t)
 	startOutdatedServer(t, path, "old", protocol.StatusStopped, "", make(chan string, 1))
