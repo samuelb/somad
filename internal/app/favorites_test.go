@@ -95,7 +95,7 @@ func TestToggleFavorite_WhileSearching_KeepsMatchesOnlyView(t *testing.T) {
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
 	// Both Groove Salad's and Drone Zone's descriptions mention "ambient".
-	require.Len(t, m.SearchMatches, 2)
+	require.Equal(t, 2, m.matchCount())
 	require.Len(t, m.List.Items(), 2)
 
 	sel, ok := m.List.SelectedItem().(ui.Item)
@@ -108,7 +108,7 @@ func TestToggleFavorite_WhileSearching_KeepsMatchesOnlyView(t *testing.T) {
 	// Favoriting a channel does not remove it from an active search filter;
 	// the matches-only view still shows exactly the matches.
 	assert.Len(t, m.List.Items(), 2)
-	assert.Len(t, m.SearchMatches, 2)
+	assert.Equal(t, 2, m.matchCount())
 }
 
 func TestSortItemsWithFavorites_NoFavorites(t *testing.T) {

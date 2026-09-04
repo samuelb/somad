@@ -32,7 +32,6 @@ func runTUI(shutdownOnExit bool) {
 		ServerVersion:  hr.ServerVersion,
 		Loading:        true,
 		ShutdownOnExit: shutdownOnExit,
-		CurrentMatch:   -1,
 		About: app.AboutInfo{
 			Version: version,
 			Commit:  commit,

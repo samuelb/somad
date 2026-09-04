@@ -15,8 +15,7 @@ func TestRenderSearchBar_Active(t *testing.T) {
 	m := newTestModel(t)
 	m.Searching = true
 	m.SearchQuery = "groove"
-	m.SearchMatches = []int{0}
-	m.CurrentMatch = 0
+	m.UpdateSearchMatches()
 
 	result := m.RenderSearchBar()
 
@@ -28,7 +27,7 @@ func TestRenderSearchBar_ActiveNoMatches(t *testing.T) {
 	m := newTestModel(t)
 	m.Searching = true
 	m.SearchQuery = "xyzzy"
-	m.SearchMatches = nil
+	m.UpdateSearchMatches()
 
 	result := m.RenderSearchBar()
 
@@ -40,8 +39,7 @@ func TestRenderSearchBar_InactiveWithQuery(t *testing.T) {
 	m := newTestModel(t)
 	m.Searching = false
 	m.SearchQuery = "groove"
-	m.SearchMatches = []int{0}
-	m.CurrentMatch = 0
+	m.UpdateSearchMatches()
 
 	result := m.RenderSearchBar()
 

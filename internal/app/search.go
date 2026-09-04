@@ -38,39 +38,17 @@ func (m *Model) refreshVisibleItems(keepID string) {
 		})
 	}
 
-	if m.SearchQuery == "" {
-		m.SearchMatches = nil
-		m.CurrentMatch = -1
-		m.List.SetItems(items)
-		if !m.selectChannelByID(keepID) {
-			m.List.Select(0)
-		}
-		return
+	if m.SearchQuery != "" {
+		items = fuzzyMatchItems(items, m.SearchQuery)
 	}
-
-	items = fuzzyMatchItems(items, m.SearchQuery)
 	m.List.SetItems(items)
-	if len(items) == 0 {
-		m.SearchMatches = nil
-		m.CurrentMatch = -1
-		return
-	}
-	// The list now holds only matches, so the match indices are simply its
-	// indices.
-	m.SearchMatches = make([]int, len(items))
-	for i := range m.SearchMatches {
-		m.SearchMatches[i] = i
-	}
 	// Keep the cursor on the channel that was selected before this refresh
 	// (a favorite toggle, the favorites-only reconcile, or a catalog
-	// refresh) when it is still among the matches, instead of always
-	// snapping back to the top-ranked one. UpdateSearchMatches passes ""
-	// for keepID on every keystroke, so typing still jumps to the top match
-	// as before: selectChannelByID("") is always a no-op.
-	if m.selectChannelByID(keepID) {
-		m.CurrentMatch = m.List.Index()
-	} else {
-		m.CurrentMatch = 0
+	// refresh) when it is still visible, instead of always snapping back to
+	// the top (which, while searching, is the top-ranked match).
+	// UpdateSearchMatches passes "" for keepID on every keystroke, so typing
+	// still jumps to the top match: selectChannelByID("") is always a no-op.
+	if !m.selectChannelByID(keepID) {
 		m.List.Select(0)
 	}
 }
@@ -134,25 +112,18 @@ func (m *Model) UpdateSearchMatches() {
 	m.refreshVisibleItems("")
 }
 
-// NextMatch jumps to the next search match.
+// NextMatch jumps to the next search match, wrapping around.
 func (m *Model) NextMatch() {
-	if len(m.SearchMatches) == 0 {
-		return
+	if n := m.matchCount(); n > 0 {
+		m.List.Select((m.List.Index() + 1) % n)
 	}
-	m.CurrentMatch = (m.CurrentMatch + 1) % len(m.SearchMatches)
-	m.List.Select(m.SearchMatches[m.CurrentMatch])
 }
 
-// PrevMatch jumps to the previous search match.
+// PrevMatch jumps to the previous search match, wrapping around.
 func (m *Model) PrevMatch() {
-	if len(m.SearchMatches) == 0 {
-		return
+	if n := m.matchCount(); n > 0 {
+		m.List.Select((m.List.Index() + n - 1) % n)
 	}
-	m.CurrentMatch--
-	if m.CurrentMatch < 0 {
-		m.CurrentMatch = len(m.SearchMatches) - 1
-	}
-	m.List.Select(m.SearchMatches[m.CurrentMatch])
 }
 
 // ClearSearch clears the search state and restores the full list, keeping
@@ -164,15 +135,9 @@ func (m *Model) ClearSearch() {
 	m.refreshVisibleItems(selectedID)
 }
 
-// IsMatch returns true if the given index (into m.List.Items()) is a
-// search match. While a query is active the list only contains matches, so
-// this is true for every visible row; it is kept as an explicit lookup so
-// the delegate's highlighting stays correct if that ever changes.
+// IsMatch reports whether the row at idx (into m.List.Items()) is a search
+// match, for the delegate's highlighting. While a query is active the list
+// holds only matches, so every visible row is one.
 func (m *Model) IsMatch(idx int) bool {
-	for _, matchIdx := range m.SearchMatches {
-		if matchIdx == idx {
-			return true
-		}
-	}
-	return false
+	return idx >= 0 && idx < m.matchCount()
 }

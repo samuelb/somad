@@ -211,11 +211,10 @@ func newTestModel(t *testing.T) *Model {
 	t.Helper()
 
 	m := &Model{
-		Backend:      newFakeBackend(),
-		Snapshot:     protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1},
-		Width:        80,
-		Height:       24,
-		CurrentMatch: -1,
+		Backend:  newFakeBackend(),
+		Snapshot: protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1},
+		Width:    80,
+		Height:   24,
 	}
 
 	items := ChannelsToItems(testChannels())

@@ -63,11 +63,11 @@ type Model struct {
 	// auto-spawn a replacement server.
 	ShutdownOnExit bool
 	OnExit         func()
-	// Search state
-	Searching     bool   // Whether search input is active
-	SearchQuery   string // Current search query
-	SearchMatches []int  // Indices into m.List.Items() of matching items
-	CurrentMatch  int    // Current position in searchMatches (-1 if none)
+	// Search state. While SearchQuery is set, m.List holds only the
+	// matching channels (see refreshVisibleItems), so the match count is the
+	// list length and the current match is the list cursor.
+	Searching   bool   // Whether search input is active
+	SearchQuery string // Current search query
 	// FavoritesOnly restricts the list to favorite channels, applied on top
 	// of the search filter above; see refreshVisibleItems.
 	FavoritesOnly bool
@@ -130,6 +130,15 @@ func (m *Model) applyChannels(payload protocol.ChannelsPayload) {
 	// Recompute the visible (possibly filtered) list from the new catalog,
 	// keeping the cursor on the same channel where possible.
 	m.refreshVisibleItems(selectedID)
+}
+
+// matchCount is how many channels the active search query matches, or 0
+// with no query.
+func (m *Model) matchCount() int {
+	if m.SearchQuery == "" {
+		return 0
+	}
+	return len(m.List.Items())
 }
 
 // selectedChannelID returns the ID of the channel under the cursor, or ""

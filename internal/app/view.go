@@ -21,10 +21,11 @@ func (m *Model) RenderHeader() string {
 
 // RenderSearchBar renders the search input bar.
 func (m *Model) RenderSearchBar() string {
+	n := m.matchCount()
 	if m.Searching {
 		matchInfo := ""
-		if len(m.SearchMatches) > 0 {
-			matchInfo = fmt.Sprintf(" [%d/%d]", m.CurrentMatch+1, len(m.SearchMatches))
+		if n > 0 {
+			matchInfo = fmt.Sprintf(" [%d/%d]", m.List.Index()+1, n)
 		} else if m.SearchQuery != "" {
 			matchInfo = " [no matches]"
 		}
@@ -32,8 +33,8 @@ func (m *Model) RenderSearchBar() string {
 	}
 	if m.SearchQuery != "" {
 		matchInfo := ""
-		if len(m.SearchMatches) > 0 {
-			matchInfo = fmt.Sprintf(" [%d/%d] (n/N navigate, c clear)", m.CurrentMatch+1, len(m.SearchMatches))
+		if n > 0 {
+			matchInfo = fmt.Sprintf(" [%d/%d] (n/N navigate, c clear)", m.List.Index()+1, n)
 		}
 		return ui.SearchBarStyle.Render(fmt.Sprintf("Search: %s%s", m.SearchQuery, matchInfo))
 	}

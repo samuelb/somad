@@ -569,11 +569,11 @@ func TestWatchdogReader_RearmsOnData(t *testing.T) {
 	shortStallTimeout(t, 100*time.Millisecond)
 
 	var fired atomic.Bool
-	timer := time.AfterFunc(streamStallTimeout, func() { fired.Store(true) })
-	defer timer.Stop()
+	timers := newStreamTimers(func() { fired.Store(true) })
+	defer timers.stop()
 
 	pr, pw := io.Pipe()
-	w := &watchdogReader{r: pr, timer: timer, timeout: streamStallTimeout}
+	w := &watchdogReader{r: pr, timers: timers}
 
 	// Keep data flowing for well past the stall timeout; the watchdog must
 	// not fire while reads succeed.

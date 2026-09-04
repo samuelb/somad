@@ -107,12 +107,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.UpdateListSize()
 			return m, nil
 		case key.Matches(msg, keys.NextMatch):
-			if len(m.SearchMatches) > 0 {
+			if m.matchCount() > 0 {
 				m.NextMatch()
 				return m, nil
 			}
 		case key.Matches(msg, keys.PrevMatch):
-			if len(m.SearchMatches) > 0 {
+			if m.matchCount() > 0 {
 				m.PrevMatch()
 				return m, nil
 			}

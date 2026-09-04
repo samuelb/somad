@@ -39,8 +39,7 @@ func TestUpdateSearchMatches_EmptyQuery(t *testing.T) {
 	m.SearchQuery = ""
 	m.UpdateSearchMatches()
 
-	assert.Nil(t, m.SearchMatches)
-	assert.Equal(t, -1, m.CurrentMatch)
+	assert.Zero(t, m.matchCount())
 }
 
 func TestUpdateSearchMatches_WithMatches(t *testing.T) {
@@ -51,9 +50,8 @@ func TestUpdateSearchMatches_WithMatches(t *testing.T) {
 
 	// The list becomes a matches-only view, so "Drone Zone" (the only
 	// match) is the sole, and therefore first, item shown.
-	require.Len(t, m.SearchMatches, 1)
-	assert.Equal(t, 0, m.CurrentMatch)
-	assert.Equal(t, 0, m.SearchMatches[0])
+	require.Equal(t, 1, m.matchCount())
+	assert.Equal(t, 0, m.List.Index())
 	require.Len(t, m.List.Items(), 1)
 	sel, ok := m.List.Items()[0].(ui.Item)
 	require.True(t, ok)
@@ -67,7 +65,7 @@ func TestUpdateSearchMatches_MatchesDescription(t *testing.T) {
 	m.UpdateSearchMatches()
 
 	// "Secret Agent" description contains "spy"
-	assert.Len(t, m.SearchMatches, 1)
+	assert.Equal(t, 1, m.matchCount())
 }
 
 func TestUpdateSearchMatches_CaseInsensitive(t *testing.T) {
@@ -76,7 +74,7 @@ func TestUpdateSearchMatches_CaseInsensitive(t *testing.T) {
 	m.SearchQuery = "GROOVE"
 	m.UpdateSearchMatches()
 
-	assert.Len(t, m.SearchMatches, 1)
+	assert.Equal(t, 1, m.matchCount())
 }
 
 func TestUpdateSearchMatches_NoMatches(t *testing.T) {
@@ -85,8 +83,7 @@ func TestUpdateSearchMatches_NoMatches(t *testing.T) {
 	m.SearchQuery = "xyzzy"
 	m.UpdateSearchMatches()
 
-	assert.Empty(t, m.SearchMatches)
-	assert.Equal(t, -1, m.CurrentMatch)
+	assert.Zero(t, m.matchCount())
 }
 
 func TestUpdateSearchMatches_MultipleMatches(t *testing.T) {
@@ -96,10 +93,10 @@ func TestUpdateSearchMatches_MultipleMatches(t *testing.T) {
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
 
-	assert.GreaterOrEqual(t, len(m.SearchMatches), 2)
-	assert.Equal(t, 0, m.CurrentMatch)
+	assert.GreaterOrEqual(t, m.matchCount(), 2)
+	assert.Equal(t, 0, m.List.Index())
 	// List should be scrolled to first match
-	assert.Equal(t, m.SearchMatches[0], m.List.Index())
+	assert.Equal(t, 0, m.List.Index())
 }
 
 func TestRefreshVisibleItems_KeepsSelectionWithinFilteredView(t *testing.T) {
@@ -108,7 +105,7 @@ func TestRefreshVisibleItems_KeepsSelectionWithinFilteredView(t *testing.T) {
 	// "ambient" matches both Groove Salad's and Drone Zone's descriptions.
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
-	require.GreaterOrEqual(t, len(m.SearchMatches), 2, "test setup: need at least two matches")
+	require.GreaterOrEqual(t, m.matchCount(), 2, "test setup: need at least two matches")
 	m.NextMatch()
 	sel, ok := m.List.SelectedItem().(ui.Item)
 	require.True(t, ok)
@@ -125,7 +122,6 @@ func TestRefreshVisibleItems_KeepsSelectionWithinFilteredView(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, selectedID, sel.Channel.ID, "the selection must survive the refresh")
 	assert.Equal(t, movedIndex, m.List.Index())
-	assert.Equal(t, movedIndex, m.CurrentMatch, "CurrentMatch must track the kept selection, not the top match")
 }
 
 func TestRefreshVisibleItems_FallsBackToTopMatchWhenKeepIDNotVisible(t *testing.T) {
@@ -133,13 +129,12 @@ func TestRefreshVisibleItems_FallsBackToTopMatchWhenKeepIDNotVisible(t *testing.
 
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
-	require.NotEmpty(t, m.SearchMatches)
+	require.NotZero(t, m.matchCount())
 
 	// A channel outside the filtered view (e.g. one search query away, or
 	// simply never in it) falls back to the top match, same as before.
 	m.refreshVisibleItems("secretagent")
 
-	assert.Equal(t, 0, m.CurrentMatch)
 	assert.Equal(t, 0, m.List.Index())
 }
 
@@ -148,20 +143,20 @@ func TestNextMatch_WrapsAround(t *testing.T) {
 
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
-	require := len(m.SearchMatches)
+	require := m.matchCount()
 	if require < 2 {
 		t.Skip("need at least two matches for wrap-around test")
 	}
 
 	// Advance to last match
-	for i := 0; i < len(m.SearchMatches)-1; i++ {
+	for i := 0; i < m.matchCount()-1; i++ {
 		m.NextMatch()
 	}
-	assert.Equal(t, len(m.SearchMatches)-1, m.CurrentMatch)
+	assert.Equal(t, m.matchCount()-1, m.List.Index())
 
 	// One more should wrap to first
 	m.NextMatch()
-	assert.Equal(t, 0, m.CurrentMatch)
+	assert.Equal(t, 0, m.List.Index())
 }
 
 func TestPrevMatch_WrapsAround(t *testing.T) {
@@ -169,13 +164,13 @@ func TestPrevMatch_WrapsAround(t *testing.T) {
 
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
-	if len(m.SearchMatches) < 2 {
+	if m.matchCount() < 2 {
 		t.Skip("need at least two matches for wrap-around test")
 	}
 
 	// Go backward from first match should wrap to last
 	m.PrevMatch()
-	assert.Equal(t, len(m.SearchMatches)-1, m.CurrentMatch)
+	assert.Equal(t, m.matchCount()-1, m.List.Index())
 }
 
 func TestNextMatch_NoMatches(t *testing.T) {
@@ -183,14 +178,14 @@ func TestNextMatch_NoMatches(t *testing.T) {
 
 	// Calling with no matches should not panic
 	m.NextMatch()
-	assert.Equal(t, -1, m.CurrentMatch)
+	assert.Zero(t, m.matchCount())
 }
 
 func TestPrevMatch_NoMatches(t *testing.T) {
 	m := newTestModel(t)
 
 	m.PrevMatch()
-	assert.Equal(t, -1, m.CurrentMatch)
+	assert.Zero(t, m.matchCount())
 }
 
 func TestClearSearch(t *testing.T) {
@@ -198,29 +193,31 @@ func TestClearSearch(t *testing.T) {
 
 	m.Searching = true
 	m.SearchQuery = "groove"
-	m.SearchMatches = []int{0}
-	m.CurrentMatch = 0
+	m.UpdateSearchMatches()
 
 	m.ClearSearch()
 
 	assert.False(t, m.Searching)
 	assert.Empty(t, m.SearchQuery)
-	assert.Nil(t, m.SearchMatches)
-	assert.Equal(t, -1, m.CurrentMatch)
+	assert.Zero(t, m.matchCount())
 }
 
 func TestIsMatch(t *testing.T) {
 	m := newTestModel(t)
+	m.SearchQuery = "ambient"
+	m.UpdateSearchMatches()
+	n := m.matchCount()
+	require.GreaterOrEqual(t, n, 2, "test setup: need at least two matches")
 
-	m.SearchMatches = []int{1, 3}
-
-	assert.False(t, m.IsMatch(0))
-	assert.True(t, m.IsMatch(1))
-	assert.False(t, m.IsMatch(2))
-	assert.True(t, m.IsMatch(3))
+	// While a query is active the list holds only matches, so every visible
+	// row is one; out-of-range indices are not.
+	assert.True(t, m.IsMatch(0))
+	assert.True(t, m.IsMatch(n-1))
+	assert.False(t, m.IsMatch(n))
+	assert.False(t, m.IsMatch(-1))
 }
 
-func TestIsMatch_NoMatches(t *testing.T) {
+func TestIsMatch_NoQuery(t *testing.T) {
 	m := newTestModel(t)
 
 	assert.False(t, m.IsMatch(0))

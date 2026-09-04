@@ -209,7 +209,7 @@ func TestUpdate_SearchModeEnter(t *testing.T) {
 
 	assert.True(t, m.Searching)
 	assert.Empty(t, m.SearchQuery)
-	assert.Equal(t, -1, m.CurrentMatch)
+	assert.Zero(t, m.matchCount())
 }
 
 func TestUpdate_SearchModeEnter_PrefillsExistingQuery(t *testing.T) {
@@ -302,7 +302,7 @@ func TestUpdate_SearchMode_Escape_ClearsSearch(t *testing.T) {
 
 	assert.False(t, m.Searching)
 	assert.Empty(t, m.SearchQuery)
-	assert.Empty(t, m.SearchMatches)
+	assert.Zero(t, m.matchCount())
 	// Cancelling restores the full list, keeping the cursor on the channel
 	// that was selected within the filtered view.
 	assert.Len(t, m.List.Items(), len(testChannels()))
@@ -550,7 +550,7 @@ func TestUpdate_ClearSearch_ClearsQuery(t *testing.T) {
 	sendKey(m, 'c')
 
 	assert.Empty(t, m.SearchQuery)
-	assert.Empty(t, m.SearchMatches)
+	assert.Zero(t, m.matchCount())
 	assert.Len(t, m.List.Items(), len(testChannels()), "clearing restores the full list")
 }
 
@@ -558,24 +558,24 @@ func TestUpdate_NextMatchKey_Navigates(t *testing.T) {
 	m := newTestModel(t)
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
-	require.Len(t, m.SearchMatches, 2)
-	first := m.CurrentMatch
+	require.Equal(t, 2, m.matchCount())
+	first := m.List.Index()
 
 	sendKey(m, 'n')
 
-	assert.NotEqual(t, first, m.CurrentMatch)
+	assert.NotEqual(t, first, m.List.Index())
 }
 
 func TestUpdate_PrevMatchKey_Navigates(t *testing.T) {
 	m := newTestModel(t)
 	m.SearchQuery = "ambient"
 	m.UpdateSearchMatches()
-	require.Len(t, m.SearchMatches, 2)
+	require.Equal(t, 2, m.matchCount())
 
 	sendKey(m, 'n')
 	sendKey(m, 'N')
 
-	assert.Equal(t, 0, m.CurrentMatch)
+	assert.Equal(t, 0, m.List.Index())
 }
 
 func TestUpdate_ServerStateMsg_AppliesSnapshot(t *testing.T) {
@@ -696,9 +696,8 @@ func TestUpdate_ServerGoneMsg_ShowsError(t *testing.T) {
 // channels arrive, then a window size, then enter plays the selection.
 func TestUpdate_EnterPlaysAfterStartupFlow(t *testing.T) {
 	m := &Model{
-		Backend:      newFakeBackend(),
-		Loading:      true,
-		CurrentMatch: -1,
+		Backend: newFakeBackend(),
+		Loading: true,
 	}
 	delegate := ui.NewStyledDelegate(&m.PlayingID, m.IsMatch, m.IsFavorite)
 	l := list.New([]list.Item{}, delegate, 0, 0)
