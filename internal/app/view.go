@@ -173,13 +173,12 @@ func (m *Model) RenderHistoryFooter() string {
 	case m.HistoryChannelID == "":
 		lines = append(lines, "History", "Nothing is playing.")
 	case m.HistoryErr != nil:
-		lines = append(lines,
-			fmt.Sprintf("History: %s", m.HistoryChannelTitle),
+		lines = append(lines, "History: "+m.HistoryChannelTitle,
 			fmt.Sprintf("failed to load history: %v", m.HistoryErr))
 	case len(m.History) == 0:
-		lines = append(lines, fmt.Sprintf("History: %s", m.HistoryChannelTitle), "No history yet.")
+		lines = append(lines, "History: "+m.HistoryChannelTitle, "No history yet.")
 	default:
-		lines = append(lines, fmt.Sprintf("History: %s", m.HistoryChannelTitle))
+		lines = append(lines, "History: "+m.HistoryChannelTitle)
 		for _, e := range m.History {
 			lines = append(lines, fmt.Sprintf("%s  %s", e.Time.Local().Format("15:04"), e.Title))
 		}

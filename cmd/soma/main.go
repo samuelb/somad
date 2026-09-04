@@ -93,37 +93,42 @@ func main() {
 		runTUI(resolveShutdownOnExit(fs, *shutdownOnExit, cfg))
 		return
 	}
+	runCommand(cfg, rest[0], rest[1:])
+}
 
-	switch rest[0] {
-	case "daemon": // only `daemon stop` gets here (see above)
-		if len(rest) != 2 {
+// runCommand dispatches one client-side subcommand with its own arguments.
+// The daemon-start and completion forms never get here (see main).
+func runCommand(cfg *config.Config, name string, args []string) {
+	switch name {
+	case "daemon": // only `daemon stop` gets here (see main)
+		if len(args) != 1 {
 			fail("usage: soma daemon stop")
 		}
 		runServerStop()
 	case "play":
-		runPlay(rest[1:])
+		runPlay(args)
 	case "list":
-		runList(rest[1:])
+		runList(args)
 	case "favorite", "fav":
-		runFavorite(rest[1:])
+		runFavorite(args)
 	case "next":
-		runPlayRelative(1, "next", rest[1:])
+		runPlayRelative(1, "next", args)
 	case "prev", "previous":
-		runPlayRelative(-1, "prev", rest[1:])
+		runPlayRelative(-1, "prev", args)
 	case "pause":
-		runPause(rest[1:])
+		runPause(args)
 	case "stop":
-		runStop(rest[1:])
+		runStop(args)
 	case "status":
-		runStatus(rest[1:])
+		runStatus(args)
 	case "volume":
-		runVolume(rest[1:])
+		runVolume(args)
 	case "history":
-		runHistory(rest[1:])
+		runHistory(args)
 	case "lastfm":
-		runLastfm(cfg, rest[1:])
+		runLastfm(cfg, args)
 	default:
-		fmt.Fprintf(os.Stderr, "soma: unknown command %q\n\n", rest[0])
+		fmt.Fprintf(os.Stderr, "soma: unknown command %q\n\n", name)
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}

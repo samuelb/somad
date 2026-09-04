@@ -2,7 +2,7 @@ package audio
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
 	"io"
 	"strings"
 )
@@ -73,11 +73,10 @@ func (d *icyDemuxer) readMetadataBlock() error {
 		return err
 	}
 
+	// A block without a StreamTitle (or a malformed one) is skipped, not
+	// fatal: the audio around it is still good.
 	info, err := parseICYMetadata(strings.TrimRight(string(block), "\x00"))
-	if err != nil {
-		return nil
-	}
-	if !d.gotTitle || info.Title != d.lastTitle {
+	if err == nil && (!d.gotTitle || info.Title != d.lastTitle) {
 		d.gotTitle = true
 		d.lastTitle = info.Title
 		if d.onTitle != nil {
@@ -99,7 +98,7 @@ func parseICYMetadata(metaStr string) (TrackInfo, error) {
 	const opener = "StreamTitle='"
 	start := strings.Index(metaStr, opener)
 	if start < 0 {
-		return TrackInfo{}, fmt.Errorf("no StreamTitle found in metadata")
+		return TrackInfo{}, errors.New("no StreamTitle found in metadata")
 	}
 	start += len(opener)
 

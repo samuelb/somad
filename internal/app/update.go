@@ -14,130 +14,13 @@ import (
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Handle search input mode
 		if m.Searching {
-			switch msg.String() {
-			case "ctrl+c":
-				return m, m.quitCmd()
-			case "enter":
-				// Exit search mode, keep at current match
-				m.Searching = false
-				m.UpdateListSize()
-				return m, nil
-			case "esc":
-				// Cancel search, clear query
-				m.ClearSearch()
-				m.UpdateListSize()
-				return m, nil
-			case "backspace":
-				if len(m.SearchQuery) > 0 {
-					_, size := utf8.DecodeLastRuneInString(m.SearchQuery)
-					m.SearchQuery = m.SearchQuery[:len(m.SearchQuery)-size]
-					m.UpdateSearchMatches()
-				}
-				return m, nil
-			default:
-				// Append printable characters (including non-ASCII) to the query.
-				if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
-					if input := PrintableRunes(msg.Runes); input != "" {
-						m.SearchQuery += input
-						m.UpdateSearchMatches()
-					}
-				}
-				return m, nil
-			}
+			return m, m.updateSearchKey(msg)
+		}
+		if cmd, handled := m.updateListKey(msg); handled {
+			return m, cmd
 		}
 
-		switch {
-		case key.Matches(msg, keys.Quit):
-			return m, m.quitCmd()
-		case key.Matches(msg, keys.Play):
-			if id := m.selectedChannelID(); id != "" {
-				// Changing channel interrupts the stream anyway, so an
-				// out-of-date server is restarted first and the channel is
-				// played once the reconnect delivers a fresh backend.
-				if m.skewed() {
-					m.pendingPlayID = id
-					return m, m.restartCmd()
-				}
-				return m, m.playCmd(id)
-			}
-		case key.Matches(msg, keys.Stop):
-			// Stopping interrupts the stream anyway; upgrade an out-of-date
-			// server while we're at it (the fresh one comes up stopped).
-			if m.skewed() && m.Snapshot.Status != protocol.StatusStopped {
-				return m, m.restartCmd()
-			}
-			return m, m.stopCmd()
-		case key.Matches(msg, keys.PlayPause):
-			// Toggle play/pause without leaving the list.
-			return m, m.playPauseCmd()
-		case key.Matches(msg, keys.About):
-			// Toggle the inline about footer.
-			m.ShowAbout = !m.ShowAbout
-			m.UpdateListSize()
-			return m, nil
-		case key.Matches(msg, keys.History):
-			// Toggle the now-playing history overlay for the playing channel.
-			m.ShowHistory = !m.ShowHistory
-			m.UpdateListSize()
-			if !m.ShowHistory {
-				return m, nil
-			}
-			m.HistoryChannelID = m.Snapshot.ChannelID
-			m.HistoryChannelTitle = m.Snapshot.ChannelTitle
-			m.HistoryErr = nil
-			if m.HistoryChannelID == "" {
-				// Nothing is playing: nothing to fetch.
-				m.History = nil
-				return m, nil
-			}
-			return m, m.historyCmd(m.HistoryChannelID)
-		case key.Matches(msg, keys.Escape):
-			// Close whichever overlay is open; otherwise fall through to the list.
-			if m.ShowHistory || m.ShowAbout {
-				m.ShowHistory, m.ShowAbout = false, false
-				m.UpdateListSize()
-				return m, nil
-			}
-		case key.Matches(msg, keys.Search):
-			// Enter search mode. An existing query (kept after Enter) is
-			// pre-filled for editing rather than reset.
-			m.Searching = true
-			m.UpdateListSize()
-			return m, nil
-		case key.Matches(msg, keys.NextMatch):
-			if m.matchCount() > 0 {
-				m.NextMatch()
-				return m, nil
-			}
-		case key.Matches(msg, keys.PrevMatch):
-			if m.matchCount() > 0 {
-				m.PrevMatch()
-				return m, nil
-			}
-		case key.Matches(msg, keys.Favorite):
-			// Toggle favorite on selected channel
-			return m, m.ToggleFavorite()
-		case key.Matches(msg, keys.FavoritesOnly):
-			// Toggle a favorites-only view, applied on top of the search
-			// filter via the shared refreshVisibleItems plumbing.
-			m.FavoritesOnly = !m.FavoritesOnly
-			m.refreshVisibleItems(m.selectedChannelID())
-			return m, nil
-		case key.Matches(msg, keys.VolumeUp):
-			return m, m.setVolumeCmd(m.Snapshot.Volume + volumeStep)
-		case key.Matches(msg, keys.VolumeDown):
-			return m, m.setVolumeCmd(m.Snapshot.Volume - volumeStep)
-		case key.Matches(msg, keys.Mute):
-			return m, m.toggleMuteCmd()
-		case key.Matches(msg, keys.ClearSearch):
-			if m.SearchQuery != "" {
-				m.ClearSearch()
-				m.UpdateListSize()
-				return m, nil
-			}
-		}
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
@@ -173,11 +56,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// has since moved on from (closed, or reopened for another channel);
 		// applying it would clobber the current, still-loading or already
 		// populated, view with a stale answer.
-		if !m.ShowHistory || msg.ChannelID != m.HistoryChannelID {
-			return m, nil
+		if m.ShowHistory && msg.ChannelID == m.HistoryChannelID {
+			m.History = msg.Entries
+			m.HistoryErr = msg.Err
 		}
-		m.History = msg.Entries
-		m.HistoryErr = msg.Err
 		return m, nil
 
 	case RequestErrorMsg:
@@ -203,17 +85,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ServerReconnectedMsg:
-		m.ServerLost = false
-		m.Backend = msg.Backend
-		m.ServerVersion = msg.ServerVersion
-		// A channel change queued before a version-upgrade restart plays now
-		// that a fresh backend is here.
-		if m.pendingPlayID != "" {
-			id := m.pendingPlayID
-			m.pendingPlayID = ""
-			return m, tea.Batch(m.fetchChannels(), m.playCmd(id))
-		}
-		return m, tea.Batch(m.fetchChannels(), m.fetchStatus())
+		return m, m.applyReconnect(msg)
 
 	case ServerGoneMsg:
 		m.ServerLost = false
@@ -226,6 +98,163 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.List, cmd = m.List.Update(msg)
 	return m, cmd
+}
+
+// updateSearchKey handles a key press while the search input is active:
+// the query is edited in place, and enter/esc leave search mode.
+func (m *Model) updateSearchKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "ctrl+c":
+		return m.quitCmd()
+	case "enter":
+		// Exit search mode, keep at current match
+		m.Searching = false
+		m.UpdateListSize()
+	case "esc":
+		// Cancel search, clear query
+		m.ClearSearch()
+		m.UpdateListSize()
+	case "backspace":
+		if len(m.SearchQuery) > 0 {
+			_, size := utf8.DecodeLastRuneInString(m.SearchQuery)
+			m.SearchQuery = m.SearchQuery[:len(m.SearchQuery)-size]
+			m.UpdateSearchMatches()
+		}
+	default:
+		// Append printable characters (including non-ASCII) to the query.
+		if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
+			if input := PrintableRunes(msg.Runes); input != "" {
+				m.SearchQuery += input
+				m.UpdateSearchMatches()
+			}
+		}
+	}
+	return nil
+}
+
+// updateListKey handles a key press in list mode against the keymap. It
+// reports false when the key is not one of ours, or has nothing to act on
+// in the current state (say, esc with no overlay open), so the caller can
+// hand it to the list component instead.
+func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, keys.Quit):
+		return m.quitCmd(), true
+	case key.Matches(msg, keys.Play):
+		id := m.selectedChannelID()
+		if id == "" {
+			return nil, false
+		}
+		// Changing channel interrupts the stream anyway, so an out-of-date
+		// server is restarted first and the channel is played once the
+		// reconnect delivers a fresh backend.
+		if m.skewed() {
+			m.pendingPlayID = id
+			return m.restartCmd(), true
+		}
+		return m.playCmd(id), true
+	case key.Matches(msg, keys.Stop):
+		// Stopping interrupts the stream anyway; upgrade an out-of-date
+		// server while we're at it (the fresh one comes up stopped).
+		if m.skewed() && m.Snapshot.Status != protocol.StatusStopped {
+			return m.restartCmd(), true
+		}
+		return m.stopCmd(), true
+	case key.Matches(msg, keys.PlayPause):
+		// Toggle play/pause without leaving the list.
+		return m.playPauseCmd(), true
+	case key.Matches(msg, keys.About):
+		// Toggle the inline about footer.
+		m.ShowAbout = !m.ShowAbout
+		m.UpdateListSize()
+		return nil, true
+	case key.Matches(msg, keys.History):
+		return m.toggleHistory(), true
+	case key.Matches(msg, keys.Escape):
+		// Close whichever overlay is open; otherwise the list gets the key.
+		if !m.ShowHistory && !m.ShowAbout {
+			return nil, false
+		}
+		m.ShowHistory, m.ShowAbout = false, false
+		m.UpdateListSize()
+		return nil, true
+	case key.Matches(msg, keys.Search):
+		// Enter search mode. An existing query (kept after Enter) is
+		// pre-filled for editing rather than reset.
+		m.Searching = true
+		m.UpdateListSize()
+		return nil, true
+	case key.Matches(msg, keys.NextMatch):
+		if m.matchCount() == 0 {
+			return nil, false
+		}
+		m.NextMatch()
+		return nil, true
+	case key.Matches(msg, keys.PrevMatch):
+		if m.matchCount() == 0 {
+			return nil, false
+		}
+		m.PrevMatch()
+		return nil, true
+	case key.Matches(msg, keys.Favorite):
+		// Toggle favorite on selected channel
+		return m.ToggleFavorite(), true
+	case key.Matches(msg, keys.FavoritesOnly):
+		// Toggle a favorites-only view, applied on top of the search
+		// filter via the shared refreshVisibleItems plumbing.
+		m.FavoritesOnly = !m.FavoritesOnly
+		m.refreshVisibleItems(m.selectedChannelID())
+		return nil, true
+	case key.Matches(msg, keys.VolumeUp):
+		return m.setVolumeCmd(m.Snapshot.Volume + volumeStep), true
+	case key.Matches(msg, keys.VolumeDown):
+		return m.setVolumeCmd(m.Snapshot.Volume - volumeStep), true
+	case key.Matches(msg, keys.Mute):
+		return m.toggleMuteCmd(), true
+	case key.Matches(msg, keys.ClearSearch):
+		if m.SearchQuery == "" {
+			return nil, false
+		}
+		m.ClearSearch()
+		m.UpdateListSize()
+		return nil, true
+	}
+	return nil, false
+}
+
+// toggleHistory opens or closes the now-playing history overlay for the
+// playing channel, returning the fetch to run when it opens.
+func (m *Model) toggleHistory() tea.Cmd {
+	m.ShowHistory = !m.ShowHistory
+	m.UpdateListSize()
+	if !m.ShowHistory {
+		return nil
+	}
+	m.HistoryChannelID = m.Snapshot.ChannelID
+	m.HistoryChannelTitle = m.Snapshot.ChannelTitle
+	m.HistoryErr = nil
+	if m.HistoryChannelID == "" {
+		// Nothing is playing: nothing to fetch.
+		m.History = nil
+		return nil
+	}
+	return m.historyCmd(m.HistoryChannelID)
+}
+
+// applyReconnect swaps in the fresh backend after a reconnect and returns
+// the commands that resynchronize the model with it.
+func (m *Model) applyReconnect(msg ServerReconnectedMsg) tea.Cmd {
+	m.ServerLost = false
+	m.Backend = msg.Backend
+	m.ServerVersion = msg.ServerVersion
+	// A channel change queued before a version-upgrade restart plays now
+	// that a fresh backend is here.
+	if m.pendingPlayID != "" {
+		id := m.pendingPlayID
+		m.pendingPlayID = ""
+		return tea.Batch(m.fetchChannels(), m.playCmd(id))
+	}
+	return tea.Batch(m.fetchChannels(), m.fetchStatus())
 }
 
 // keyMap is the list-mode keymap: every binding's keys and help text in one

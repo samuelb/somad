@@ -262,7 +262,7 @@ func (c *Client) call(method string, params any, result any) error {
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
-		return fmt.Errorf("%w: %v", ErrDisconnected, err)
+		return fmt.Errorf("%w: %w", ErrDisconnected, err)
 	}
 
 	timeout := time.NewTimer(callTimeoutFor(method))

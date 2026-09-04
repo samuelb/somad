@@ -92,7 +92,7 @@ func (r *resampler) Read(p []byte) (int, error) {
 		if err := r.advance(); err != nil {
 			return n, err
 		}
-		for ch := 0; ch < 2; ch++ {
+		for ch := range 2 {
 			v := r.a[ch] + (r.b[ch]-r.a[ch])*r.pos
 			binary.LittleEndian.PutUint16(p[n:], uint16(int16(clampSample(v)))) // #nosec G115 -- clamped to int16 range, deliberate encode
 			n += 2

@@ -112,20 +112,40 @@ func shrinkLastfmThresholds(t *testing.T) {
 	})
 }
 
-func TestLastfm_UpdateNowPlayingOnTrackChange(t *testing.T) {
-	shrinkLastfmThresholds(t)
-	scrobbler := &fakeScrobbler{}
+// playScrobbled starts a server scrobbling to scrobbler, connects a client,
+// plays groovesalad, and delivers title as its first now-playing title.
+func playScrobbled(t *testing.T, scrobbler *fakeScrobbler, title string) (*Server, *mockPlayer, *tclient) {
+	t.Helper()
 	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
 	go s.watchTrackUpdates()
 	c := connect(t, s)
 	c.hello()
-
 	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
+	pushTitle(t, player, c, title)
+	return s, player, c
+}
 
-	c.waitState("track title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+// pushTitle delivers title as the playing session's ICY title and waits
+// until the server reports it.
+func pushTitle(t *testing.T, player *mockPlayer, c *tclient, title string) {
+	t.Helper()
+	player.trackChan <- audio.TrackInfo{Title: title, Gen: player.currentGen()}
+	c.waitState(title, func(st protocol.PlaybackState) bool { return st.TrackTitle == title })
+}
+
+// awaitScrobble waits for the first scrobble and checks it is artist/title.
+func awaitScrobble(t *testing.T, scrobbler *fakeScrobbler, artist, title string) {
+	t.Helper()
+	require.Eventually(t, func() bool { return scrobbler.scrobbleCount() == 1 }, 2*time.Second, 5*time.Millisecond)
+	got := scrobbler.lastScrobble()
+	assert.Equal(t, artist, got.artist)
+	assert.Equal(t, title, got.title)
+}
+
+func TestLastfm_UpdateNowPlayingOnTrackChange(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	scrobbler := &fakeScrobbler{}
+	playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
 	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 1 }, 2*time.Second, 5*time.Millisecond)
 	got := scrobbler.lastNowPlaying()
@@ -136,17 +156,7 @@ func TestLastfm_UpdateNowPlayingOnTrackChange(t *testing.T) {
 func TestLastfm_SkipsTitlesWithNoArtist(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Ambient Soundscape", Gen: player.currentGen()}
-
-	c.waitState("track title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Ambient Soundscape"
-	})
+	playScrobbled(t, scrobbler, "Ambient Soundscape")
 
 	// Give any (incorrect) async call a chance to land before asserting none did.
 	time.Sleep(50 * time.Millisecond)
@@ -156,29 +166,14 @@ func TestLastfm_SkipsTitlesWithNoArtist(t *testing.T) {
 func TestLastfm_ScrobblesPreviousTrackOnNextTitleChangeWhenLongEnough(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("first title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	_, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
 	// Outlast lastfmMinPlayDuration before the next title arrives.
 	time.Sleep(2 * lastfmMinPlayDuration)
 
-	player.trackChan <- audio.TrackInfo{Title: "Tycho - A Walk", Gen: player.currentGen()}
-	c.waitState("second title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Tycho - A Walk"
-	})
+	pushTitle(t, player, c, "Tycho - A Walk")
 
-	require.Eventually(t, func() bool { return scrobbler.scrobbleCount() == 1 }, 2*time.Second, 5*time.Millisecond)
-	got := scrobbler.lastScrobble()
-	assert.Equal(t, "Boards of Canada", got.artist)
-	assert.Equal(t, "Dayvan Cowboy", got.title)
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
 
 	// The second (still-playing) track gets a now-playing update but is not
 	// itself scrobbled yet.
@@ -186,24 +181,12 @@ func TestLastfm_ScrobblesPreviousTrackOnNextTitleChangeWhenLongEnough(t *testing
 }
 
 func TestLastfm_DoesNotScrobbleWhenPlayedTooShort(t *testing.T) {
-	scrobbler := &fakeScrobbler{}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
 	// lastfmMinPlayDuration keeps its real (long) default in this test, so
 	// a near-instant title change never crosses it.
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
+	scrobbler := &fakeScrobbler{}
+	_, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("first title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
-
-	player.trackChan <- audio.TrackInfo{Title: "Tycho - A Walk", Gen: player.currentGen()}
-	c.waitState("second title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Tycho - A Walk"
-	})
+	pushTitle(t, player, c, "Tycho - A Walk")
 
 	time.Sleep(50 * time.Millisecond)
 	assert.Zero(t, scrobbler.scrobbleCount(), "a track played for under the minimum must not be scrobbled")
@@ -212,62 +195,29 @@ func TestLastfm_DoesNotScrobbleWhenPlayedTooShort(t *testing.T) {
 func TestLastfm_ScrobblesOnStop(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	_, _, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
 	time.Sleep(2 * lastfmMinPlayDuration)
 	decodeState(t, c.call(protocol.MethodStop, nil))
 
-	require.Eventually(t, func() bool { return scrobbler.scrobbleCount() == 1 }, 2*time.Second, 5*time.Millisecond)
-	got := scrobbler.lastScrobble()
-	assert.Equal(t, "Boards of Canada", got.artist)
-	assert.Equal(t, "Dayvan Cowboy", got.title)
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
 }
 
 func TestLastfm_ScrobblesOnChannelSwitch(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	_, _, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
 	time.Sleep(2 * lastfmMinPlayDuration)
 	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
 
-	require.Eventually(t, func() bool { return scrobbler.scrobbleCount() == 1 }, 2*time.Second, 5*time.Millisecond)
-	got := scrobbler.lastScrobble()
-	assert.Equal(t, "Boards of Canada", got.artist)
-	assert.Equal(t, "Dayvan Cowboy", got.title)
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
 }
 
 func TestLastfm_RetriesOnceThenSucceeds(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{failNowPlayingTimes: 1}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
 	// One failed call, then one retry after lastfmRetryDelay that succeeds.
 	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 2 }, 2*time.Second, 5*time.Millisecond)
@@ -278,16 +228,7 @@ func TestLastfm_RetriesOnceThenSucceeds(t *testing.T) {
 func TestLastfm_GivesUpAfterOneRetry(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{failNowPlayingTimes: 2}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
 	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 2 }, 2*time.Second, 5*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
@@ -297,23 +238,11 @@ func TestLastfm_GivesUpAfterOneRetry(t *testing.T) {
 func TestLastfm_SkipsNowPlayingRetryWhenTrackChanged(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{failNowPlayingTimes: 1}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("first title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	_, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 
 	// A second title arrives before the first now-playing update's retry
 	// delay elapses; it supersedes the first as s.lastfmTrack.
-	player.trackChan <- audio.TrackInfo{Title: "Tycho - A Walk", Gen: player.currentGen()}
-	c.waitState("second title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Tycho - A Walk"
-	})
+	pushTitle(t, player, c, "Tycho - A Walk")
 	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 2 }, 2*time.Second, 5*time.Millisecond)
 
 	// Give the first track's (should-be-skipped) retry time to fire if the
@@ -397,16 +326,7 @@ func TestReloadLastfm_RPC(t *testing.T) {
 func TestShutdown_ScrobblesFinalTrack(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	s, _, _ := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 	time.Sleep(2 * lastfmMinPlayDuration)
 
 	s.Shutdown()
@@ -429,16 +349,7 @@ func TestShutdown_LastfmWaitIsBounded(t *testing.T) {
 	t.Cleanup(func() { lastfmShutdownWait = prevWait })
 
 	scrobbler := &fakeScrobbler{scrobbleDelay: 2 * time.Second}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	s, _, _ := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 	time.Sleep(2 * lastfmMinPlayDuration)
 
 	start := time.Now()
@@ -452,16 +363,7 @@ func TestShutdown_LastfmWaitIsBounded(t *testing.T) {
 func TestSubmitLastfm_SkipsRetryOnceClosing(t *testing.T) {
 	shrinkLastfmThresholds(t)
 	scrobbler := &fakeScrobbler{failScrobbleTimes: 1}
-	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
-	go s.watchTrackUpdates()
-	c := connect(t, s)
-	c.hello()
-
-	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
-	player.trackChan <- audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: player.currentGen()}
-	c.waitState("title", func(st protocol.PlaybackState) bool {
-		return st.TrackTitle == "Boards of Canada - Dayvan Cowboy"
-	})
+	s, _, _ := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
 	time.Sleep(2 * lastfmMinPlayDuration)
 
 	s.Shutdown()

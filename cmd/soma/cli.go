@@ -685,7 +685,7 @@ func parseVolumeArg(arg string) (pct int, relative bool, err error) {
 	relative = strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-")
 	pct, convErr := strconv.Atoi(arg)
 	if convErr != nil || (!relative && (pct < 0 || pct > 100)) {
-		return 0, false, fmt.Errorf("volume must be a number between 0 and 100, or a +/- adjustment")
+		return 0, false, errors.New("volume must be a number between 0 and 100, or a +/- adjustment")
 	}
 	return pct, relative, nil
 }

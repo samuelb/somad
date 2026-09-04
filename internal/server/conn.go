@@ -65,6 +65,15 @@ type conn struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+
+	// Handshake state, touched only by the read loop in serveConn. A
+	// connection is registered for broadcasts (and counts as a client for
+	// the idle timeout) once authed; requests other than auth and hello
+	// are refused until saidHello.
+	authed     bool
+	registered bool
+	saidHello  bool
+	nonce      []byte // outstanding auth challenge, single-use
 }
 
 // serveConn owns the connection's lifecycle: registration, the read loop,
@@ -82,32 +91,26 @@ func (s *Server) serveConn(nc net.Conn) {
 	if c.remote {
 		// Covers the (lazy) TLS handshake, authentication, and hello;
 		// cleared once hello succeeds. See handshakeTimeout.
-		_ = nc.SetReadDeadline(time.Now().Add(time.Duration(handshakeTimeout.Load())))
+		c.armHandshakeDeadline()
 	}
 	// Non-local connections must prove knowledge of the pre-shared key
 	// before anything else; the Unix socket is already restricted to the
 	// owning user by file permissions. Until then the connection stays
 	// unregistered: it receives no state broadcasts and does not keep the
 	// server alive past its idle timeout.
-	authed := !c.remote || s.psk == ""
-	registered := false
+	c.authed = !c.remote || s.psk == ""
 	defer func() {
-		if registered {
+		if c.registered {
 			s.removeConn(c)
 		}
 		c.close()
 	}()
-	if authed {
-		if !s.addConn(c) {
-			return
-		}
-		registered = true
+	if c.authed && !c.register() {
+		return
 	}
 
 	go c.writeLoop()
 
-	var nonce []byte
-	saidHello := false
 	// The request scanner is far smaller than the client's: every
 	// client-to-server line is tiny, and this bounds what a peer can make
 	// the server buffer before it is authenticated.
@@ -118,75 +121,113 @@ func (s *Server) serveConn(nc net.Conn) {
 			c.respondError(req.ID, fmt.Errorf("malformed request: %w", err))
 			continue
 		}
-		// auth and hello are handled inline so authed/saidHello are set
-		// before the next request is read.
-		switch req.Method {
-		case protocol.MethodAuthChallenge:
-			var err error
-			if nonce, err = protocol.NewAuthNonce(); err != nil {
-				c.respondError(req.ID, err)
-				return
-			}
-			c.respond(req.ID, protocol.AuthChallengeResult{Nonce: base64.StdEncoding.EncodeToString(nonce)})
-		case protocol.MethodAuth:
-			ok := c.verifyAuth(req, nonce)
-			nonce = nil // single-use: a new attempt needs a new challenge
-			if !ok {
-				// Slow down brute-force attempts before dropping the
-				// connection.
-				time.Sleep(time.Duration(authFailureDelay.Load()))
-				return
-			}
-			authed = true
-			if c.remote {
-				// Auth succeeded: give hello a fresh window instead of
-				// whatever is left of the one absolute deadline.
-				_ = nc.SetReadDeadline(time.Now().Add(time.Duration(handshakeTimeout.Load())))
-			}
-			if !registered {
-				if !s.addConn(c) {
-					return // the server is shutting down
-				}
-				registered = true
-			}
-			// Respond only after registering: a client that acts on this
-			// response must already be receiving broadcasts.
-			c.respond(req.ID, struct{}{})
-		case protocol.MethodHello:
-			if !authed {
-				c.respondError(req.ID, errors.New("authentication required: this server expects a pre-shared key"))
-				return
-			}
-			saidHello = c.handleHello(req)
-			if saidHello && c.remote {
-				_ = nc.SetReadDeadline(time.Time{})
-			}
-		default:
-			if !authed {
-				c.respondError(req.ID, fmt.Errorf("authentication required before %q", req.Method))
-				return
-			}
-			if !saidHello {
-				c.respondError(req.ID, fmt.Errorf("hello required before %q", req.Method))
-				return
-			}
-			// The blocking send is the intended backpressure on a client
-			// with maxConcurrentRequests in flight — but during teardown
-			// nothing will free a slot, so bail out instead of holding the
-			// read loop until a handler happens to finish.
-			select {
-			case c.sem <- struct{}{}:
-			case <-c.done:
-				return
-			case <-c.s.done:
-				return
-			}
-			go func() {
-				defer func() { <-c.sem }()
-				c.handleRequest(req)
-			}()
+		if !c.dispatch(req) {
+			return
 		}
 	}
+}
+
+// armHandshakeDeadline (re)starts the pre-hello read deadline on a remote
+// connection.
+func (c *conn) armHandshakeDeadline() {
+	_ = c.nc.SetReadDeadline(time.Now().Add(time.Duration(handshakeTimeout.Load())))
+}
+
+// register adds the connection to the server's broadcast set. It reports
+// false when the server is shutting down.
+func (c *conn) register() bool {
+	if !c.s.addConn(c) {
+		return false
+	}
+	c.registered = true
+	return true
+}
+
+// dispatch routes one request read from the connection. auth and hello are
+// handled inline so the handshake state is settled before the next request
+// is read; everything else runs on its own goroutine. It reports false when
+// the connection must be dropped.
+func (c *conn) dispatch(req protocol.Request) bool {
+	switch req.Method {
+	case protocol.MethodAuthChallenge:
+		nonce, err := protocol.NewAuthNonce()
+		if err != nil {
+			c.respondError(req.ID, err)
+			return false
+		}
+		c.nonce = nonce
+		c.respond(req.ID, protocol.AuthChallengeResult{Nonce: base64.StdEncoding.EncodeToString(nonce)})
+		return true
+	case protocol.MethodAuth:
+		return c.authenticate(req)
+	case protocol.MethodHello:
+		if !c.authed {
+			c.respondError(req.ID, errors.New("authentication required: this server expects a pre-shared key"))
+			return false
+		}
+		c.saidHello = c.handleHello(req)
+		if c.saidHello && c.remote {
+			_ = c.nc.SetReadDeadline(time.Time{})
+		}
+		return true
+	default:
+		return c.dispatchRequest(req)
+	}
+}
+
+// authenticate completes the PSK challenge–response. A failure stalls
+// briefly, then drops the connection; success registers it for broadcasts
+// before answering.
+func (c *conn) authenticate(req protocol.Request) bool {
+	ok := c.verifyAuth(req, c.nonce)
+	c.nonce = nil // single-use: a new attempt needs a new challenge
+	if !ok {
+		// Slow down brute-force attempts before dropping the connection.
+		time.Sleep(time.Duration(authFailureDelay.Load()))
+		return false
+	}
+	c.authed = true
+	if c.remote {
+		// Auth succeeded: give hello a fresh window instead of whatever is
+		// left of the one absolute deadline.
+		c.armHandshakeDeadline()
+	}
+	if !c.registered && !c.register() {
+		return false // the server is shutting down
+	}
+	// Respond only after registering: a client that acts on this response
+	// must already be receiving broadcasts.
+	c.respond(req.ID, struct{}{})
+	return true
+}
+
+// dispatchRequest hands a post-handshake request to handleRequest on its
+// own goroutine, bounded by the connection's semaphore.
+func (c *conn) dispatchRequest(req protocol.Request) bool {
+	if !c.authed {
+		c.respondError(req.ID, fmt.Errorf("authentication required before %q", req.Method))
+		return false
+	}
+	if !c.saidHello {
+		c.respondError(req.ID, fmt.Errorf("hello required before %q", req.Method))
+		return false
+	}
+	// The blocking send is the intended backpressure on a client with
+	// maxConcurrentRequests in flight — but during teardown nothing will
+	// free a slot, so bail out instead of holding the read loop until a
+	// handler happens to finish.
+	select {
+	case c.sem <- struct{}{}:
+	case <-c.done:
+		return false
+	case <-c.s.done:
+		return false
+	}
+	go func() {
+		defer func() { <-c.sem }()
+		c.handleRequest(req)
+	}()
+	return true
 }
 
 // authFailureDelay is how long (in nanoseconds) a failed authentication

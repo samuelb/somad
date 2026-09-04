@@ -154,7 +154,7 @@ func runBridge(p *tea.Program, c *client.Client, done <-chan struct{}, shutdownO
 // reconnected server's version alongside the client.
 func reconnect() (*client.Client, string, error) {
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	for range 3 {
 		var c *client.Client
 		var hr protocol.HelloResult
 		c, hr, err = client.EnsureServer(endpoint, version)

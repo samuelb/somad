@@ -53,18 +53,25 @@ var (
 	extraAllowedHosts   []string
 )
 
+// AddAllowedHost permits outbound requests to host in addition to the
+// built-in SomaFM and Last.fm allowlist. It exists for tests (see
+// securitytest), which point the code at httptest servers.
 func AddAllowedHost(host string) {
 	extraAllowedHostsMu.Lock()
 	defer extraAllowedHostsMu.Unlock()
 	extraAllowedHosts = append(extraAllowedHosts, host)
 }
 
+// ClearAllowedHosts drops every host added with AddAllowedHost.
 func ClearAllowedHosts() {
 	extraAllowedHostsMu.Lock()
 	defer extraAllowedHostsMu.Unlock()
 	extraAllowedHosts = nil
 }
 
+// ValidateURL reports whether rawURL may be fetched: its scheme must be
+// http or https and its host on the allowlist. Every outbound request and
+// redirect goes through it.
 func ValidateURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {

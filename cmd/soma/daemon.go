@@ -67,6 +67,77 @@ type daemonOptions struct {
 	certFingerprint string
 }
 
+// daemonFlags holds the parsed `soma daemon` flags, before any file they
+// name has been resolved.
+type daemonFlags struct {
+	idleTimeout time.Duration
+	noTray      bool
+	notify      bool
+	quality     string
+	listen      string
+	tls         bool
+	tlsCert     string
+	tlsKey      string
+	pskFile     string
+	insecure    bool
+	showCert    bool
+	genPSK      bool
+}
+
+// parseDaemonFlags parses `soma daemon`'s flags, seeded from cfg's defaults
+// so an explicit flag overrides the config file. Path-valued flags get the
+// same "~/" expansion config.Load applies to the keys they mirror (a shell
+// normally expands "~" for a flag, but a quoted value should still work).
+func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
+	defaultIdleTimeout := server.DefaultIdleTimeout
+	if cfg.Server.IdleTimeout != nil {
+		defaultIdleTimeout = time.Duration(*cfg.Server.IdleTimeout)
+	}
+	defaultNoTray := cfg.Server.Tray != nil && !*cfg.Server.Tray
+
+	var f daemonFlags
+	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
+	fs.Usage = func() {
+		_, _ = fmt.Fprintln(fs.Output(), "Usage: soma daemon [flags]")
+		_, _ = fmt.Fprintln(fs.Output(), "Flags:")
+		printFlagDefaults(fs)
+	}
+	fs.DurationVar(&f.idleTimeout, "idle-timeout", defaultIdleTimeout,
+		"exit after this long with no clients and stopped playback (0 disables)")
+	fs.BoolVar(&f.noTray, "no-tray", defaultNoTray,
+		"do not show the system tray / menu-bar icon while the server runs")
+	fs.BoolVar(&f.notify, "notify", boolVal(cfg.Server.Notify),
+		"show a desktop notification when the playing track changes")
+	fs.StringVar(&f.quality, "quality", str(cfg.Server.Quality),
+		"preferred stream quality: highest, high, or low (falls back to the nearest available; default highest)")
+	fs.StringVar(&f.listen, "listen", str(cfg.Server.Listen),
+		"also listen for frontends on this TCP host:port (empty: Unix socket only)")
+	fs.BoolVar(&f.tls, "tls", boolVal(cfg.Server.TLS),
+		"serve the TCP listener over TLS (a certificate is generated when none is configured)")
+	fs.StringVar(&f.tlsCert, "tls-cert", str(cfg.Server.TLSCert),
+		"PEM certificate for the TCP listener (implies --tls; requires --tls-key)")
+	fs.StringVar(&f.tlsKey, "tls-key", str(cfg.Server.TLSKey),
+		"PEM private key belonging to --tls-cert")
+	fs.StringVar(&f.pskFile, "psk-file", str(cfg.Server.PSKFile),
+		"file holding the pre-shared key TCP clients must authenticate with")
+	fs.BoolVar(&f.insecure, "insecure", boolVal(cfg.Server.Insecure),
+		"serve a non-loopback --listen address even without TLS and a PSK")
+	fs.BoolVar(&f.showCert, "show-cert", false,
+		"print the TLS certificate path and fingerprint, then exit")
+	fs.BoolVar(&f.genPSK, "gen-psk", false,
+		`generate a random pre-shared key at --psk-file (or a "psk" file in the config directory when unset), then exit`)
+	_ = fs.Parse(args)
+
+	for _, p := range []*string{&f.tlsCert, &f.tlsKey, &f.pskFile} {
+		expanded, err := config.ExpandHome(*p)
+		if err != nil {
+			return daemonFlags{}, err
+		}
+		*p = expanded
+	}
+	return f, nil
+}
+
 // resolveDaemonOptions parses `soma daemon`'s flags (seeded from cfg's
 // defaults), validates them, and resolves the files they name — a TLS
 // certificate pair (generating a self-signed one when none is configured),
@@ -75,59 +146,13 @@ type daemonOptions struct {
 // --quality validation, the --tls-cert/--tls-key pairing rule, certificate
 // preparation, certificate loading for --show-cert, and the PSK file read.
 func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, error) {
-	defaultIdleTimeout := server.DefaultIdleTimeout
-	if cfg.Server.IdleTimeout != nil {
-		defaultIdleTimeout = time.Duration(*cfg.Server.IdleTimeout)
-	}
-	defaultNoTray := cfg.Server.Tray != nil && !*cfg.Server.Tray
-
-	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
-	fs.Usage = func() {
-		_, _ = fmt.Fprintln(fs.Output(), "Usage: soma daemon [flags]")
-		_, _ = fmt.Fprintln(fs.Output(), "Flags:")
-		printFlagDefaults(fs)
-	}
-	idleTimeout := fs.Duration("idle-timeout", defaultIdleTimeout,
-		"exit after this long with no clients and stopped playback (0 disables)")
-	noTray := fs.Bool("no-tray", defaultNoTray,
-		"do not show the system tray / menu-bar icon while the server runs")
-	notify := fs.Bool("notify", boolVal(cfg.Server.Notify),
-		"show a desktop notification when the playing track changes")
-	quality := fs.String("quality", str(cfg.Server.Quality),
-		"preferred stream quality: highest, high, or low (falls back to the nearest available; default highest)")
-	listen := fs.String("listen", str(cfg.Server.Listen),
-		"also listen for frontends on this TCP host:port (empty: Unix socket only)")
-	tlsOn := fs.Bool("tls", boolVal(cfg.Server.TLS),
-		"serve the TCP listener over TLS (a certificate is generated when none is configured)")
-	tlsCert := fs.String("tls-cert", str(cfg.Server.TLSCert),
-		"PEM certificate for the TCP listener (implies --tls; requires --tls-key)")
-	tlsKey := fs.String("tls-key", str(cfg.Server.TLSKey),
-		"PEM private key belonging to --tls-cert")
-	pskFile := fs.String("psk-file", str(cfg.Server.PSKFile),
-		"file holding the pre-shared key TCP clients must authenticate with")
-	insecure := fs.Bool("insecure", boolVal(cfg.Server.Insecure),
-		"serve a non-loopback --listen address even without TLS and a PSK")
-	showCert := fs.Bool("show-cert", false,
-		"print the TLS certificate path and fingerprint, then exit")
-	genPSK := fs.Bool("gen-psk", false,
-		`generate a random pre-shared key at --psk-file (or a "psk" file in the config directory when unset), then exit`)
-	_ = fs.Parse(args)
-
-	// cfg's own path-valued fields are already expanded by config.Load; an
-	// explicit flag bypasses that and needs the same "~/" handling, so
-	// --tls-cert/--tls-key/--psk-file behave like the config keys they
-	// mirror (a shell normally expands "~" for a flag, but a quoted value
-	// should still work).
-	for _, p := range []*string{tlsCert, tlsKey, pskFile} {
-		expanded, err := config.ExpandHome(*p)
-		if err != nil {
-			return daemonOptions{}, err
-		}
-		*p = expanded
+	f, err := parseDaemonFlags(cfg, args)
+	if err != nil {
+		return daemonOptions{}, err
 	}
 
-	if *genPSK {
-		path := *pskFile
+	if f.genPSK {
+		path := f.pskFile
 		if path == "" {
 			dir, err := config.Dir()
 			if err != nil {
@@ -138,24 +163,23 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 		return daemonOptions{action: daemonActionGenPSK, genPSKPath: path}, nil
 	}
 
-	if *quality != "" && !config.ValidQuality(*quality) {
-		return daemonOptions{}, fmt.Errorf("--quality (or server.quality in the config) must be one of %s (got %q)", config.QualityList(), *quality)
+	if f.quality != "" && !config.ValidQuality(f.quality) {
+		return daemonOptions{}, fmt.Errorf("--quality (or server.quality in the config) must be one of %s (got %q)", config.QualityList(), f.quality)
 	}
 
-	certPath, keyPath := *tlsCert, *tlsKey
+	certPath, keyPath := f.tlsCert, f.tlsKey
 	if (certPath == "") != (keyPath == "") {
 		return daemonOptions{}, errors.New("--tls-cert and --tls-key (or tls_cert/tls_key in the config) must be set together")
 	}
-	tlsEnabled := *tlsOn || certPath != ""
+	tlsEnabled := f.tls || certPath != ""
 	// The certificate is resolved (and generated) even for --show-cert with
 	// TLS not yet enabled: the user is pairing a client right now.
-	if tlsEnabled || *showCert {
-		var err error
-		if certPath, keyPath, err = ensureCertPair(certPath, keyPath, *listen); err != nil {
+	if tlsEnabled || f.showCert {
+		if certPath, keyPath, err = ensureCertPair(certPath, keyPath, f.listen); err != nil {
 			return daemonOptions{}, fmt.Errorf("error preparing the TLS certificate: %w", err)
 		}
 	}
-	if *showCert {
+	if f.showCert {
 		_, fingerprint, err := tlsutil.ServerTLSConfig(certPath, keyPath)
 		if err != nil {
 			return daemonOptions{}, fmt.Errorf("error loading the TLS certificate: %w", err)
@@ -164,25 +188,24 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 	}
 
 	psk := str(cfg.Server.PSK)
-	if *pskFile != "" {
-		var err error
-		if psk, err = readPSKFile(*pskFile); err != nil {
+	if f.pskFile != "" {
+		if psk, err = readPSKFile(f.pskFile); err != nil {
 			return daemonOptions{}, fmt.Errorf("error reading the PSK file: %w", err)
 		}
 	}
 
 	return daemonOptions{
 		action:      daemonActionRun,
-		idleTimeout: *idleTimeout,
-		noTray:      *noTray,
-		notify:      *notify,
-		quality:     *quality,
-		listen:      *listen,
+		idleTimeout: f.idleTimeout,
+		noTray:      f.noTray,
+		notify:      f.notify,
+		quality:     f.quality,
+		listen:      f.listen,
 		tlsEnabled:  tlsEnabled,
 		certPath:    certPath,
 		keyPath:     keyPath,
 		psk:         psk,
-		insecure:    *insecure,
+		insecure:    f.insecure,
 	}, nil
 }
 
