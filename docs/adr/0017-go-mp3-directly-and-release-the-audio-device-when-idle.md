@@ -1,6 +1,6 @@
-# ADR-0017: Decode MP3 with go-mp3 directly, and release the audio device when idle through an oto fork
+# ADR-0017: Decode MP3 with go-mp3 directly, and suspend the audio device when idle
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-09-04: the oto fork was never adopted)
 - **Date:** 2026-07-02 (device release 2026-07-13)
 - **Sources:** dbaa748, 12045de, 0c0e7ba (rationale on branch commit ee50300), 073aa73; `internal/audio/player.go`, `resample.go`, `go.mod`
 
@@ -17,10 +17,20 @@ playing, because oto's `Suspend` only pauses the audio queue.
 - Use `go-mp3` directly plus a small linear resampler for the unlikely
   stream that is not at the oto context's 44.1 kHz. A zero source rate
   falls back to pass-through rather than repeating the first frame forever.
-- Depend on the fork `github.com/samuelb/oto/v3`, which adds
-  `SuspendAndRelease` (`AudioQueueStop`) without changing upstream
-  `Suspend`/`Resume`. `player.go` imports the fork directly so re-vendoring
-  preserves it. Measured `coreaudiod` while idle: about 0.5 %, down from 11 %.
+- Suspend the oto context whenever no session is active and resume it on
+  the next play, so the audio backend is not driven while nothing plays.
+  This uses upstream `github.com/ebitengine/oto/v3` and its `Suspend`
+  (`AudioQueuePause` on macOS).
+  - *Amendment 2026-09-04.* The original record said the daemon depends on
+    a fork, `github.com/samuelb/oto/v3`, adding `SuspendAndRelease`
+    (`AudioQueueStop`) to fully release the device, measured at about 0.5 %
+    idle `coreaudiod` instead of 11 %. That fork was never published
+    (the repository does not exist) and the change lives only on the
+    unmerged branch `release-audio-device-when-idle` (ee50300); `main` has
+    always vendored upstream oto. The suspend-when-idle logic did land;
+    the device-release half did not. Adopting a fork of the audio library
+    remains a separate decision, to be taken by a new record if the idle
+    CPU cost is found to matter.
 - The wait for the audio backend to become ready is bounded at 15 s, so a
   hung ALSA daemon or broken device fails with a message instead of
   hanging the daemon before its socket is even useful. The timeout is not
@@ -28,5 +38,5 @@ playing, because oto's `Suspend` only pauses the audio queue.
 
 ## Consequences
 
-- The dependency tree is much smaller. The fork must be carried forward
-  when oto is updated; its only delta is the one method.
+- The dependency tree is much smaller. No fork has to be carried forward
+  when oto is updated.

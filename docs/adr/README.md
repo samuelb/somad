@@ -30,7 +30,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0014](0014-session-owned-playback-with-generation-counters.md) | One goroutine owns each playback session; the newest Play or Stop always wins | Accepted |
 | [0015](0015-icy-metadata-demuxed-from-the-playback-connection.md) | Track titles are demuxed from the playback connection, not fetched separately | Accepted |
 | [0016](0016-stream-format-selection-aac-where-decodable-mp3-otherwise.md) | Prefer AAC where the platform decodes it, MP3 elsewhere, always the highest quality; no Linux AAC decoder | Accepted |
-| [0017](0017-go-mp3-directly-and-release-the-audio-device-when-idle.md) | Decode MP3 with go-mp3 directly, and release the audio device when idle through an oto fork | Accepted |
+| [0017](0017-go-mp3-directly-and-release-the-audio-device-when-idle.md) | Decode MP3 with go-mp3 directly, and suspend the audio device when idle | Accepted (amended) |
 | [0018](0018-per-connection-backpressure-and-latest-wins-events.md) | Per-connection request cap and latest-wins event delivery | Accepted |
 | [0019](0019-mpris-and-tray-live-in-the-daemon.md) | MPRIS and the system tray live in the daemon process | Accepted |
 | [0020](0020-adaptive-palette-following-somafm-no-theming.md) | The palette follows somafm.com and adapts to light and dark terminals; no user theming | Accepted |
