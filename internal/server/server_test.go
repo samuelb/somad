@@ -353,6 +353,39 @@ func TestStop_CancelsPendingReconnect(t *testing.T) {
 	player.mu.Unlock()
 }
 
+func TestReconnect_StaleTimerFireDoesNotRestartAfterStop(t *testing.T) {
+	prev := reconnectBaseDelay
+	reconnectBaseDelay = time.Hour // the timer itself must never fire here
+	defer func() { reconnectBaseDelay = prev }()
+
+	s, player := newTestServer(t, Config{})
+	go s.watchPlayerErrors()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
+	player.errChan <- errors.New("stream read error")
+	c.waitState("reconnecting", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusReconnecting
+	})
+	s.mu.Lock()
+	gen := s.playGen
+	s.mu.Unlock()
+
+	st := decodeState(t, c.call(protocol.MethodStop, nil))
+	assert.Equal(t, protocol.StatusStopped, st.Status)
+
+	// The timer's callback that had already passed its stale check when
+	// Stop landed: its generation is stale now, so it must not start audio.
+	s.reconnectChannel("dronezone", gen)
+
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusStopped, snap.Status)
+	player.mu.Lock()
+	assert.False(t, player.playing, "a stale reconnect must not restart a stopped stream")
+	player.mu.Unlock()
+}
+
 func TestStopIn_FiresAfterDelayWithoutStoppingNow(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	c := connect(t, s)

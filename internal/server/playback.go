@@ -51,18 +51,26 @@ var supportedFormats = audio.PreferredFormats
 // connected and decoding (or has failed), so callers get synchronous
 // semantics; progress snapshots are broadcast to all clients along the way.
 func (s *Server) Play(channelID string) (protocol.PlaybackState, error) {
-	return s.playChannel(channelID, true)
+	attempt, snap, err := s.beginPlay(channelID, true, 0)
+	return s.runAttempt(attempt, snap, err)
 }
 
-// playChannel connects to a channel. userInitiated distinguishes explicit
-// play requests (which persist the channel and reset the reconnect budget)
-// from automatic reconnect attempts. It runs in three parts: beginPlay
-// claims the state under the lock, connectCandidates does the network work
-// off it, and commitPlay (or failConnect) records the outcome under the
-// lock again; the play generation ties the three together, so a newer play
-// or stop that lands in between wins.
-func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.PlaybackState, error) {
-	attempt, snap, err := s.beginPlay(channelID, userInitiated)
+// reconnectChannel is the reconnect timer's play. gen is the play
+// generation the reconnect was scheduled under; a stop or newer play since
+// then has moved it on, which makes this reconnect stale and a no-op.
+func (s *Server) reconnectChannel(channelID string, gen uint64) {
+	attempt, snap, err := s.beginPlay(channelID, false, gen)
+	_, _ = s.runAttempt(attempt, snap, err)
+}
+
+// runAttempt finishes a play that beginPlay claimed. A play runs in three
+// parts: beginPlay claims the state under the lock, connectCandidates does
+// the network work off it, and commitPlay (or failConnect) records the
+// outcome under the lock again; the play generation ties the three
+// together, so a newer play or stop that lands in between wins. A nil
+// attempt means beginPlay declined (no-op or error) and snap and err are
+// its answer.
+func (s *Server) runAttempt(attempt *playAttempt, snap protocol.PlaybackState, err error) (protocol.PlaybackState, error) {
 	if attempt == nil {
 		return snap, err
 	}
@@ -83,13 +91,22 @@ type playAttempt struct {
 // server to connecting on the new channel under a fresh generation,
 // broadcasting that. A nil attempt means nothing changed (shutting down,
 // unknown channel, or already playing this channel) and snap is the reply.
-func (s *Server) beginPlay(channelID string, userInitiated bool) (attempt *playAttempt, snap protocol.PlaybackState, err error) {
+func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen uint64) (attempt *playAttempt, snap protocol.PlaybackState, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
 		// Shutdown has already stopped the player with its generation; a
 		// play that bumped past it would commit into a dying process.
 		return nil, s.snapshotLocked(), errors.New("server is shutting down")
+	}
+	if !userInitiated && (s.playGen != reconnectGen ||
+		s.status != protocol.StatusReconnecting || s.channelID != channelID) {
+		// The reconnect timer fired, but a stop or newer play has taken
+		// over since it was scheduled. This check has to sit under the same
+		// lock acquisition as the state change below: when the timer
+		// callback checked on its own and then re-locked here, a Stop
+		// landing in that gap was overridden and playback restarted.
+		return nil, s.snapshotLocked(), nil
 	}
 	ch, ok := s.findChannelLocked(channelID)
 	if !ok {
@@ -261,13 +278,7 @@ func (s *Server) scheduleReconnectOrStopLocked(retry bool) {
 		gen := s.playGen
 		channelID := s.channelID
 		s.reconnectTimer = time.AfterFunc(reconnectDelay(s.reconnectAttempt), func() {
-			s.mu.Lock()
-			stale := s.playGen != gen || s.status != protocol.StatusReconnecting || s.channelID != channelID
-			s.mu.Unlock()
-			if stale {
-				return
-			}
-			_, _ = s.playChannel(channelID, false)
+			s.reconnectChannel(channelID, gen)
 		})
 		return
 	}
