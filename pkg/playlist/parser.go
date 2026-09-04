@@ -78,7 +78,7 @@ func parseFirstStreamURL(r io.Reader) (string, error) {
 		if first == "" {
 			first = url
 		}
-		if firstHTTPS == "" && isHTTPSURL(url) {
+		if firstHTTPS == "" && security.IsHTTPSURL(url) {
 			firstHTTPS = url
 		}
 	}
@@ -89,13 +89,6 @@ func parseFirstStreamURL(r io.Reader) (string, error) {
 		return firstHTTPS, nil
 	}
 	return first, nil
-}
-
-// isHTTPSURL reports whether url starts with an https scheme, matched
-// case-insensitively since playlists are not always spec-exact.
-func isHTTPSURL(url string) bool {
-	const scheme = "https://"
-	return len(url) >= len(scheme) && strings.EqualFold(url[:len(scheme)], scheme)
 }
 
 // isFileKey reports whether a .pls key names a stream entry: "file" followed

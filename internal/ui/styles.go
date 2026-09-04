@@ -61,4 +61,22 @@ var (
 	SearchBarStyle = lipgloss.NewStyle().
 			Foreground(SearchMatchColor).
 			MarginLeft(2)
+
+	// Footer styles (about and history footers under the status bar).
+	FooterSeparatorStyle = lipgloss.NewStyle().
+				Foreground(SubtleColor)
+
+	FooterBodyStyle = lipgloss.NewStyle().
+			Foreground(SubtleColor).
+			Padding(0, 0, 0, 2)
+
+	// List row styles. The delegate sets the width per render (the list can
+	// resize), so these carry everything but Width.
+	listenerNormalStyle   = lipgloss.NewStyle().Foreground(SubtleColor).Align(lipgloss.Right)
+	listenerSelectedStyle = lipgloss.NewStyle().Foreground(MutedTextColor).Align(lipgloss.Right)
+	listenerPlayingStyle  = lipgloss.NewStyle().Foreground(PlayingColor).Align(lipgloss.Right)
+	listenerMatchStyle    = lipgloss.NewStyle().Foreground(SearchMatchColor).Align(lipgloss.Right)
+	playingTitleStyle     = lipgloss.NewStyle().Foreground(PlayingColor).Padding(0, 0, 0, 2)
+	matchTitleStyle       = lipgloss.NewStyle().Foreground(SearchMatchColor).Padding(0, 0, 0, 2)
+	unselectedDescStyle   = lipgloss.NewStyle().Foreground(SubtleColor).Padding(0, 0, 0, 2)
 )

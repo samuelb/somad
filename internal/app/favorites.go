@@ -29,23 +29,17 @@ func (m *Model) isFavoriteID(id string) bool {
 // locally (for a snappy re-sort) and returns a command that persists it on
 // the server; the server's channels event reconciles the final state.
 func (m *Model) ToggleFavorite() tea.Cmd {
-	sel, ok := m.List.SelectedItem().(ui.Item)
-	if !ok {
+	selectedID := m.selectedChannelID()
+	if selectedID == "" {
 		return nil
 	}
-	selectedID := sel.Channel.ID
 
 	if i := slices.Index(m.Favorites, selectedID); i >= 0 {
 		m.Favorites = slices.Delete(slices.Clone(m.Favorites), i, i+1)
 	} else {
 		m.Favorites = append(slices.Clone(m.Favorites), selectedID)
 	}
-
-	// Re-sort the full catalog with favorites on top, then recompute the
-	// visible (possibly filtered) list, keeping the cursor on the same
-	// channel.
-	m.allItems = m.sortItemsWithFavorites(m.allItems)
-	m.refreshVisibleItems(selectedID)
+	m.resortFavorites(selectedID)
 
 	b := m.Backend
 	return func() tea.Msg {
@@ -65,12 +59,15 @@ func (m *Model) ToggleFavorite() tea.Cmd {
 // optimistic flip in ToggleFavorite with what the server actually persisted.
 func (m *Model) applyFavorites(favs []string) {
 	m.Favorites = favs
-	var selectedID string
-	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
-		selectedID = sel.Channel.ID
-	}
+	m.resortFavorites(m.selectedChannelID())
+}
+
+// resortFavorites re-sorts the full catalog with favorites on top after
+// m.Favorites changed, then recomputes the visible (possibly filtered)
+// list, keeping the cursor on keepID.
+func (m *Model) resortFavorites(keepID string) {
 	m.allItems = m.sortItemsWithFavorites(m.allItems)
-	m.refreshVisibleItems(selectedID)
+	m.refreshVisibleItems(keepID)
 }
 
 // sortItemsWithFavorites returns items partitioned with favorites first,

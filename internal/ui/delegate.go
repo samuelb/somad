@@ -90,74 +90,37 @@ func (d StyledDelegate) Render(w io.Writer, m list.Model, index int, listItem li
 		title = "▶ " + title
 	}
 
-	// Calculate column widths
 	leftColWidth, listenerColWidth := CalculateColumnWidths(m.Width())
-
-	// Listener count styles
-	listenerStyle := lipgloss.NewStyle().
-		Foreground(SubtleColor).
-		Width(listenerColWidth).
-		Align(lipgloss.Right)
-
-	listenerSelectedStyle := lipgloss.NewStyle().
-		Foreground(MutedTextColor).
-		Width(listenerColWidth).
-		Align(lipgloss.Right)
-
-	listenerPlayingStyle := lipgloss.NewStyle().
-		Foreground(PlayingColor).
-		Width(listenerColWidth).
-		Align(lipgloss.Right)
-
-	listenerMatchStyle := lipgloss.NewStyle().
-		Foreground(SearchMatchColor).
-		Width(listenerColWidth).
-		Align(lipgloss.Right)
-
-	// Apply styles based on state
-	var titleStr, descStr, listenerStr string
 	listeners := i.Listeners() + " ♪"
-
 	// Truncate description to prevent wrapping (content area is leftColWidth - 2 for padding)
 	desc := ansi.Truncate(i.Description(), leftColWidth-2, "…")
 
+	// Pick the (title, description, listener count) styles for the row's state.
+	var titleStyle, descStyle, listenerStyle lipgloss.Style
 	switch {
 	case isSelected:
 		// Subtract 1 from width to account for left border character
-		titleStr = d.Styles.SelectedTitle.Width(leftColWidth - 1).Render(title)
-		descStr = d.Styles.SelectedDesc.Width(leftColWidth - 1).Render(desc)
-		listenerStr = listenerSelectedStyle.Render(listeners)
+		titleStyle = d.Styles.SelectedTitle.Width(leftColWidth - 1)
+		descStyle = d.Styles.SelectedDesc.Width(leftColWidth - 1)
+		listenerStyle = listenerSelectedStyle
 	case isPlaying:
 		// Playing but not selected - show green indicator
-		playingTitleStyle := lipgloss.NewStyle().
-			Foreground(PlayingColor).
-			Padding(0, 0, 0, 2).
-			Width(leftColWidth)
-		playingDescStyle := lipgloss.NewStyle().
-			Foreground(SubtleColor).
-			Padding(0, 0, 0, 2).
-			Width(leftColWidth)
-		titleStr = playingTitleStyle.Render(title)
-		descStr = playingDescStyle.Render(desc)
-		listenerStr = listenerPlayingStyle.Render(listeners)
+		titleStyle = playingTitleStyle.Width(leftColWidth)
+		descStyle = unselectedDescStyle.Width(leftColWidth)
+		listenerStyle = listenerPlayingStyle
 	case isMatch:
 		// Search match - highlight with match color
-		matchTitleStyle := lipgloss.NewStyle().
-			Foreground(SearchMatchColor).
-			Padding(0, 0, 0, 2).
-			Width(leftColWidth)
-		matchDescStyle := lipgloss.NewStyle().
-			Foreground(SubtleColor).
-			Padding(0, 0, 0, 2).
-			Width(leftColWidth)
-		titleStr = matchTitleStyle.Render(title)
-		descStr = matchDescStyle.Render(desc)
-		listenerStr = listenerMatchStyle.Render(listeners)
+		titleStyle = matchTitleStyle.Width(leftColWidth)
+		descStyle = unselectedDescStyle.Width(leftColWidth)
+		listenerStyle = listenerMatchStyle
 	default:
-		titleStr = d.Styles.NormalTitle.Width(leftColWidth).Render(title)
-		descStr = d.Styles.NormalDesc.Width(leftColWidth).Render(desc)
-		listenerStr = listenerStyle.Render(listeners)
+		titleStyle = d.Styles.NormalTitle.Width(leftColWidth)
+		descStyle = d.Styles.NormalDesc.Width(leftColWidth)
+		listenerStyle = listenerNormalStyle
 	}
+	titleStr := titleStyle.Render(title)
+	descStr := descStyle.Render(desc)
+	listenerStr := listenerStyle.Width(listenerColWidth).Render(listeners)
 
 	// Build two-column layout
 	// Title row with listener count
@@ -172,6 +135,19 @@ const (
 	listenerColumnWidth = 12
 	minLeftColumnWidth  = 20
 )
+
+// RenderHeader renders the list header with column titles, aligned to the
+// same columns the delegate renders rows in.
+func RenderHeader(width int, favoritesOnly bool) string {
+	leftColWidth, listenerColWidth := CalculateColumnWidths(width)
+	titleText := "SomaFM Stations"
+	if favoritesOnly {
+		titleText += " · Favorites"
+	}
+	title := TitleStyle.Width(leftColWidth).Render(titleText)
+	listenerHeader := listenerNormalStyle.Width(listenerColWidth).Render("Listeners")
+	return lipgloss.JoinHorizontal(lipgloss.Bottom, title, listenerHeader)
+}
 
 // CalculateColumnWidths returns the left and listener column widths for a given total width.
 func CalculateColumnWidths(totalWidth int) (leftCol, listenerCol int) {

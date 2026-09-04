@@ -1,6 +1,6 @@
 package channels
 
-import "strings"
+import "somad/internal/security"
 
 // qualityRank orders SomaFM playlist quality levels, best first. These are
 // also the valid values of the server.quality config key and the --quality
@@ -55,16 +55,9 @@ func selectQuality(playlists []Playlist, format string, preferredRank int) (Play
 			best, bestDist, bestRank, found = playlist, dist, rank, true
 		case dist < bestDist, dist == bestDist && rank < bestRank:
 			best, bestDist, bestRank = playlist, dist, rank
-		case dist == bestDist && rank == bestRank && isHTTPSURL(playlist.URL) && !isHTTPSURL(best.URL):
+		case dist == bestDist && rank == bestRank && security.IsHTTPSURL(playlist.URL) && !security.IsHTTPSURL(best.URL):
 			best = playlist
 		}
 	}
 	return best, found
-}
-
-// isHTTPSURL reports whether url starts with an https scheme, matched
-// case-insensitively since playlist URLs are not always spec-exact.
-func isHTTPSURL(url string) bool {
-	const scheme = "https://"
-	return len(url) >= len(scheme) && strings.EqualFold(url[:len(scheme)], scheme)
 }

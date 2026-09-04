@@ -16,20 +16,7 @@ import (
 
 // RenderHeader renders the list header with column titles.
 func (m *Model) RenderHeader() string {
-	leftColWidth, listenerColWidth := ui.CalculateColumnWidths(m.List.Width())
-
-	titleText := "SomaFM Stations"
-	if m.FavoritesOnly {
-		titleText += " · Favorites"
-	}
-	title := ui.TitleStyle.Width(leftColWidth).Render(titleText)
-	listenerHeader := lipgloss.NewStyle().
-		Foreground(ui.SubtleColor).
-		Width(listenerColWidth).
-		Align(lipgloss.Right).
-		Render("Listeners")
-
-	return lipgloss.JoinHorizontal(lipgloss.Bottom, title, listenerHeader)
+	return ui.RenderHeader(m.List.Width(), m.FavoritesOnly)
 }
 
 // RenderSearchBar renders the search input bar.
@@ -164,33 +151,13 @@ func (m *Model) RenderAboutFooter() string {
 	if !m.ShowAbout {
 		return ""
 	}
-
-	width := m.List.Width()
-	if width < 1 {
-		width = m.Width
-	}
-	if width < 1 {
-		width = 1
-	}
-
-	separator := lipgloss.NewStyle().
-		Foreground(ui.SubtleColor).
-		Render(strings.Repeat("─", width))
-
-	lines := []string{
+	return m.renderFooter([]string{
 		fmt.Sprintf("Soma %s · commit %s · built %s", m.About.Version, m.About.Commit, m.About.Date),
 		"A terminal UI for SomaFM internet radio · MIT License",
 		"Author: Samuel Barabas · https://github.com/samuelb/somad",
 		"Not affiliated with SomaFM. Streams provided by somafm.com.",
 		"press a or esc to close",
-	}
-
-	body := lipgloss.NewStyle().
-		Foreground(ui.SubtleColor).
-		Padding(0, 0, 0, 2).
-		Render(strings.Join(lines, "\n"))
-
-	return lipgloss.JoinVertical(lipgloss.Left, separator, body)
+	})
 }
 
 // RenderHistoryFooter renders the now-playing history for the playing
@@ -200,19 +167,6 @@ func (m *Model) RenderHistoryFooter() string {
 	if !m.ShowHistory {
 		return ""
 	}
-
-	width := m.List.Width()
-	if width < 1 {
-		width = m.Width
-	}
-	if width < 1 {
-		width = 1
-	}
-
-	separator := lipgloss.NewStyle().
-		Foreground(ui.SubtleColor).
-		Render(strings.Repeat("─", width))
-
 	var lines []string
 	switch {
 	case m.HistoryChannelID == "":
@@ -230,12 +184,21 @@ func (m *Model) RenderHistoryFooter() string {
 		}
 	}
 	lines = append(lines, "press h or esc to close")
+	return m.renderFooter(lines)
+}
 
-	body := lipgloss.NewStyle().
-		Foreground(ui.SubtleColor).
-		Padding(0, 0, 0, 2).
-		Render(strings.Join(lines, "\n"))
-
+// renderFooter renders lines as an inline footer below the status bar: a
+// full-width separator, then the lines in the subtle help style.
+func (m *Model) renderFooter(lines []string) string {
+	width := m.List.Width()
+	if width < 1 {
+		width = m.Width
+	}
+	if width < 1 {
+		width = 1
+	}
+	separator := ui.FooterSeparatorStyle.Render(strings.Repeat("─", width))
+	body := ui.FooterBodyStyle.Render(strings.Join(lines, "\n"))
 	return lipgloss.JoinVertical(lipgloss.Left, separator, body)
 }
 
@@ -252,52 +215,38 @@ func (m *Model) View() string {
 		return ui.ErrorBoxStyle.Render(errorContent)
 	}
 
-	// Build the main view using lipgloss layout
-	components := []string{
-		"", // Top margin
-		m.RenderHeader(),
-	}
-	if searchBar := m.RenderSearchBar(); searchBar != "" {
-		components = append(components, searchBar)
-	}
-	components = append(components, m.List.View(), m.RenderStatusBar())
-
-	// Show the about information as an inline footer when active.
-	if about := m.RenderAboutFooter(); about != "" {
-		components = append(components, about)
-	}
-
-	// Show the history overlay as an inline footer when active.
-	if history := m.RenderHistoryFooter(); history != "" {
-		components = append(components, history)
-	}
-
+	above, below := m.chrome()
+	components := append(append(above, m.List.View()), below...)
 	return lipgloss.JoinVertical(lipgloss.Left, components...)
+}
+
+// chrome returns the rendered components that frame the list: those above
+// it (top margin, header, search bar when active) and those below it
+// (status bar, and the about and history footers when active). View joins
+// them around the list; UpdateListSize measures them.
+func (m *Model) chrome() (above, below []string) {
+	above = []string{"", m.RenderHeader()} // "" is the top margin line
+	if searchBar := m.RenderSearchBar(); searchBar != "" {
+		above = append(above, searchBar)
+	}
+	below = []string{m.RenderStatusBar()}
+	for _, footer := range []string{m.RenderAboutFooter(), m.RenderHistoryFooter()} {
+		if footer != "" {
+			below = append(below, footer)
+		}
+	}
+	return above, below
 }
 
 // UpdateListSize recalculates and sets the list size based on current UI state.
 func (m *Model) UpdateListSize() {
-	// Dynamically calculate the height needed for the header and status bar
-	headerHeight := lipgloss.Height(m.RenderHeader())
-	statusBarHeight := lipgloss.Height(m.RenderStatusBar())
-	searchBarHeight := 0
-	if searchBar := m.RenderSearchBar(); searchBar != "" {
-		searchBarHeight = lipgloss.Height(searchBar)
+	// Everything but the list itself, plus one bottom margin line.
+	fixed := 1
+	above, below := m.chrome()
+	for _, c := range append(above, below...) {
+		fixed += lipgloss.Height(c)
 	}
-	aboutHeight := 0
-	if about := m.RenderAboutFooter(); about != "" {
-		aboutHeight = lipgloss.Height(about)
-	}
-	historyHeight := 0
-	if history := m.RenderHistoryFooter(); history != "" {
-		historyHeight = lipgloss.Height(history)
-	}
-
-	// Total height occupied by elements other than the list itself
-	totalFixedUIHeight := 1 + headerHeight + searchBarHeight + statusBarHeight + aboutHeight + historyHeight + 1
-
-	// Update the list's dimensions
-	m.List.SetSize(m.Width, m.Height-totalFixedUIHeight)
+	m.List.SetSize(m.Width, m.Height-fixed)
 }
 
 // ChannelsToItems converts channels to list items.

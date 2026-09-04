@@ -107,16 +107,23 @@ func requestErr(op string, err error) tea.Msg {
 	return RequestErrorMsg{Op: op, Err: err}
 }
 
-// fetchStatus asks the server for the current playback snapshot.
-func (m *Model) fetchStatus() tea.Cmd {
+// stateCmd runs a state-returning request against the backend and delivers
+// the snapshot as a ServerStateMsg, or the failure as a RequestErrorMsg
+// labelled op. Every playback command is this shape.
+func (m *Model) stateCmd(op string, call func(Backend) (protocol.PlaybackState, error)) tea.Cmd {
 	b := m.Backend
 	return func() tea.Msg {
-		st, err := b.Status()
+		st, err := call(b)
 		if err != nil {
-			return requestErr("status", err)
+			return requestErr(op, err)
 		}
 		return ServerStateMsg{State: st}
 	}
+}
+
+// fetchStatus asks the server for the current playback snapshot.
+func (m *Model) fetchStatus() tea.Cmd {
+	return m.stateCmd("status", Backend.Status)
 }
 
 // fetchChannels asks the server for the channel catalog.
@@ -134,26 +141,12 @@ func (m *Model) fetchChannels() tea.Cmd {
 // playCmd starts a channel on the server. Progress and failures arrive as
 // pushed state events, so the returned snapshot is just the fast path.
 func (m *Model) playCmd(channelID string) tea.Cmd {
-	b := m.Backend
-	return func() tea.Msg {
-		st, err := b.Play(channelID)
-		if err != nil {
-			return requestErr("play", err)
-		}
-		return ServerStateMsg{State: st}
-	}
+	return m.stateCmd("play", func(b Backend) (protocol.PlaybackState, error) { return b.Play(channelID) })
 }
 
 // playPauseCmd toggles between stopped and playing on the server.
 func (m *Model) playPauseCmd() tea.Cmd {
-	b := m.Backend
-	return func() tea.Msg {
-		st, err := b.PlayPause()
-		if err != nil {
-			return requestErr("playPause", err)
-		}
-		return ServerStateMsg{State: st}
-	}
+	return m.stateCmd("playPause", Backend.PlayPause)
 }
 
 // restartCmd shuts the current (out-of-date) server down. The event bridge
@@ -194,39 +187,18 @@ func (m *Model) quitCmd() tea.Cmd {
 
 // stopCmd halts playback on the server.
 func (m *Model) stopCmd() tea.Cmd {
-	b := m.Backend
-	return func() tea.Msg {
-		st, err := b.Stop()
-		if err != nil {
-			return requestErr("stop", err)
-		}
-		return ServerStateMsg{State: st}
-	}
+	return m.stateCmd("stop", Backend.Stop)
 }
 
 // setVolumeCmd applies a volume on the server, which clamps and persists it.
 func (m *Model) setVolumeCmd(v float64) tea.Cmd {
-	b := m.Backend
-	return func() tea.Msg {
-		st, err := b.SetVolume(v)
-		if err != nil {
-			return requestErr("volume", err)
-		}
-		return ServerStateMsg{State: st}
-	}
+	return m.stateCmd("volume", func(b Backend) (protocol.PlaybackState, error) { return b.SetVolume(v) })
 }
 
 // toggleMuteCmd mutes or unmutes on the server, which remembers the
 // pre-mute level and restores it.
 func (m *Model) toggleMuteCmd() tea.Cmd {
-	b := m.Backend
-	return func() tea.Msg {
-		st, err := b.ToggleMute()
-		if err != nil {
-			return requestErr("mute", err)
-		}
-		return ServerStateMsg{State: st}
-	}
+	return m.stateCmd("mute", Backend.ToggleMute)
 }
 
 // historyOverlayLimit is how many entries the history overlay asks for and

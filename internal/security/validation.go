@@ -3,6 +3,7 @@ package security
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -108,10 +109,29 @@ func isExtraAllowedHost(host string) bool {
 // User-Agent. Returns an error if the URL fails host validation or request creation fails.
 // Callers may add additional headers to the returned request before use.
 func NewRequest(ctx context.Context, rawURL, userAgent string) (*http.Request, error) {
+	return newRequest(ctx, http.MethodGet, rawURL, userAgent, nil)
+}
+
+// NewFormRequest creates a validated HTTP POST request with an
+// application/x-www-form-urlencoded body, for APIs (like Last.fm's) that
+// take parameters as POST form fields rather than a query string. Returns
+// an error if the URL fails host validation or request creation fails.
+func NewFormRequest(ctx context.Context, rawURL, userAgent string, form url.Values) (*http.Request, error) {
+	req, err := newRequest(ctx, http.MethodPost, rawURL, userAgent, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req, nil
+}
+
+// newRequest validates rawURL against the allowlist and builds the request
+// with the User-Agent set; every outbound request goes through here.
+func newRequest(ctx context.Context, method, rawURL, userAgent string, body io.Reader) (*http.Request, error) {
 	if err := ValidateURL(rawURL); err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -121,21 +141,9 @@ func NewRequest(ctx context.Context, rawURL, userAgent string) (*http.Request, e
 	return req, nil
 }
 
-// NewFormRequest creates a validated HTTP POST request with an
-// application/x-www-form-urlencoded body, for APIs (like Last.fm's) that
-// take parameters as POST form fields rather than a query string. Returns
-// an error if the URL fails host validation or request creation fails.
-func NewFormRequest(ctx context.Context, rawURL, userAgent string, form url.Values) (*http.Request, error) {
-	if err := ValidateURL(rawURL); err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if userAgent != "" {
-		req.Header.Set("User-Agent", userAgent)
-	}
-	return req, nil
+// IsHTTPSURL reports whether rawURL starts with an https scheme, matched
+// case-insensitively since playlist URLs are not always spec-exact.
+func IsHTTPSURL(rawURL string) bool {
+	const scheme = "https://"
+	return len(rawURL) >= len(scheme) && strings.EqualFold(rawURL[:len(scheme)], scheme)
 }

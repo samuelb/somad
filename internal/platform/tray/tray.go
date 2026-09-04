@@ -98,42 +98,47 @@ func (t *Tray) Quit() { systray.Quit() }
 // SetPlaying mirrors an active stream into the menu. channelID marks the
 // matching entry in the channel list.
 func (t *Tray) SetPlaying(channelID, station, track string) {
-	t.mu.Lock()
-	t.playing = true
-	t.playingID = channelID
-	t.station = platform.SanitizeUTF8(station)
-	t.track = platform.SanitizeUTF8(track)
-	t.applyLocked()
-	t.renderChannelsLocked()
-	t.mu.Unlock()
+	t.update(func() {
+		t.playing = true
+		t.playingID = channelID
+		t.station = platform.SanitizeUTF8(station)
+		t.track = platform.SanitizeUTF8(track)
+	})
 }
 
 // SetStopped mirrors stopped playback into the menu.
 func (t *Tray) SetStopped() {
+	t.update(func() {
+		t.playing = false
+		t.playingID = ""
+		t.station = ""
+		t.track = ""
+	})
+}
+
+// update runs mutate under the lock, then re-renders the main menu and the
+// channel picker from the new state.
+func (t *Tray) update(mutate func()) {
 	t.mu.Lock()
-	t.playing = false
-	t.playingID = ""
-	t.station = ""
-	t.track = ""
+	defer t.mu.Unlock()
+	mutate()
 	t.applyLocked()
 	t.renderChannelsLocked()
-	t.mu.Unlock()
 }
 
 // SetChannels updates the channel picker. The list is copied so the caller may
 // reuse its slice. Safe to call before the menu is built; it is applied on
 // readiness.
 func (t *Tray) SetChannels(channels []Channel) {
-	t.mu.Lock()
-	t.channels = append(t.channels[:0:0], channels...)
-	for i := range t.channels {
-		t.channels[i].Title = platform.SanitizeUTF8(t.channels[i].Title)
-	}
 	// A catalog push may carry a changed favorite flag for the playing
-	// channel; applyLocked keeps the main menu's Favorite checkbox in sync.
-	t.applyLocked()
-	t.renderChannelsLocked()
-	t.mu.Unlock()
+	// channel; update's applyLocked keeps the main menu's Favorite checkbox
+	// in sync.
+	t.update(func() {
+		t.channels = append(t.channels[:0:0], channels...)
+		for i := range t.channels {
+			t.channels[i].Title = platform.SanitizeUTF8(t.channels[i].Title)
+		}
+	})
 }
 
 // build populates the menu and starts the click-dispatch goroutine. Runs on

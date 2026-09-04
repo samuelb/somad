@@ -5,7 +5,6 @@ import (
 	"unicode/utf8"
 
 	"somad/internal/protocol"
-	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,36 +48,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, keys.Quit):
 			return m, m.quitCmd()
-		case "enter", " ":
-			if i, ok := m.List.SelectedItem().(ui.Item); ok {
+		case key.Matches(msg, keys.Play):
+			if id := m.selectedChannelID(); id != "" {
 				// Changing channel interrupts the stream anyway, so an
 				// out-of-date server is restarted first and the channel is
 				// played once the reconnect delivers a fresh backend.
 				if m.skewed() {
-					m.pendingPlayID = i.Channel.ID
+					m.pendingPlayID = id
 					return m, m.restartCmd()
 				}
-				return m, m.playCmd(i.Channel.ID)
+				return m, m.playCmd(id)
 			}
-		case "s":
+		case key.Matches(msg, keys.Stop):
 			// Stopping interrupts the stream anyway; upgrade an out-of-date
 			// server while we're at it (the fresh one comes up stopped).
 			if m.skewed() && m.Snapshot.Status != protocol.StatusStopped {
 				return m, m.restartCmd()
 			}
 			return m, m.stopCmd()
-		case "p":
+		case key.Matches(msg, keys.PlayPause):
 			// Toggle play/pause without leaving the list.
 			return m, m.playPauseCmd()
-		case "a":
+		case key.Matches(msg, keys.About):
 			// Toggle the inline about footer.
 			m.ShowAbout = !m.ShowAbout
 			m.UpdateListSize()
 			return m, nil
-		case "h":
+		case key.Matches(msg, keys.History):
 			// Toggle the now-playing history overlay for the playing channel.
 			m.ShowHistory = !m.ShowHistory
 			m.UpdateListSize()
@@ -94,57 +93,45 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, m.historyCmd(m.HistoryChannelID)
-		case "esc":
+		case key.Matches(msg, keys.Escape):
 			// Close whichever overlay is open; otherwise fall through to the list.
-			if m.ShowHistory {
-				m.ShowHistory = false
+			if m.ShowHistory || m.ShowAbout {
+				m.ShowHistory, m.ShowAbout = false, false
 				m.UpdateListSize()
 				return m, nil
 			}
-			if m.ShowAbout {
-				m.ShowAbout = false
-				m.UpdateListSize()
-				return m, nil
-			}
-		case "/":
+		case key.Matches(msg, keys.Search):
 			// Enter search mode. An existing query (kept after Enter) is
 			// pre-filled for editing rather than reset.
 			m.Searching = true
 			m.UpdateListSize()
 			return m, nil
-		case "n":
-			// Next match
+		case key.Matches(msg, keys.NextMatch):
 			if len(m.SearchMatches) > 0 {
 				m.NextMatch()
 				return m, nil
 			}
-		case "N":
-			// Previous match
+		case key.Matches(msg, keys.PrevMatch):
 			if len(m.SearchMatches) > 0 {
 				m.PrevMatch()
 				return m, nil
 			}
-		case "f", "*":
+		case key.Matches(msg, keys.Favorite):
 			// Toggle favorite on selected channel
 			return m, m.ToggleFavorite()
-		case "F":
+		case key.Matches(msg, keys.FavoritesOnly):
 			// Toggle a favorites-only view, applied on top of the search
 			// filter via the shared refreshVisibleItems plumbing.
 			m.FavoritesOnly = !m.FavoritesOnly
-			var selectedID string
-			if sel, ok := m.List.SelectedItem().(ui.Item); ok {
-				selectedID = sel.Channel.ID
-			}
-			m.refreshVisibleItems(selectedID)
+			m.refreshVisibleItems(m.selectedChannelID())
 			return m, nil
-		case "+", "=":
+		case key.Matches(msg, keys.VolumeUp):
 			return m, m.setVolumeCmd(m.Snapshot.Volume + volumeStep)
-		case "-", "_":
+		case key.Matches(msg, keys.VolumeDown):
 			return m, m.setVolumeCmd(m.Snapshot.Volume - volumeStep)
-		case "m":
+		case key.Matches(msg, keys.Mute):
 			return m, m.toggleMuteCmd()
-		case "c":
-			// Clear search
+		case key.Matches(msg, keys.ClearSearch):
 			if m.SearchQuery != "" {
 				m.ClearSearch()
 				m.UpdateListSize()
@@ -241,41 +228,57 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// NewHelpKeys returns additional help keys for the list.
+// keyMap is the list-mode keymap: every binding's keys and help text in one
+// place, so the dispatch in Update and the help lines from NewHelpKeys
+// cannot drift apart. Keep it in step with the README and website tables
+// (see "Where facts live" in AGENTS.md). Search-input mode (see Update) has
+// its own few fixed keys.
+type keyMap struct {
+	Quit, Play, PlayPause, Stop, Favorite, FavoritesOnly, VolumeUp, VolumeDown, Mute,
+	Search, NextMatch, PrevMatch, ClearSearch, About, History, Escape key.Binding
+}
+
+var keys = keyMap{
+	Quit:          key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit (keeps playing)")),
+	Play:          key.NewBinding(key.WithKeys("enter", " "), key.WithHelp("enter/space", "play selected")),
+	PlayPause:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
+	Stop:          key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
+	Favorite:      key.NewBinding(key.WithKeys("f", "*"), key.WithHelp("f/*", "toggle favorite")),
+	FavoritesOnly: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "favorites-only view")),
+	VolumeUp:      key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+/-", "volume (also =/_)")),
+	VolumeDown:    key.NewBinding(key.WithKeys("-", "_")),
+	Mute:          key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
+	Search:        key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter channels")),
+	NextMatch:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
+	PrevMatch:     key.NewBinding(key.WithKeys("N")),
+	ClearSearch:   key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear search")),
+	About:         key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
+	History:       key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
+	Escape:        key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close about/history / cancel search")),
+}
+
+// withHelp returns b with its help line replaced, for the terser short-help
+// bar.
+func withHelp(b key.Binding, k, desc string) key.Binding {
+	b.SetHelp(k, desc)
+	return b
+}
+
+// NewHelpKeys returns additional help keys for the list: the full help
+// (every list-mode binding) and the one-line short help.
 func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
-	quitHelp := "quit (keeps playing)"
+	quit := keys.Quit
 	if shutdownOnExit {
-		quitHelp = "quit (stops server)"
+		quit = withHelp(quit, "q", "quit (stops server)")
 	}
-	// Keep these in step with the keymap in Update and with the README and
-	// website tables (see "Where facts live" in AGENTS.md).
 	fullHelp := []key.Binding{
-		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/space", "play selected")),
-		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
-		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
-		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
-		key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "favorites-only view")),
-		key.NewBinding(key.WithKeys("+"), key.WithHelp("+/-", "volume (also =/_)")),
-		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
-		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter channels")),
-		key.NewBinding(key.WithKeys("n"), key.WithHelp("n/N", "next/prev match")),
-		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear search")),
-		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
-		key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
-		key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close about/history / cancel search")),
-		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", quitHelp)),
+		keys.Play, keys.PlayPause, keys.Stop, keys.Favorite, keys.FavoritesOnly,
+		keys.VolumeUp, keys.Mute, keys.Search, keys.NextMatch, keys.ClearSearch,
+		keys.About, keys.History, keys.Escape, quit,
 	}
-
 	shortHelp := []key.Binding{
-		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "play")),
-		key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "play/pause")),
-		key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "stop")),
-		key.NewBinding(key.WithKeys("f"), key.WithHelp("f/*", "toggle favorite")),
-		key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mute")),
-		key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
-		key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
+		withHelp(keys.Play, "enter", "play"), keys.PlayPause, keys.Stop, keys.Favorite,
+		keys.Mute, withHelp(keys.Search, "/", "filter"), keys.About, keys.History,
 	}
-
 	return fullHelp, shortHelp
 }

@@ -158,10 +158,7 @@ func (m *Model) PrevMatch() {
 // ClearSearch clears the search state and restores the full list, keeping
 // the cursor on the channel that was selected within the filtered view.
 func (m *Model) ClearSearch() {
-	var selectedID string
-	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
-		selectedID = sel.Channel.ID
-	}
+	selectedID := m.selectedChannelID()
 	m.Searching = false
 	m.SearchQuery = ""
 	m.refreshVisibleItems(selectedID)

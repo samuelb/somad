@@ -121,10 +121,7 @@ func (m *Model) applyChannels(payload protocol.ChannelsPayload) {
 	m.Loading = false
 	m.Favorites = payload.Favorites
 
-	var selectedID string
-	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
-		selectedID = sel.Channel.ID
-	}
+	selectedID := m.selectedChannelID()
 	m.allItems = m.sortItemsWithFavorites(ChannelsToItems(payload.Channels))
 
 	if firstLoad && selectedID == "" {
@@ -133,6 +130,16 @@ func (m *Model) applyChannels(payload protocol.ChannelsPayload) {
 	// Recompute the visible (possibly filtered) list from the new catalog,
 	// keeping the cursor on the same channel where possible.
 	m.refreshVisibleItems(selectedID)
+}
+
+// selectedChannelID returns the ID of the channel under the cursor, or ""
+// when the list is empty. Callers capture it before re-sorting or
+// re-filtering the list so refreshVisibleItems can keep the cursor there.
+func (m *Model) selectedChannelID() string {
+	if sel, ok := m.List.SelectedItem().(ui.Item); ok {
+		return sel.Channel.ID
+	}
+	return ""
 }
 
 // selectChannelByID moves the list cursor to the channel with the given ID,
