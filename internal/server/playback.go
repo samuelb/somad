@@ -56,21 +56,44 @@ func (s *Server) Play(channelID string) (protocol.PlaybackState, error) {
 
 // playChannel connects to a channel. userInitiated distinguishes explicit
 // play requests (which persist the channel and reset the reconnect budget)
-// from automatic reconnect attempts.
+// from automatic reconnect attempts. It runs in three parts: beginPlay
+// claims the state under the lock, connectCandidates does the network work
+// off it, and commitPlay (or failConnect) records the outcome under the
+// lock again; the play generation ties the three together, so a newer play
+// or stop that lands in between wins.
 func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.PlaybackState, error) {
+	attempt, snap, err := s.beginPlay(channelID, userInitiated)
+	if attempt == nil {
+		return snap, err
+	}
+	attempt.save()
+	return s.connectCandidates(attempt)
+}
+
+// playAttempt is what beginPlay hands to connectCandidates: the generation
+// that owns the attempt, the channel to connect to, and the staged state
+// write to run once the lock is released.
+type playAttempt struct {
+	gen  uint64
+	ch   channels.Channel
+	save func()
+}
+
+// beginPlay validates a play request and, unless it is a no-op, moves the
+// server to connecting on the new channel under a fresh generation,
+// broadcasting that. A nil attempt means nothing changed (shutting down,
+// unknown channel, or already playing this channel) and snap is the reply.
+func (s *Server) beginPlay(channelID string, userInitiated bool) (attempt *playAttempt, snap protocol.PlaybackState, err error) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.closing {
 		// Shutdown has already stopped the player with its generation; a
 		// play that bumped past it would commit into a dying process.
-		snap := s.snapshotLocked()
-		s.mu.Unlock()
-		return snap, errors.New("server is shutting down")
+		return nil, s.snapshotLocked(), errors.New("server is shutting down")
 	}
 	ch, ok := s.findChannelLocked(channelID)
 	if !ok {
-		snap := s.snapshotLocked()
-		s.mu.Unlock()
-		return snap, fmt.Errorf("unknown channel: %s", channelID)
+		return nil, s.snapshotLocked(), fmt.Errorf("unknown channel: %s", channelID)
 	}
 	if userInitiated && ch.ID == s.channelID &&
 		(s.status == protocol.StatusPlaying || s.status == protocol.StatusConnecting) {
@@ -81,9 +104,7 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		// rather than an error. A reconnect attempt (userInitiated=false)
 		// and a channel that is reconnecting or stopped still go through
 		// the normal path below.
-		snap := s.snapshotLocked()
-		s.mu.Unlock()
-		return snap, nil
+		return nil, s.snapshotLocked(), nil
 	}
 	// Ending the outgoing channel's pending scrobble also fires on a
 	// same-channel reconnect, which is fine: the stream did drop, and a
@@ -104,22 +125,20 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		s.st.LastSelectedChannelID = ch.ID
 		save = s.stageSaveLocked()
 	}
-	s.broadcastStateLocked()
-	playlists := ch.Playlists
-	title := ch.Title
-	s.mu.Unlock()
+	return &playAttempt{gen: gen, ch: ch, save: save}, s.broadcastStateLocked(), nil
+}
 
-	save()
-
-	// Try the playable playlists in preference order (AAC before MP3 where
-	// this build decodes it), falling back to the next when one fails to
-	// connect or decode.
+// connectCandidates tries the channel's playable playlists in preference
+// order (AAC before MP3 where this build decodes it), falling back to the
+// next when one fails to resolve, connect, or decode. It runs off the lock
+// because resolving and connecting block on the network.
+func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, error) {
 	formats := supportedFormats()
-	candidates := channels.SelectPlaylists(playlists, formats, s.quality)
+	candidates := channels.SelectPlaylists(a.ch.Playlists, formats, s.quality)
 	if len(candidates) == 0 {
 		// Reconnecting cannot conjure up a playlist, so never retry this.
-		return s.failConnect(gen, fmt.Errorf("no playable stream for %s (supported formats: %s)",
-			title, strings.Join(formats, ", ")), false)
+		return s.failConnect(a.gen, fmt.Errorf("no playable stream for %s (supported formats: %s)",
+			a.ch.Title, strings.Join(formats, ", ")), false)
 	}
 
 	var lastErr error
@@ -130,10 +149,7 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 		// early exit: the player sees the same generation and refuses to
 		// commit a stale one itself, which closes the window between here
 		// and player.Play (resolveStreamURL blocks on the network).
-		s.mu.Lock()
-		superseded := gen != s.playGen
-		s.mu.Unlock()
-		if superseded {
+		if s.superseded(a.gen) {
 			return s.Snapshot(), audio.ErrSuperseded
 		}
 
@@ -143,7 +159,7 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 			continue
 		}
 
-		if err := s.player.Play(streamURL, cand.Format, gen); err != nil {
+		if err := s.player.Play(streamURL, cand.Format, a.gen); err != nil {
 			if errors.Is(err, audio.ErrSuperseded) {
 				// A newer play/stop request won; it owns the state now.
 				return s.Snapshot(), err
@@ -152,22 +168,35 @@ func (s *Server) playChannel(channelID string, userInitiated bool) (protocol.Pla
 			continue
 		}
 
-		log.Printf("playing %s (%s)", title, cand.Format)
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if gen != s.playGen {
-			// The player committed this generation, so whoever bumped the
-			// server's counter since has also reached the player with a
-			// newer one and replaced the session. Do not stop the player
-			// here: that would hit the newer, legitimate session.
-			return s.snapshotLocked(), audio.ErrSuperseded
-		}
-		s.status = protocol.StatusPlaying
-		s.reconnectAttempt = 0 // connected: a later drop starts a fresh backoff
-		s.updateMPRISLocked()
-		return s.broadcastStateLocked(), nil
+		log.Printf("playing %s (%s)", a.ch.Title, cand.Format)
+		return s.commitPlay(a.gen)
 	}
-	return s.failConnect(gen, lastErr, true)
+	return s.failConnect(a.gen, lastErr, true)
+}
+
+// superseded reports whether a newer play or stop has taken over since gen.
+func (s *Server) superseded(gen uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return gen != s.playGen
+}
+
+// commitPlay records that the player is streaming the attempt identified by
+// gen, unless a newer play or stop has taken over meanwhile.
+func (s *Server) commitPlay(gen uint64) (protocol.PlaybackState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if gen != s.playGen {
+		// The player committed this generation, so whoever bumped the
+		// server's counter since has also reached the player with a newer
+		// one and replaced the session. Do not stop the player here: that
+		// would hit the newer, legitimate session.
+		return s.snapshotLocked(), audio.ErrSuperseded
+	}
+	s.status = protocol.StatusPlaying
+	s.reconnectAttempt = 0 // connected: a later drop starts a fresh backoff
+	s.updateMPRISLocked()
+	return s.broadcastStateLocked(), nil
 }
 
 // failConnect records a connect failure for the play attempt identified by

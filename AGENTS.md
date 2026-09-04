@@ -205,7 +205,8 @@ delegate and lipgloss styles.
   `security.NewRequest`/`NewFormRequest` / `ValidateURL`, which allowlist
   SomaFM hosts (`http`/`https`) and, as a separate explicit entry,
   `ws.audioscrobbler.com` (`https` only) for Last.fm; both re-validate
-  redirects; tests add hosts via `securitytest`
+  redirects; tests add hosts via `securitytest`. Also `CheckOwnerOnly`,
+  the owner-only permission check the socket directory and PSK files share
 - `internal/lastfm` — Last.fm API 2.0 client (auth.getToken/getSession,
   track.updateNowPlaying/scrobble): POST form requests, the `api_sig` MD5
   signature, JSON responses and error decoding
@@ -214,7 +215,10 @@ delegate and lipgloss styles.
 - `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_other.go`), `tray/`,
   and `notify/` (desktop notification on track change, D-Bus on Linux,
   `osascript` on macOS)
-- `internal/atomicfile` — temp-file + rename writes used by state and cache
+- `internal/atomicfile` — temp-file + rename writes used by state and
+  cache, plus the shared `ReadJSON`/`WriteJSON`/`Quarantine` (corrupt
+  machine-written files are moved aside, ADR 0012) and `CreateExclusive`
+  (create-only-if-missing, for the config template and generated PSK)
 - `internal/xdg` — `ConfigDir`/`StateDir`/`CacheDir(app)`: shared base-directory
   resolution behind `$XDG_CONFIG_HOME`/`$XDG_STATE_HOME`/`$XDG_CACHE_HOME`
   (falling back to the conventional `~/Library/...` paths on macOS), used
