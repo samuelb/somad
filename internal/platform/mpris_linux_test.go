@@ -71,6 +71,28 @@ func TestMPRIS_SetPlayingSafeWithoutProps(t *testing.T) {
 	assert.NotPanics(t, func() { m.SetPlaying("Station", "Track", "Artist", "https://example.com/art.png") })
 }
 
+func TestMPRIS_SettersRecoverFromFailedPropertyUpdate(t *testing.T) {
+	// A zero prop.Properties has no property table, so every SetMust fails
+	// the way it does on a closed bus: with a panic that must not escape.
+	m := &MPRIS{props: &prop.Properties{}}
+	assert.NotPanics(t, func() {
+		m.SetPlaying("Station", "Track", "Artist", "")
+		m.SetVolume(0.5)
+		m.SetStopped()
+	})
+}
+
+func TestMPRIS_SettersAreNoopsAfterClose(t *testing.T) {
+	m := &MPRIS{props: &prop.Properties{}}
+	m.Close()
+	assert.True(t, m.closed.Load())
+	assert.NotPanics(t, func() {
+		m.SetPlaying("Station", "Track", "Artist", "")
+		m.SetVolume(0.5)
+		m.SetStopped()
+	})
+}
+
 func TestBuildMetadata_IncludesArtUrlWhenPresent(t *testing.T) {
 	meta := buildMetadata("Station", "Track", "Artist", "https://example.com/art.png")
 

@@ -4,7 +4,9 @@ package platform
 
 import (
 	"fmt"
+	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -28,6 +30,11 @@ type MPRIS struct {
 	// exported.
 	senderMu sync.Mutex
 	sender   CmdSender
+
+	// closed is set by Close. The server closes MPRIS off its lock during
+	// shutdown, so a request still being served can reach the setters after
+	// the bus is gone; they must become no-ops rather than fail.
+	closed atomic.Bool
 }
 
 // mprisRoot implements org.mpris.MediaPlayer2 interface.
@@ -206,8 +213,28 @@ func (m *MPRIS) SetPlaying(station, track, artist, artURL string) {
 		return
 	}
 
-	m.props.SetMust(playerInterface, "PlaybackStatus", "Playing")
-	m.props.SetMust(playerInterface, "Metadata", buildMetadata(station, track, artist, artURL))
+	m.setProp("PlaybackStatus", "Playing")
+	m.setProp("Metadata", buildMetadata(station, track, artist, artURL))
+}
+
+// setProp mirrors one player property to the bus. Emitting the
+// PropertiesChanged signal fails once the connection is closed, whether
+// by Close or by a session bus that died under a long-running daemon, and
+// prop.SetMust turns that failure into a panic that would take the whole
+// daemon down. It is recovered into a log line here instead; a closed MPRIS
+// skips the update altogether. SetMust (not Set) is deliberate: Set runs
+// the property's write callback, which for Volume would feed the daemon's
+// own volume change back to it.
+func (m *MPRIS) setProp(name string, v any) {
+	if m.props == nil || m.closed.Load() {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("mpris: updating %s failed: %v", name, r)
+		}
+	}()
+	m.props.SetMust(playerInterface, name, v)
 }
 
 // buildMetadata assembles the MPRIS Metadata property for a playing track.
@@ -237,7 +264,7 @@ func (m *MPRIS) SetVolume(v float64) {
 	if m.props == nil {
 		return
 	}
-	m.props.SetMust(playerInterface, "Volume", v)
+	m.setProp("Volume", v)
 }
 
 // onVolumeChange forwards D-Bus writes to the Volume property (e.g. from a
@@ -254,12 +281,13 @@ func (m *MPRIS) SetStopped() {
 	if m.props == nil {
 		return
 	}
-	m.props.SetMust(playerInterface, "PlaybackStatus", "Stopped")
-	m.props.SetMust(playerInterface, "Metadata", map[string]dbus.Variant{})
+	m.setProp("PlaybackStatus", "Stopped")
+	m.setProp("Metadata", map[string]dbus.Variant{})
 }
 
 // Close releases D-Bus resources.
 func (m *MPRIS) Close() {
+	m.closed.Store(true)
 	if m.conn != nil {
 		_, _ = m.conn.ReleaseName(busName)
 		_ = m.conn.Close()
