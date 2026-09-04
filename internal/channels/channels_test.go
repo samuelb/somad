@@ -171,6 +171,31 @@ func TestFetchChannelsFromNetwork_ServerError(t *testing.T) {
 	assert.Contains(t, err.Error(), "500")
 }
 
+func TestFetchChannelsFromNetwork_EmptyCatalogRejected(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	SetCacheDir(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"channels":[]}`))
+	}))
+	defer server.Close()
+
+	originalURL := SomaFMChannelsURL
+	SomaFMChannelsURL = server.URL
+	t.Cleanup(func() { SomaFMChannelsURL = originalURL })
+
+	channels, err := FetchChannelsFromNetwork("soma/test")
+	require.Error(t, err)
+	assert.Nil(t, channels)
+	assert.Contains(t, err.Error(), "no channels")
+
+	// An empty catalog must never reach the cache, or every later start
+	// would load it and show an endless "loading" state.
+	_, err = ReadChannelsFromCache()
+	assert.Error(t, err)
+}
+
 func TestFetchChannelsFromNetwork_InvalidJSON(t *testing.T) {
 	SetCacheDir(t)
 

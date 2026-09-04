@@ -153,6 +153,12 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxCatalogBytes)).Decode(&fetchedChannels); err != nil {
 		return nil, fmt.Errorf("failed to decode network response: %w", err)
 	}
+	// A well-formed body with no channels is still a failed fetch: caching
+	// it would install an empty catalog that every client mistakes for
+	// "still loading" until the next refresh happens to succeed.
+	if len(fetchedChannels.Channels) == 0 {
+		return nil, errors.New("network response contained no channels")
+	}
 
 	// Write to cache for future use
 	if err := WriteChannelsToCache(&fetchedChannels); err != nil {
