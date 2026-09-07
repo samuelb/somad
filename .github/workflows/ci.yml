@@ -3,8 +3,24 @@ name: CI
 on:
   push:
     branches: [main]
+    # Nothing here feeds the Go build; the Website workflow covers site/.
+    paths-ignore:
+      - "site/**"
+      - "docs/**"
+      - "**.md"
+      - "demo.gif"
+      - "demo.tape"
+      - ".github/workflows/website.yml"
   pull_request:
     branches: [main]
+    # Nothing here feeds the Go build; the Website workflow covers site/.
+    paths-ignore:
+      - "site/**"
+      - "docs/**"
+      - "**.md"
+      - "demo.gif"
+      - "demo.tape"
+      - ".github/workflows/website.yml"
 
 jobs:
   test:

@@ -32,6 +32,9 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
 - lefthook (`lefthook.yml`) runs lint and race tests on pre-commit and
   pre-push. CI (`.github/workflows/ci.yml`) additionally runs `govulncheck`
   and fails below 60 % total coverage on the Linux job.
+  It skips pushes that touch only `site/`, `docs/`, Markdown, the demo
+  recording, or the Website workflow (`paths-ignore`), so docs-only commits
+  do not run the Go gates; keep that list in step with what feeds the build.
 - Platform-conditional code uses build-tagged `_linux.go` / `_darwin.go` /
   `_other.go` pairs. Keep every side in sync when changing such interfaces.
 
