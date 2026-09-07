@@ -152,19 +152,19 @@ package-nix:
 	@echo "Building Nix package..."
 	nix build .#
 
-# Stage the website (site/ plus demo.gif) into dist/site
+# Build the website (a Zola project in site/; demo.gif is symlinked into
+# site/static) into dist/site. Needs Zola 0.23 or newer: brew install zola
 .PHONY: site
 site:
-	@echo "Staging website..."
-	rm -rf dist/site
-	mkdir -p dist/site
-	cp -R site/. dist/site/
-	cp demo.gif dist/site/
+	@command -v zola >/dev/null 2>&1 || { echo "zola not installed: brew install zola"; exit 1; }
+	@echo "Building website..."
+	zola --root site build --output-dir dist/site --force
 
-# Serve the staged website locally
+# Serve the website locally with live reload (writes assets to site/public)
 .PHONY: site-serve
-site-serve: site
-	python3 -m http.server --directory dist/site 8000
+site-serve:
+	@command -v zola >/dev/null 2>&1 || { echo "zola not installed: brew install zola"; exit 1; }
+	zola --root site serve
 
 # Re-record demo.gif with VHS (brew install vhs). Uses an isolated soma
 # home under dist/demo and a private socket; plays audio while recording.
@@ -262,8 +262,8 @@ help:
 	@echo "  uninstall         Remove binary from \$$GOBIN"
 	@echo "  package-deb       Build a .deb package in dist/ with nfpm"
 	@echo "  package-nix       Build the Nix flake package"
-	@echo "  site              Stage the website into dist/site"
-	@echo "  site-serve        Serve the staged website on http://localhost:8000"
+	@echo "  site              Build the website with Zola into dist/site"
+	@echo "  site-serve        Serve the website with live reload on http://127.0.0.1:1111"
 	@echo "  demo              Re-record demo.gif with VHS (plays audio)"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"

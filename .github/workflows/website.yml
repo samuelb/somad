@@ -26,14 +26,28 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Stage the site
+      - name: Install Zola
+        env:
+          ZOLA_VERSION: 0.23.4
+          # sha256 of zola-v${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz,
+          # computed from the asset published at
+          # https://github.com/getzola/zola/releases/tag/v0.23.4
+          ZOLA_SHA256: 54d1a347781b2f32330914fcc02def81c7e3ddb6111b36d1cc89c06557aed1de
+        run: |
+          curl -fsSL -o /tmp/zola.tar.gz \
+            "https://github.com/getzola/zola/releases/download/v${ZOLA_VERSION}/zola-v${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ZOLA_SHA256}  /tmp/zola.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/zola.tar.gz -C /usr/local/bin zola
+          zola --version
+
+      - name: Build the site
         run: make site
 
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: dist/site
 
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

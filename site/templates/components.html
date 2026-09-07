@@ -1,0 +1,42 @@
+{#- Tera components used from content/_index.md. Bodies are Markdown; the
+    blank lines around {{ body }} keep CommonMark parsing the Markdown
+    inside the raw HTML wrappers. -#}
+
+{#- A top-level page section with a heading; `id` is the anchor the
+    navigation links to. -#}
+{% component prose(id: string, title: string) %}
+<section class="wrap prose" id="{{ id }}">
+<h2>{{ title }}</h2>
+
+{{ body }}
+
+</section>
+{% endcomponent prose %}
+
+{#- A grid of cards. -#}
+{% component cards() %}
+<div class="cards">
+
+{{ body }}
+
+</div>
+{% endcomponent cards %}
+
+{#- One card in the grid, with an optional muted subtitle. -#}
+{% component card(title: string, sub: string = "") %}
+<div class="card">
+<h3>{{ title }}{% if sub %} <small>{{ sub }}</small>{% endif %}</h3>
+
+{{ body }}
+
+</div>
+{% endcomponent card %}
+
+{#- Two columns; the body supplies the two children (usually <div>s). -#}
+{% component cols() %}
+<div class="two-col">
+
+{{ body }}
+
+</div>
+{% endcomponent cols %}

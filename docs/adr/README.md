@@ -45,3 +45,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0029](0029-macos-signing-and-notarization.md) | macOS releases are signed with a Developer ID and notarized when the secrets exist | Accepted |
 | [0030](0030-desktop-notifications-are-opt-in-and-live-in-the-daemon.md) | Desktop notifications are opt-in and live in the daemon | Accepted |
 | [0031](0031-lastfm-scrobbling-lives-in-the-daemon.md) | Last.fm scrobbling lives in the daemon, opt-in, with the session key kept out of the config file | Accepted |
+| [0032](0032-website-is-a-single-page-zola-site.md) | The website is a single-page Zola site: copy in Markdown and front matter, layout in Tera templates, pinned Zola in CI | Accepted |

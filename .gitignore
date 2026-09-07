@@ -4,6 +4,9 @@
 # GoReleaser
 dist/
 
+# Zola (make site-serve)
+/site/public/
+
 # Test coverage
 coverage.out
 coverage.html

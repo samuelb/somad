@@ -19,7 +19,8 @@ make lint               # golangci-lint run ./...  (config: .golangci.yml, gosec
 make check              # lint + test + vet — run before committing
 go test -race ./internal/server/ -run TestName   # single test
 make fmt                # gofmt -s (+ goimports if installed)
-make site               # stage the website (site/ + demo.gif) into dist/site
+make site               # build the website (Zola project in site/) into dist/site; brew install zola
+make site-serve         # serve it with live reload on http://127.0.0.1:1111
 make demo               # re-record demo.gif from demo.tape with VHS (brew install vhs; plays audio)
 ```
 
@@ -44,16 +45,25 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   version numbers. Unprefixed commits land under a generic "Other" heading.
 - **Releases** are the manually dispatched Release workflow
   (`.github/workflows/release.yml`, inputs `bump` and `dry_run`).
-- **Website** (https://samuelb.github.io/somad/) is a single hand-written
-  page in `site/` (`index.html`, `style.css`, `favicon.svg`; no generator,
-  no build) that presents the software, installation, and usage only. The
-  Website workflow (`.github/workflows/website.yml`) deploys it to GitHub
-  Pages on every push to `main` that touches `site/` or `demo.gif`. The
-  page fetches the latest release tag from the GitHub API at view time.
+- **Website** (https://samuelb.github.io/somad/) is a single-page
+  [Zola](https://www.getzola.org/) site in `site/` (ADR 0032) that presents
+  the software, installation, and usage only. All copy is in
+  `site/content/_index.md`: the front matter holds the hero, quick start,
+  feature cards, and "How it works" steps; the Markdown body holds Install
+  and Usage, using the Tera components defined in
+  `site/templates/components.html` (`prose`, `cards`, `card`, `cols`).
+  Layout lives in `site/templates/base.html` and `index.html`; assets in
+  `site/static/` (`style.css`, `favicon.svg`, and `demo.gif` as a symlink
+  to the repo-root copy). Needs Zola 0.23 or newer: it uses components,
+  which replaced shortcodes in 0.23. `make site` builds into `dist/site`;
+  the Website workflow (`.github/workflows/website.yml`) does the same with
+  a version- and checksum-pinned Zola and deploys to GitHub Pages on every
+  push to `main` that touches `site/` or `demo.gif`. The page fetches the
+  latest release tag from the GitHub API at view time.
   **Keep it current:** any change to features, installation steps,
   commands, flags, keybindings, config keys, or file locations updates
-  `site/index.html` in the same commit as the README. The page must never
-  describe behaviour the binary no longer has. `demo.gif` (embedded in the
+  `site/content/_index.md` in the same commit as the README. The page must
+  never describe behaviour the binary no longer has. `demo.gif` (embedded in the
   README and the website) is recorded from `demo.tape` by `make demo`;
   re-record it after visible TUI changes and adjust the tape if the keys
   it presses change.
@@ -73,6 +83,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029
   - Last.fm scrobbling: 0031
+  - website: 0032
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its
   "Not planned" section only points at ADRs. Remove an item when you finish
   it.
@@ -81,12 +92,12 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
 
 | Fact | Source of truth | Also stated in |
 |------|-----------------|----------------|
-| CLI commands and flags | `printUsage` in `cmd/soma/main.go` | README "Commands", `site/index.html` "Usage" |
-| Config keys | `internal/config/config.go` (structs + template text) | README "Configuration", `printUsage` example, `site/index.html` "Configuration" |
-| Keyboard controls | keymap in `internal/app/update.go` | README "Keyboard Controls" (`<kbd>` tables), `site/index.html` "Keyboard controls" |
-| Installation instructions | README "Installation" | `site/index.html` "Install" |
-| Feature list | README "Features" | `site/index.html` "What you get" |
-| Data directories | `config.Path`, `state.Dir`, the cache dir in `internal/channels`, `protocol.SocketPath` | README "Data Storage", `site/index.html` "Where Somad keeps its files" |
+| CLI commands and flags | `printUsage` in `cmd/soma/main.go` | README "Commands", `site/content/_index.md` "Usage" |
+| Config keys | `internal/config/config.go` (structs + template text) | README "Configuration", `printUsage` example, `site/content/_index.md` "Configuration" |
+| Keyboard controls | keymap in `internal/app/update.go` | README "Keyboard Controls" (`<kbd>` tables), `site/content/_index.md` "Keyboard controls" |
+| Installation instructions | README "Installation" | `site/content/_index.md` "Install" |
+| Feature list | README "Features" | `site/content/_index.md` "What you get" |
+| Data directories | `config.Path`, `state.Dir`, the cache dir in `internal/channels`, `protocol.SocketPath` | README "Data Storage", `site/content/_index.md` "Where Somad keeps its files" |
 | Wire protocol | `internal/protocol/protocol.go`, `types.go` | ADR 0002 |
 | Build and architecture | this file | — |
 

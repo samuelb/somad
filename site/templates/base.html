@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ section.title }}</title>
+  <meta name="description" content="{{ section.description }}">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0d12">
+  <link rel="canonical" href="{{ config.base_url }}/">
+  <link rel="icon" href="{{ get_url(path="favicon.svg") }}" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.title }}">
+  <meta property="og:title" content="{{ section.title }}">
+  <meta property="og:description" content="{{ section.description }}">
+  <meta property="og:url" content="{{ config.base_url }}/">
+  <meta property="og:image" content="{{ get_url(path="demo.gif") }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="{{ get_url(path="style.css", cachebust=true) }}">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <nav class="wrap" aria-label="Main">
+      <a class="brand" href="#top">
+        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><use href="{{ get_url(path="favicon.svg") }}#mark"/></svg>
+        <span>soma<span class="brand-d">d</span></span>
+      </a>
+      <ul class="menu">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#usage">Usage</a></li>
+        <li><a href="{{ config.extra.repo }}" rel="noopener">GitHub</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+{% block main %}{% endblock main %}
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p>
+        <a href="{{ config.extra.repo }}">Source on GitHub</a> ·
+        <a href="{{ config.extra.repo }}/releases">Releases</a> ·
+        <a href="{{ config.extra.repo }}/issues">Issues</a> ·
+        <a href="{{ config.extra.repo }}/blob/main/LICENSE">MIT License</a>
+      </p>
+      <p class="fine">Somad is not affiliated with SomaFM. All content and station streams are provided by
+        <a href="https://somafm.com/">somafm.com</a>. If you enjoy the music,
+        <a href="https://somafm.com/support/">support SomaFM</a>.</p>
+    </div>
+  </footer>
+
+  <script>
+    // Show the latest release tag; the link works without it.
+    fetch("https://api.github.com/repos/{{ config.extra.github_repo }}/releases/latest")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.tag_name) document.getElementById("version").textContent = d.tag_name; })
+      .catch(function () {});
+  </script>
+</body>
+</html>

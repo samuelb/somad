@@ -1,0 +1,13 @@
+# Zola configuration for the project website (https://www.getzola.org/).
+# Build with `make site`, preview with `make site-serve`.
+
+base_url = "https://samuelb.github.io/somad"
+title = "Somad"
+
+compile_sass = false
+build_search_index = false
+generate_feeds = false
+
+[extra]
+github_repo = "samuelb/somad"
+repo = "https://github.com/samuelb/somad"

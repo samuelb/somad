@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block main %}
+    <!-- Hero ------------------------------------------------------------ -->
+    <section class="hero wrap" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow">{{ section.extra.eyebrow }}</p>
+        <h1>{{ section.extra.headline | safe }}</h1>
+        <p class="lede">{{ section.extra.lede }}</p>
+        <div class="cta">
+          <a class="btn primary" href="#install">Install</a>
+          <a class="btn" href="#usage">Usage</a>
+          <a class="btn ghost" href="{{ config.extra.repo }}">GitHub</a>
+        </div>
+        <p class="version">Latest release:
+          <a href="{{ config.extra.repo }}/releases/latest"><code id="version">see releases</code></a></p>
+      </div>
+      <figure class="terminal">
+        <img src="{{ get_url(path="demo.gif") }}" alt="Animated demo of the Somad terminal UI: browsing SomaFM channels, playing one, and showing the current track." width="880" height="618">
+      </figure>
+    </section>
+
+    <!-- Quick start ----------------------------------------------------- -->
+    <section class="wrap quickstart" id="quick-start">
+      <div class="quickstart-grid">
+        <div>
+          <h2>Quick start</h2>
+          <p>{{ section.extra.quickstart_text | markdown(inline=true) | safe }}</p>
+        </div>
+        <pre class="shell"><code>{% for cmd in section.extra.quickstart %}{% if not loop.first %}
+{% endif %}<span class="p">$</span> {{ cmd }}{% endfor %}</code></pre>
+      </div>
+    </section>
+
+    <!-- Features -------------------------------------------------------- -->
+    <section class="wrap features" id="features">
+      <h2>What you get</h2>
+      <ul class="feature-grid">
+        {%- for feature in section.extra.features %}
+        <li>
+          <h3>{{ feature.title }}</h3>
+          <p>{{ feature.text | markdown(inline=true) | safe }}</p>
+        </li>
+        {%- endfor %}
+      </ul>
+    </section>
+
+    <!-- How it works ---------------------------------------------------- -->
+    <section class="wrap how" id="how-it-works">
+      <h2>How it works</h2>
+      <ol class="flow">
+        {%- for step in section.extra.flow %}
+        <li>
+          <span class="flow-label">{{ step.label }}</span>
+          <p>{{ step.text | markdown(inline=true) | safe }}</p>
+        </li>
+        {%- endfor %}
+      </ol>
+      <p class="note">{{ section.extra.how_note | markdown(inline=true) | safe }}</p>
+    </section>
+
+{{ section.content | safe }}
+{% endblock main %}
