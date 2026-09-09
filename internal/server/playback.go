@@ -124,8 +124,9 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 		return nil, s.snapshotLocked(), nil
 	}
 	// Ending the outgoing channel's pending scrobble also fires on a
-	// same-channel reconnect, which is fine: the stream did drop, and a
-	// resumed title starts a fresh now-playing entry via handleTrackUpdate.
+	// same-channel reconnect, which is fine: the stream did drop, and the
+	// resumed title picks the same play back up via handleTrackUpdate
+	// (lastfm.go), so it is not scrobbled twice.
 	// A pending sleep timer is deliberately kept: it must outlive channel
 	// switches.
 	gen := s.abandonSessionLocked(false)
@@ -515,8 +516,9 @@ func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {
 	s.broadcastStateLocked()
 	s.notifyTrackLocked()
 	// Ends the previous title's pending scrobble (if it played long enough)
-	// and starts tracking/now-playing the new one; see lastfm.go.
-	s.updateLastfmLocked(ti.Title)
+	// and starts tracking/now-playing the new one, or resumes the same play
+	// when a reconnect re-reported it; see lastfm.go.
+	s.updateLastfmLocked(s.channelID, ti.Title)
 }
 
 // notifyTrackLocked queues a desktop notification for the just-updated

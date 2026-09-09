@@ -1,6 +1,6 @@
 # ADR-0031: Last.fm scrobbling lives in the daemon, opt-in, with the session key kept out of the config file
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-09-09: one scrobble per play across interruptions)
 - **Date:** 2026-09-03
 - **Sources:** TODO.md "Last.fm scrobbling"; `internal/lastfm`,
   `internal/server/lastfm.go`, `internal/state/lastfm.go`,
@@ -42,6 +42,21 @@ the config file is meant to be hand-editable, never machine-written
   finds none) is skipped entirely; both submissions run off the server's
   lock on a goroutine with one bounded retry, and a failure is logged once
   per kind, never blocking or failing playback.
+- A play is scrobbled at most once (amended 2026-09-09). Every interruption
+  tears the stream down and the fresh connection re-reports the current
+  title with no memory of the last one, so a stall-and-reconnect, a pause,
+  or a channel round trip mid-track used to end the play (scrobbling it)
+  and then start a second play of the same track (scrobbling it again).
+  Live radio has no seek or skip, so the same artist/title reappearing on
+  the same channel is the same play: `Server.lastfmRecent` remembers, per
+  channel, the play last interrupted there, and `updateLastfmLocked`
+  resumes it (original start time, accumulated listened time, `scrobbled`
+  flag) when the title matches within `lastfmSameTrackWindow` (2 h since
+  the first sighting; long enough for the longest ambient sets, short
+  enough that a genuine replay later in the day still scrobbles). Only
+  listened stretches count towards the 30 s, not time paused. The memory
+  is in-process: a daemon restart mid-track can still scrobble that one
+  track twice, accepted rather than persisting it.
 - `server.Config.Scrobbler` is a small interface
   (`UpdateNowPlaying`/`Scrobble`/`SetSessionKey`) that `internal/lastfm.Client`
   implements against the real API; tests inject a fake, the same pattern

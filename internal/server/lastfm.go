@@ -38,19 +38,49 @@ var lastfmRetryDelay = 10 * time.Second
 // tests can shrink it.
 var lastfmShutdownWait = 3 * time.Second
 
-// lastfmTrack is the now-playing track a future scrobble is pending for.
+// lastfmSameTrackWindow bounds how long after a track was first seen on a
+// channel a re-appearance of the same artist/title on that channel still
+// counts as the same play (see lastfmTrack). Radio tracks rarely run past
+// an hour; two hours leaves room for the longest ambient sets while a
+// genuine replay of the same track later in the day is still scrobbled
+// again. A variable so tests can shrink it.
+var lastfmSameTrackWindow = 2 * time.Hour
+
+// lastfmTrack is one play of a track on a channel, from when its title was
+// first seen until a different title follows it. Live radio has no seek or
+// skip, so a pause, a stream drop and reconnect, or a switch to another
+// channel and back all resume the same play rather than start a new one;
+// each of those tears the stream down and the fresh connection re-reports
+// the title, which is why the play is remembered per channel across the gap
+// (Server.lastfmRecent) and matched by channel, artist, and title. played
+// accumulates only the stretches actually listened to (resumedAt is the
+// start of the current one), so a track that was paused after 10 s and
+// resumed still needs 20 s more before it qualifies; startedAt, the first
+// sighting, is the scrobble timestamp. scrobbled makes a play scrobble at
+// most once, however many times it is interrupted afterwards.
 type lastfmTrack struct {
+	channelID     string
 	artist, title string
 	startedAt     time.Time
+	resumedAt     time.Time
+	played        time.Duration
+	scrobbled     bool
+}
+
+func (tr *lastfmTrack) matches(channelID, artist, title string) bool {
+	return tr.channelID == channelID && tr.artist == artist && tr.title == title
 }
 
 // updateLastfmLocked ends the previously tracked now-playing track (queuing
-// it for a scrobble when it played long enough) and, when rawTitle splits
-// into an artist and title (audio.SplitTitle; a title with no artist is
-// skipped — Last.fm scrobbles need one), starts tracking the new one and
-// sends a now-playing update. No-op when scrobbling is not configured.
-// Caller holds s.mu.
-func (s *Server) updateLastfmLocked(rawTitle string) {
+// it for a scrobble when it played long enough and was not scrobbled yet)
+// and, when rawTitle splits into an artist and title (audio.SplitTitle; a
+// title with no artist is skipped — Last.fm scrobbles need one), starts
+// tracking it on channelID and sends a now-playing update. When it is the
+// track last seen on that channel within lastfmSameTrackWindow, the
+// remembered play resumes instead (same start time, listened time, and
+// scrobbled flag), so an interruption never turns one play into two. No-op
+// when scrobbling is not configured. Caller holds s.mu.
+func (s *Server) updateLastfmLocked(channelID, rawTitle string) {
 	if s.scrobbler == nil {
 		return
 	}
@@ -60,7 +90,14 @@ func (s *Server) updateLastfmLocked(rawTitle string) {
 	if artist == "" {
 		return
 	}
-	tr := &lastfmTrack{artist: artist, title: title, startedAt: time.Now()}
+	now := time.Now()
+	tr := s.lastfmRecent[channelID]
+	if tr != nil && tr.matches(channelID, artist, title) && now.Sub(tr.startedAt) < lastfmSameTrackWindow {
+		delete(s.lastfmRecent, channelID)
+		tr.resumedAt = now
+	} else {
+		tr = &lastfmTrack{channelID: channelID, artist: artist, title: title, startedAt: now, resumedAt: now}
+	}
 	s.lastfmTrack = tr
 	scrobbler := s.scrobbler
 	// Captured so the retry can check, under s.mu, whether this is still the
@@ -76,17 +113,30 @@ func (s *Server) updateLastfmLocked(rawTitle string) {
 }
 
 // endLastfmTrackLocked ends the currently tracked now-playing track, if
-// any, scrobbling it (off s.mu, on a goroutine) when it played at least
-// lastfmMinPlayDuration. Caller holds s.mu.
+// any: it banks the stretch just listened to, remembers the play as the
+// last one seen on its channel (so a reconnect, unpause, or return to the
+// channel can resume it, see lastfmTrack), and scrobbles it (off s.mu, on a
+// goroutine) when it has now played at least lastfmMinPlayDuration in
+// total and was not scrobbled before. Caller holds s.mu.
 func (s *Server) endLastfmTrackLocked() {
 	if s.scrobbler == nil || s.lastfmTrack == nil {
 		return
 	}
 	tr := s.lastfmTrack
 	s.lastfmTrack = nil
-	if time.Since(tr.startedAt) < lastfmMinPlayDuration {
+	tr.played += time.Since(tr.resumedAt)
+	if s.lastfmRecent == nil {
+		s.lastfmRecent = make(map[string]*lastfmTrack)
+	}
+	s.lastfmRecent[tr.channelID] = tr
+	if tr.scrobbled || tr.played < lastfmMinPlayDuration {
 		return
 	}
+	// Marked before the submission goes out: a play is scrobbled once,
+	// whether or not Last.fm accepted it. Retrying on a later interruption
+	// would risk the duplicate this flag exists to prevent, and submitLastfm
+	// already retries a failure once itself.
+	tr.scrobbled = true
 	scrobbler := s.scrobbler
 	// No latest-wins check: unlike a now-playing update, each scrobble
 	// records a distinct historical play, so a retry of an older one is

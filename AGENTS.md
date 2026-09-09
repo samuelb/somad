@@ -186,8 +186,12 @@ backfills short results from `https://somafm.com/songs/<channel>.json`
 fails the request. `lastfm.go` (opt-in, `Config.Scrobbler`) sends a Last.fm
 now-playing update on every title change and scrobbles the previous track
 when it ends (next title change, stop, or channel switch) if it played at
-least 30 s; submissions run off `mu` on a goroutine with one bounded retry,
-never blocking playback. The `reloadLastfm` RPC re-reads the session key so
+least 30 s of listened time; a play is scrobbled at most once: the play
+last interrupted on each channel is kept in `lastfmRecent`, and the same
+artist/title re-reported there within `lastfmSameTrackWindow` (a reconnect,
+unpause, or channel round trip) resumes it instead of starting a new one;
+submissions run off `mu` on a goroutine with one bounded retry, never
+blocking playback. The `reloadLastfm` RPC re-reads the session key so
 `soma lastfm login` takes effect without a daemon restart.
 
 **Client** (`internal/client`): protocol client shared by TUI and CLI. An

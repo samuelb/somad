@@ -349,9 +349,14 @@ running daemon picks up a fresh login immediately, without a restart.
 
 Once logged in, the daemon sends a now-playing update on every track change
 and scrobbles the previous track when it ends (next title change, stop, or
-channel switch) if it played for at least 30 seconds. A title with no
-identifiable artist (many ambient/genre streams don't follow the "Artist -
-Title" convention) is never sent, since Last.fm scrobbles need one.
+channel switch) if it played for at least 30 seconds. Each track is
+scrobbled at most once: live radio cannot skip or rewind, so a pause, a
+stream drop and reconnect, or a switch to another channel and back while
+the same track is still on air resume the same play rather than start a
+new one, and only the time actually listened counts towards the 30
+seconds. A title with no identifiable artist (many ambient/genre streams
+don't follow the "Artist - Title" convention) is never sent, since Last.fm
+scrobbles need one.
 
 ### Remote control over TCP
 

@@ -91,8 +91,14 @@ type Server struct {
 	scrobbler           Scrobbler
 	reloadLastfmSession func() (string, error)
 	// lastfmTrack is the now-playing track a future scrobble is pending
-	// for, or nil; guarded by mu like the rest of the playback state.
-	lastfmTrack *lastfmTrack
+	// for, or nil. lastfmRecent remembers, per channel ID, the play last
+	// seen on that channel after it was interrupted, so the same title
+	// re-reported after a reconnect, unpause, or return to the channel
+	// resumes it instead of scrobbling it a second time (lastfm.go). At
+	// most one entry per channel, so it never grows past the catalog. Both
+	// guarded by mu like the rest of the playback state.
+	lastfmTrack  *lastfmTrack
+	lastfmRecent map[string]*lastfmTrack
 	// lastfmLogMu guards lastfmLogged, the "log this failure kind once"
 	// bookkeeping for the scrobble/now-playing submission goroutines
 	// (lastfm.go); separate from mu since those run off it entirely.

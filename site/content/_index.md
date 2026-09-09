@@ -287,7 +287,7 @@ soma lastfm login
 
 This prints an authorization URL (and tries to open it in a browser), waits for you to press Enter once you've approved it on last.fm, then saves the resulting session. `soma lastfm status` reports whether scrobbling is configured and logged in; `soma lastfm logout` removes the saved session. The session key lives in a separate file in the state directory, not the config file, so logging in never edits your hand-written config; a running daemon picks up a fresh login immediately, without a restart.
 
-Once logged in, the daemon sends a now-playing update on every track change and scrobbles the previous track when it ends (next title change, stop, or channel switch) if it played for at least 30 seconds. A title with no identifiable artist (many ambient/genre streams don't follow the “Artist - Title” convention) is never sent, since Last.fm scrobbles need one.
+Once logged in, the daemon sends a now-playing update on every track change and scrobbles the previous track when it ends (next title change, stop, or channel switch) if it played for at least 30 seconds. Each track is scrobbled at most once: live radio cannot skip or rewind, so a pause, a stream drop and reconnect, or a switch to another channel and back while the same track is still on air resume the same play rather than start a new one, and only the time actually listened counts towards the 30 seconds. A title with no identifiable artist (many ambient/genre streams don't follow the “Artist - Title” convention) is never sent, since Last.fm scrobbles need one.
 
 </div>
 {% </cols> %}

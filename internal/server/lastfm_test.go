@@ -379,3 +379,170 @@ func TestSubmitLastfm_SkipsRetryOnceClosing(t *testing.T) {
 	time.Sleep(3 * lastfmRetryDelay)
 	assert.Equal(t, 1, scrobbler.scrobbleCount(), "no retry once the server is shutting down")
 }
+
+// shrinkLastfmSameTrackWindow shrinks lastfmSameTrackWindow for the
+// duration of t, so a re-appearing title counts as a new play at once.
+func shrinkLastfmSameTrackWindow(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := lastfmSameTrackWindow
+	lastfmSameTrackWindow = d
+	t.Cleanup(func() { lastfmSameTrackWindow = prev })
+}
+
+// assertScrobbleCountStays asserts that no further scrobble lands within a
+// grace period after any (incorrect) async one would have.
+func assertScrobbleCountStays(t *testing.T, scrobbler *fakeScrobbler, want int) {
+	t.Helper()
+	time.Sleep(2*lastfmMinPlayDuration + 50*time.Millisecond)
+	assert.Equal(t, want, scrobbler.scrobbleCount(), "the same play must be scrobbled at most once")
+}
+
+func TestLastfm_StreamDropAndReconnectDoesNotScrobbleTwice(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	prev := reconnectBaseDelay
+	reconnectBaseDelay = time.Millisecond
+	t.Cleanup(func() { reconnectBaseDelay = prev })
+
+	scrobbler := &fakeScrobbler{}
+	s, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
+	go s.watchPlayerErrors()
+
+	time.Sleep(2 * lastfmMinPlayDuration)
+
+	// The stream drops mid-track and the daemon reconnects; the ended play
+	// qualifies and is scrobbled once.
+	player.errChan <- errors.New("stream read error")
+	c.waitState("reconnecting", func(st protocol.PlaybackState) bool { return st.Status == protocol.StatusReconnecting })
+	c.waitState("recovered", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusPlaying && st.TrackTitle == ""
+	})
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
+	first := scrobbler.lastScrobble()
+
+	// The fresh connection re-reports the same title: same play, resumed.
+	// It is still announced as now playing, but when it finally ends it
+	// must not be scrobbled a second time.
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 2 }, 2*time.Second, 5*time.Millisecond)
+	time.Sleep(2 * lastfmMinPlayDuration)
+	pushTitle(t, player, c, "Tycho - A Walk")
+
+	assertScrobbleCountStays(t, scrobbler, 1)
+	assert.Equal(t, first, scrobbler.lastScrobble())
+}
+
+func TestLastfm_PauseAndUnpauseDoesNotScrobbleTwice(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	scrobbler := &fakeScrobbler{}
+	_, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
+
+	time.Sleep(2 * lastfmMinPlayDuration)
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
+
+	// Unpause: live radio is still on the same track, which the new
+	// connection re-reports.
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	c.waitState("replaying", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusPlaying && st.TrackTitle == ""
+	})
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	time.Sleep(2 * lastfmMinPlayDuration)
+	decodeState(t, c.call(protocol.MethodStop, nil))
+
+	assertScrobbleCountStays(t, scrobbler, 1)
+}
+
+func TestLastfm_ChannelRoundTripDoesNotScrobbleTwice(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	scrobbler := &fakeScrobbler{}
+	_, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
+
+	time.Sleep(2 * lastfmMinPlayDuration)
+	// Away to another channel: the groovesalad play is scrobbled once.
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
+	c.waitState("dronezone", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusPlaying && st.ChannelID == "dronezone" && st.TrackTitle == ""
+	})
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
+	pushTitle(t, player, c, "Stars of the Lid - Requiem for Dying Mothers")
+	time.Sleep(2 * lastfmMinPlayDuration)
+
+	// Back again while groovesalad is still on the same track: the
+	// dronezone play is scrobbled, the resumed groovesalad one is not
+	// scrobbled a second time, and the next track there is a new play.
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	c.waitState("groovesalad", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusPlaying && st.ChannelID == "groovesalad" && st.TrackTitle == ""
+	})
+	require.Eventually(t, func() bool { return scrobbler.scrobbleCount() == 2 }, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, "Stars of the Lid", scrobbler.lastScrobble().artist)
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	time.Sleep(2 * lastfmMinPlayDuration)
+	pushTitle(t, player, c, "Tycho - A Walk")
+	assertScrobbleCountStays(t, scrobbler, 2)
+
+	time.Sleep(2 * lastfmMinPlayDuration)
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	require.Eventually(t, func() bool { return scrobbler.scrobbleCount() == 3 }, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, "Tycho", scrobbler.lastScrobble().artist)
+}
+
+func TestLastfm_ListenedStretchesAddUpAcrossPauses(t *testing.T) {
+	prevMin := lastfmMinPlayDuration
+	lastfmMinPlayDuration = 200 * time.Millisecond
+	t.Cleanup(func() { lastfmMinPlayDuration = prevMin })
+
+	scrobbler := &fakeScrobbler{}
+	_, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
+	started := time.Now()
+
+	unpause := func() {
+		t.Helper()
+		decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+		c.waitState("replaying", func(st protocol.PlaybackState) bool {
+			return st.Status == protocol.StatusPlaying && st.TrackTitle == ""
+		})
+		pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	}
+
+	// 120 ms listened, then a pause longer than the minimum: wall-clock
+	// time since the first sighting now exceeds it, listened time does not.
+	time.Sleep(120 * time.Millisecond)
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	time.Sleep(250 * time.Millisecond)
+	unpause()
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	time.Sleep(50 * time.Millisecond)
+	assert.Zero(t, scrobbler.scrobbleCount(), "only listened time counts towards the minimum, not time paused")
+
+	// Another 120 ms listened takes the total past the minimum.
+	unpause()
+	time.Sleep(120 * time.Millisecond)
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
+	got := scrobbler.lastScrobble()
+	assert.WithinDuration(t, started, got.startedAt, 100*time.Millisecond, "the scrobble is stamped with the first sighting, not the last resume")
+}
+
+func TestLastfm_SameTrackBeyondWindowIsANewPlay(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	shrinkLastfmSameTrackWindow(t, time.Nanosecond)
+	scrobbler := &fakeScrobbler{}
+	_, player, c := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
+
+	time.Sleep(2 * lastfmMinPlayDuration)
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	awaitScrobble(t, scrobbler, "Boards of Canada", "Dayvan Cowboy")
+
+	// Long after the first sighting (the window has elapsed) the station
+	// really plays the track again: a distinct play, scrobbled on its own.
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	c.waitState("replaying", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusPlaying && st.TrackTitle == ""
+	})
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	time.Sleep(2 * lastfmMinPlayDuration)
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	require.Eventually(t, func() bool { return scrobbler.scrobbleCount() == 2 }, 2*time.Second, 5*time.Millisecond)
+}
