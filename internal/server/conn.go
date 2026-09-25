@@ -333,7 +333,7 @@ func (c *conn) handleRequest(req protocol.Request) {
 
 	case protocol.MethodSetVolume:
 		if params, ok := decodeParams[protocol.SetVolumeParams](c, req); ok {
-			c.respond(req.ID, c.s.SetVolume(params.Volume, true))
+			c.respond(req.ID, c.s.SetVolume(params.Volume))
 		}
 
 	case protocol.MethodToggleMute:

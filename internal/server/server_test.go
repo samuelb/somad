@@ -722,7 +722,7 @@ func TestSetVolume_NonFiniteIsClamped(t *testing.T) {
 		{math.Inf(1), 1},
 		{math.Inf(-1), 0},
 	} {
-		snap := s.SetVolume(tc.in, false)
+		snap := s.SetVolume(tc.in)
 		assert.Equal(t, tc.want, snap.Volume, "volume %v", tc.in)
 		assert.Equal(t, tc.want, player.Volume(), "volume %v", tc.in)
 		c.waitState("state event still encodes", func(st protocol.PlaybackState) bool { return st.Volume == tc.want })

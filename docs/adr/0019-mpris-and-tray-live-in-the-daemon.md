@@ -31,7 +31,9 @@ closed, which after ADR-0001 means they must belong to the daemon.
   state to MPRIS) while holding its own, so a synchronous `SetVolume` there
   deadlocked the daemon. A volume write is handed to a single worker
   through a one-slot, latest-wins queue instead, so a dragged slider still
-  ends on its last position.
+  ends on its last position. The worker mirrors the value it applies back
+  to the property, so a client volume change landing between the write and
+  the worker cannot leave MPRIS showing a volume the player is not at.
 - Redundant tray Pause/Stop items were removed: `PlayPause` already tears
   down the stream when playing.
 

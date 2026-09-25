@@ -78,8 +78,12 @@ func (s *Server) applyMPRISVolumes() {
 				return
 			default:
 			}
-			// The MPRIS property is already updated, so don't mirror it back.
-			s.SetVolume(v, false)
+			// Mirrored back even though godbus has already stored v: a
+			// volume change from a client can land between the write and
+			// this worker, and would otherwise leave the MPRIS property
+			// showing that value while the player runs at v. Off the D-Bus
+			// callback, taking the property lock here is safe.
+			s.SetVolume(v)
 		}
 	}
 }

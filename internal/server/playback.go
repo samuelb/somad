@@ -511,9 +511,11 @@ func (s *Server) cancelStopTimerLocked() {
 	s.stopAt = time.Time{}
 }
 
-// SetVolume clamps and applies the volume, persists it, and broadcasts the
-// new state. mirrorToMPRIS is false when the change came from MPRIS itself.
-func (s *Server) SetVolume(v float64, mirrorToMPRIS bool) protocol.PlaybackState {
+// SetVolume clamps and applies the volume, persists it, mirrors it to MPRIS,
+// and broadcasts the new state. It takes s.mu and then the MPRIS property
+// lock, so it must never run inside a godbus property callback (see
+// queueMPRISVolume).
+func (s *Server) SetVolume(v float64) protocol.PlaybackState {
 	// Negated so NaN (from an MPRIS client; it fails every comparison) ends
 	// up at 0 too: it would otherwise break encoding every state event and
 	// the state file.
@@ -527,7 +529,7 @@ func (s *Server) SetVolume(v float64, mirrorToMPRIS bool) protocol.PlaybackState
 	s.player.SetVolume(v)
 	s.st.SetVolume(v)
 	save := s.stageSaveLocked()
-	if mirrorToMPRIS && s.mpris != nil {
+	if s.mpris != nil {
 		s.mpris.SetVolume(v)
 	}
 	snap := s.broadcastStateLocked()
