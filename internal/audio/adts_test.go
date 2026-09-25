@@ -2,6 +2,7 @@ package audio
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 )
@@ -106,5 +107,33 @@ func TestADTSReaderPureGarbageEndsWithEOF(t *testing.T) {
 	garbage := bytes.Repeat([]byte{0xFF, 0x00, 0x13, 0x37}, 1024)
 	if _, err := newADTSReader(bytes.NewReader(garbage)).next(); err != io.EOF {
 		t.Fatalf("err = %v, want io.EOF after scanning garbage", err)
+	}
+}
+
+func TestADTSReaderGivesUpAfterSkipLimit(t *testing.T) {
+	// An MP3 stream handed to the AAC decoder holds no ADTS header at all.
+	// Skipping it byte by byte for as long as it flows would leave Play
+	// parked in the decoder; past the skip limit the reader must give up.
+	notADTS := silentMP3Frames(2 * adtsMaxSkip / 417)
+	_, err := newADTSReader(bytes.NewReader(notADTS)).next()
+	if !errors.Is(err, errADTSLostSync) {
+		t.Fatalf("err = %v, want errADTSLostSync", err)
+	}
+}
+
+func TestADTSReaderSkipLimitIsPerResync(t *testing.T) {
+	// Garbage between frames is fine as long as each run stays under the
+	// limit: the budget starts over after every good frame.
+	junk := bytes.Repeat([]byte{0x13}, adtsMaxSkip*3/4)
+	var stream []byte
+	for i := 0; i < 3; i++ {
+		stream = append(stream, junk...)
+		stream = append(stream, buildADTSFrame(2, []byte("payload"))...)
+	}
+	r := newADTSReader(bytes.NewReader(stream))
+	for i := 0; i < 3; i++ {
+		if _, err := r.next(); err != nil {
+			t.Fatalf("frame %d: %v", i, err)
+		}
 	}
 }

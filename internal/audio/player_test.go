@@ -491,7 +491,59 @@ func shortConnectTimeout(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { streamConnectTimeout = orig })
 }
 
-func TestFetchStream_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
+// newUndecodableStreamServer streams zeros (no MP3 sync word, no ADTS
+// header) for as long as the client keeps reading: data flows the whole
+// time, so the stall watchdog stays quiet, but nothing ever decodes. The
+// returned channel is signalled when a request arrives.
+func newUndecodableStreamServer(t *testing.T) (*httptest.Server, <-chan struct{}) {
+	t.Helper()
+	securitytest.AllowTestHosts(t)
+	arrived := make(chan struct{}, 1)
+	chunk := make([]byte, 4096)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case arrived <- struct{}{}:
+		default:
+		}
+		for {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(5 * time.Millisecond):
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, arrived
+}
+
+// playAsync runs Play on its own goroutine and hands back its result.
+func playAsync(p *AudioPlayer, url, format string, gen uint64) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- p.Play(url, format, gen) }()
+	return done
+}
+
+// awaitPlay returns the result of a playAsync call, failing the test if
+// Play is still blocked after d.
+func awaitPlay(t *testing.T, done <-chan error, d time.Duration) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(d):
+		t.Fatalf("Play still blocked after %s", d)
+		return nil
+	}
+}
+
+func TestPlay_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
 	securitytest.AllowTestHosts(t)
 	shortStallTimeout(t, 5*time.Second)
 	shortConnectTimeout(t, 100*time.Millisecond)
@@ -510,14 +562,32 @@ func TestFetchStream_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
 	defer close(release)
 
 	p := newTestPlayer()
-	pr, pw := io.Pipe()
 	start := time.Now()
-	go p.fetchStream(context.Background(), 1, server.URL, pw)
+	err := awaitPlay(t, playAsync(p, server.URL, FormatMP3, testGen.Add(1)), 3*time.Second)
 
-	// No audio byte ever flowed, so Play (parked in the decoder) is the
-	// failure's only owner: it surfaces on the pipe, and not async too.
-	data, err := drainPipe(pr)
-	assert.Empty(t, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stream connect timed out")
+	assert.Less(t, time.Since(start), 2*time.Second)
+	// Play returned the failure; an async duplicate could kill a later,
+	// healthy session.
+	select {
+	case reported := <-p.errChan:
+		t.Fatalf("connect failure must not also be reported async, got: %v", reported)
+	default:
+	}
+}
+
+func TestPlay_ConnectDeadlineHoldsUntilAudioDecodes(t *testing.T) {
+	shortConnectTimeout(t, 200*time.Millisecond)
+	server, _ := newUndecodableStreamServer(t)
+	p := newTestPlayer()
+
+	// Bytes keep arriving but never decode. A deadline disarmed by the
+	// first byte would leave Play parked in the decoder for as long as the
+	// server kept sending.
+	start := time.Now()
+	err := awaitPlay(t, playAsync(p, server.URL, FormatMP3, testGen.Add(1)), 3*time.Second)
+
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stream connect timed out")
 	assert.Less(t, time.Since(start), 2*time.Second)
@@ -528,42 +598,52 @@ func TestFetchStream_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
 	}
 }
 
-func TestFetchStream_ConnectDeadlineDisarmedByFirstByte(t *testing.T) {
-	securitytest.AllowTestHosts(t)
-	shortStallTimeout(t, 400*time.Millisecond)
-	shortConnectTimeout(t, 100*time.Millisecond)
+func TestPlay_ConnectDeadlineEndsOnceAudioDecodes(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	shortConnectTimeout(t, 300*time.Millisecond)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
 
-	// Data flows right away, then the stream goes silent for longer than
-	// the connect deadline but shorter than the stall watchdog: the
-	// connect deadline must be gone by then.
-	release := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("first"))
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		time.Sleep(200 * time.Millisecond)
-		_, _ = w.Write([]byte("second"))
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		<-release
-	}))
-	defer server.Close()
-	defer close(release)
+	// The server sends its burst and then goes quiet for longer than the
+	// connect deadline: once audio decodes, only the stall watchdog applies.
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	time.Sleep(2 * streamConnectTimeout)
 
-	p := newTestPlayer()
-	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), 1, server.URL, pw)
-
-	data, _ := drainPipe(pr)
-	assert.Equal(t, "firstsecond", string(data))
 	select {
-	case reported := <-p.errChan:
-		assert.Contains(t, reported.Error(), "stream stalled", "the eventual failure is the stall, not the connect deadline")
+	case err := <-p.Errors():
+		t.Fatalf("a playing session must outlive the connect deadline, got: %v", err)
 	default:
-		t.Fatal("expected the stall to be reported")
 	}
+	assert.Zero(t, ctx.pauses.Load(), "the session must still be playing")
+}
+
+func TestPlay_StopCancelsConnectInFlight(t *testing.T) {
+	server, arrived := newUndecodableStreamServer(t)
+	p := newTestPlayer()
+
+	done := playAsync(p, server.URL, FormatMP3, testGen.Add(1))
+	<-arrived
+	stopNext(p)
+
+	// The stream never decodes and the connect deadline is still seconds
+	// away: only the Stop itself can end Play this soon.
+	err := awaitPlay(t, done, time.Second)
+	assert.ErrorIs(t, err, ErrSuperseded)
+}
+
+func TestPlay_NewerPlayCancelsConnectInFlight(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	junk, arrived := newUndecodableStreamServer(t)
+	good := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	older := playAsync(p, junk.URL, FormatMP3, testGen.Add(1))
+	<-arrived
+	require.NoError(t, playNext(p, good.URL, FormatMP3))
+
+	err := awaitPlay(t, older, time.Second)
+	assert.ErrorIs(t, err, ErrSuperseded)
+	assert.EqualValues(t, 1, ctx.players.Load(), "only the newer Play may commit")
 }
 
 func TestWatchdogReader_RearmsOnData(t *testing.T) {

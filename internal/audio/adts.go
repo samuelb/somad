@@ -19,6 +19,18 @@ var adtsSampleRates = [...]int{
 // the channel's MP3 stream.
 var errADTSMultipleBlocks = errors.New("unsupported ADTS stream: multiple raw data blocks per frame")
 
+// adtsMaxSkip bounds how many bytes one resynchronization may skip before
+// the reader gives up with errADTSLostSync: four maximum-size frames (the
+// 13-bit frame length caps a frame at 8191 bytes), far more than realigning
+// on a real AAC stream ever needs. Without it a stream that is not ADTS at
+// all (an MP3 stream, an endless error page) is scanned for as long as it
+// keeps flowing, and data flowing keeps the stall watchdog quiet.
+const adtsMaxSkip = 32 << 10
+
+// errADTSLostSync reports that no valid ADTS header turned up within
+// adtsMaxSkip bytes.
+var errADTSLostSync = errors.New("not an ADTS stream: no valid frame header found")
+
 // adtsFrame is one AAC access unit extracted from an ADTS stream.
 type adtsFrame struct {
 	sampleRate int
@@ -29,7 +41,7 @@ type adtsFrame struct {
 // adtsReader extracts AAC frames from an ADTS bitstream (the framing
 // Shoutcast/Icecast AAC streams use). It resynchronizes on the syncword, so
 // joining mid-stream or stray garbage only costs the bytes up to the next
-// valid header.
+// valid header — within adtsMaxSkip, beyond which the stream is not AAC.
 type adtsReader struct {
 	src *bufio.Reader
 	// aligned is true at the stream start and right after a cleanly parsed
@@ -46,9 +58,9 @@ func newADTSReader(r io.Reader) *adtsReader {
 const adtsHeaderLen = 7
 
 // next returns the next AAC frame, scanning ahead to the next valid header
-// when the stream is not aligned.
+// when the stream is not aligned, for at most adtsMaxSkip bytes.
 func (r *adtsReader) next() (adtsFrame, error) {
-	for {
+	for skipped := 0; ; skipped++ {
 		hdr, err := r.src.Peek(adtsHeaderLen)
 		if err != nil {
 			return adtsFrame{}, err // io.EOF at a clean stream end
@@ -59,6 +71,9 @@ func (r *adtsReader) next() (adtsFrame, error) {
 		// whose block bits happen to be set.
 		if errors.Is(err, errADTSNotAHeader) ||
 			(errors.Is(err, errADTSMultipleBlocks) && !r.aligned) {
+			if skipped == adtsMaxSkip {
+				return adtsFrame{}, errADTSLostSync
+			}
 			_, _ = r.src.Discard(1)
 			r.aligned = false
 			continue

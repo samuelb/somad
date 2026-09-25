@@ -30,10 +30,13 @@ const (
 // reconnection. A variable so tests can shrink it.
 var streamStallTimeout = 30 * time.Second
 
-// streamConnectTimeout bounds the connect phase of a stream fetch: from the
-// request until the first body byte. It is deliberately shorter than the
-// stall watchdog, which is tuned for an established stream: a server that
-// does not even answer should fail fast so the next candidate (or the
+// streamConnectTimeout bounds the connect phase of a Play: from the request
+// until the first frame decodes, not merely until the first byte arrives —
+// a server sending data that never decodes (the wrong format, an endless
+// error page) keeps the stall watchdog quiet, and would otherwise hold Play
+// for as long as it kept sending. It is deliberately shorter than the stall
+// watchdog, which is tuned for an established stream: a server that does
+// not deliver audio should fail fast so the next candidate (or the
 // reconnect backoff) gets its turn and the client's play call does not
 // time out first. A variable so tests can shrink it.
 var streamConnectTimeout = 10 * time.Second
@@ -72,9 +75,10 @@ type Player interface {
 	// formats listed by PreferredFormats). It returns ErrSuperseded when gen
 	// is older than a generation the player has already seen.
 	Play(url, format string, gen uint64) error
-	// Stop halts playback. A gen older than the newest seen is ignored so a
-	// stale stop cannot tear down a newer session; a gen equal to it stops
-	// that session (the caller reacting to its stream error).
+	// Stop halts playback and aborts a Play that is still connecting. A gen
+	// older than the newest seen is ignored so a stale stop cannot tear down
+	// a newer session; a gen equal to it stops that session (the caller
+	// reacting to its stream error).
 	Stop(gen uint64)
 	Errors() <-chan error
 	TrackUpdates() <-chan TrackInfo
@@ -160,6 +164,29 @@ func drain[T any](ch chan T) {
 	}
 }
 
+// pendingPlay is a Play call that has not committed its session yet: from
+// the stream request until the first frame decodes and the session is
+// installed. Stop, a newer Play, and the connect deadline all end it through
+// abort, which cancels the fetch and fails the pipe under the decoder, so
+// Play returns at once instead of waiting on the network.
+type pendingPlay struct {
+	cancel context.CancelFunc
+	pw     *io.PipeWriter
+	once   sync.Once
+	err    error // the first abort's reason; read only after calling abort
+}
+
+// abort ends the attempt with err unless an earlier abort already ended it.
+// Safe to call concurrently and repeatedly; once it returns, c.err holds the
+// reason that won.
+func (c *pendingPlay) abort(err error) {
+	c.once.Do(func() {
+		c.err = err
+		c.cancel()
+		_ = c.pw.CloseWithError(err)
+	})
+}
+
 // AudioPlayer manages the audio playback for SomaFM streams.
 type AudioPlayer struct {
 	userAgent string
@@ -177,11 +204,12 @@ type AudioPlayer struct {
 	// deviceSuspended is valid after ctx is initialized and guarded by deviceMu.
 	deviceSuspended bool
 
-	mu       sync.Mutex
-	current  *session // the active session, guarded by mu
-	sessions int      // committed sessions still fading or playing, guarded by mu
-	playGen  uint64   // newest generation seen from Play/Stop; stale ones never commit
-	volume   float64  // target volume in [0, 1], guarded by mu
+	mu         sync.Mutex
+	current    *session     // the active session, guarded by mu
+	connecting *pendingPlay // the newest Play still connecting, if any, guarded by mu
+	sessions   int          // committed sessions still fading or playing, guarded by mu
+	playGen    uint64       // newest generation seen from Play/Stop; stale ones never commit
+	volume     float64      // target volume in [0, 1], guarded by mu
 }
 
 // audioReadyTimeout bounds how long the first Play waits for the audio device.
@@ -255,55 +283,67 @@ func (p *AudioPlayer) ensureContext() error {
 }
 
 // Play starts streaming and playing audio from the given URL, decoded as
-// format. It blocks until the stream is decoding and playback has begun; the
-// previous session (if any) fades out and tears down asynchronously. Play is
-// safe to call concurrently: if another Play or Stop with a newer generation
-// arrives while this one is still connecting, the newer request wins and
-// this one returns ErrSuperseded without touching the audio state. The same
-// generation may be retried (the caller falling back to another stream
-// candidate) but never an older one.
+// format. It blocks until the stream is decoding and playback has begun, or
+// until streamConnectTimeout passes without a decoded frame; the previous
+// session (if any) fades out and tears down asynchronously. Play is safe to
+// call concurrently: a Play or Stop with a newer generation that arrives
+// while this one is still connecting aborts it, and this one returns
+// ErrSuperseded without touching the audio state. The same generation may be
+// retried (the caller falling back to another stream candidate) but never an
+// older one.
 func (p *AudioPlayer) Play(url, format string, gen uint64) error {
-	p.mu.Lock()
-	if gen < p.playGen {
-		p.mu.Unlock()
-		return ErrSuperseded
-	}
-	p.playGen = gen
-	p.mu.Unlock()
-
 	// Create a pipe to connect the HTTP stream to the decoder.
 	pr, pw := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
+	attempt := &pendingPlay{cancel: cancel, pw: pw}
 
-	discard := func() {
+	p.mu.Lock()
+	if gen < p.playGen {
+		p.mu.Unlock()
 		cancel()
-		_ = pr.Close()
-		_ = pw.Close()
+		return ErrSuperseded
 	}
+	p.playGen = gen
+	// The newest request wins, so a Play still connecting is aborted now
+	// rather than left to finish its connect only to be refused at commit.
+	if p.connecting != nil {
+		p.connecting.abort(ErrSuperseded)
+	}
+	p.connecting = attempt
+	p.mu.Unlock()
+	defer p.clearConnecting(attempt)
+
+	// discard releases the attempt. An abort that came first (Stop, a newer
+	// Play, the connect deadline) names the failure: the decoder's error is
+	// then only its symptom.
+	discard := func(err error) error {
+		attempt.abort(err)
+		_ = pr.Close()
+		return attempt.err
+	}
+
+	timedOut := fmt.Errorf("stream connect timed out: no audio decoded within %s", streamConnectTimeout)
+	deadline := time.AfterFunc(streamConnectTimeout, func() { attempt.abort(timedOut) })
 
 	go p.fetchStream(ctx, gen, url, pw)
 
 	decodedStream, err := p.buildPipeline(ctx, gen, format, pr)
-	if err != nil {
-		discard()
-		return err
+	if !deadline.Stop() {
+		err = timedOut // fired: the fetch is cancelled even if decoding just succeeded
 	}
-	p.mu.Lock()
-	superseded := gen != p.playGen
-	p.mu.Unlock()
-	if superseded {
-		discard()
-		return ErrSuperseded
+	if err != nil {
+		return discard(err)
+	}
+	if p.superseded(attempt) {
+		return discard(ErrSuperseded)
 	}
 	if err := p.ensureContext(); err != nil {
-		discard()
-		return err
+		return discard(err)
 	}
 
-	s, old, err := p.commitSession(gen, decodedStream, pr, cancel)
+	s, old, err := p.commitSession(gen, attempt, decodedStream, pr)
 	if err != nil {
-		discard()
-		return err
+		return discard(err)
 	}
 
 	// Titles buffered from the previous channel must not leak into this one.
@@ -317,6 +357,24 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 
 	go p.runSession(s)
 	return nil
+}
+
+// superseded reports whether a newer Play or a Stop has taken over since
+// attempt started connecting.
+func (p *AudioPlayer) superseded(attempt *pendingPlay) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.connecting != attempt
+}
+
+// clearConnecting forgets attempt as the Play in flight, unless a newer one
+// has replaced it already.
+func (p *AudioPlayer) clearConnecting(attempt *pendingPlay) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.connecting == attempt {
+		p.connecting = nil
+	}
 }
 
 // buildPipeline wires the decode chain the oto player pulls from: the
@@ -359,12 +417,12 @@ func (p *AudioPlayer) buildPipeline(ctx context.Context, gen uint64, format stri
 // or Stop cannot slip between the generation check and the install. If a
 // newer Play/Stop arrived while this one was connecting, it backs out with
 // ErrSuperseded instead.
-func (p *AudioPlayer) commitSession(gen uint64, stream io.Reader, pr io.Closer, cancel context.CancelFunc) (s, old *session, err error) {
+func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, stream io.Reader, pr io.Closer) (s, old *session, err error) {
 	p.deviceMu.Lock()
 	defer p.deviceMu.Unlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if gen != p.playGen {
+	if gen != p.playGen || p.connecting != attempt {
 		p.suspendIfIdleLocked()
 		return nil, nil, ErrSuperseded
 	}
@@ -382,12 +440,13 @@ func (p *AudioPlayer) commitSession(gen uint64, stream io.Reader, pr io.Closer, 
 	s = &session{
 		player:   player,
 		stream:   pr,
-		cancel:   cancel,
+		cancel:   attempt.cancel,
 		stop:     make(chan struct{}),
 		volumeCh: make(chan float64, 1),
 	}
 	old = p.current
 	p.current = s
+	p.connecting = nil // the session owns the fetch now; Stop reaches it through current
 	p.sessions++
 	return s, old, nil
 }
@@ -405,8 +464,9 @@ func (p *AudioPlayer) commitSession(gen uint64, stream io.Reader, pr io.Closer, 
 func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, pw *io.PipeWriter) {
 	defer func() { _ = pw.Close() }()
 
-	// Both deadlines run from before the request, so a server that never
-	// answers is caught too; see streamTimers.
+	// The stall watchdog runs from before the request, so a server that
+	// never answers is caught too; see streamTimers. (Play's connect
+	// deadline, which ends the attempt through ctx, normally fires first.)
 	reqCtx, cancelReq := context.WithCancel(ctx)
 	defer cancelReq()
 	timers := newStreamTimers(cancelReq)
@@ -458,7 +518,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 		return // cancelled by a stop or a newer play; expected, not an error
 	}
 	if n == 0 && err != nil {
-		// Headers arrived but no audio ever did (the connect deadline, or a
+		// Headers arrived but no audio ever did (the stall watchdog, or a
 		// read error on the first chunk): Play is still parked in the
 		// decoder, so the pipe is the failure's only owner, exactly as for
 		// a failure before the response.
@@ -492,23 +552,19 @@ func (e *errorReportingReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-// streamTimers are the two deadlines a stream fetch runs under. The connect
-// deadline (streamConnectTimeout) covers the request until the first body
-// byte; the stall watchdog (streamStallTimeout) is re-armed by every read
-// that delivers data and fires when the stream goes silent entirely. Either
-// firing cancels the request; wrap then names the timeout in the resulting
-// error, since the cancelled request only reports a generic context error.
+// streamTimers hold the stall watchdog (streamStallTimeout) a stream fetch
+// runs under: re-armed by every read that delivers data, it fires when the
+// stream goes silent entirely and cancels the request; wrap then names the
+// timeout in the resulting error, since the cancelled request only reports a
+// generic context error. The connect deadline is Play's, not the fetch's:
+// it has to hold until the first frame decodes, which the fetch cannot see.
 type streamTimers struct {
-	connect, stall           *time.Timer
-	connectTimedOut, stalled atomic.Bool
+	stall   *time.Timer
+	stalled atomic.Bool
 }
 
 func newStreamTimers(cancel context.CancelFunc) *streamTimers {
 	t := &streamTimers{}
-	t.connect = time.AfterFunc(streamConnectTimeout, func() {
-		t.connectTimedOut.Store(true)
-		cancel()
-	})
 	t.stall = time.AfterFunc(streamStallTimeout, func() {
 		t.stalled.Store(true)
 		cancel()
@@ -516,23 +572,18 @@ func newStreamTimers(cancel context.CancelFunc) *streamTimers {
 	return t
 }
 
-// dataReceived disarms the connect deadline and re-arms the stall watchdog.
+// dataReceived re-arms the stall watchdog.
 func (t *streamTimers) dataReceived() {
-	t.connect.Stop()
 	t.stall.Reset(streamStallTimeout)
 }
 
 func (t *streamTimers) stop() {
-	t.connect.Stop()
 	t.stall.Stop()
 }
 
-// wrap rewrites an error caused by one of the timers' own cancellation into
-// one that names the timeout; any other error passes through.
+// wrap rewrites an error caused by the watchdog's own cancellation into one
+// that names the timeout; any other error passes through.
 func (t *streamTimers) wrap(err error) error {
-	if t.connectTimedOut.Load() {
-		return fmt.Errorf("stream connect timed out: no data received within %s", streamConnectTimeout)
-	}
 	if t.stalled.Load() {
 		return fmt.Errorf("stream stalled: no data received for %s", streamStallTimeout)
 	}
@@ -540,8 +591,8 @@ func (t *streamTimers) wrap(err error) error {
 }
 
 // watchdogReader feeds every read that delivers data to the stream timers,
-// so the connect deadline is disarmed by the first byte and the stall
-// watchdog only fires when the stream stops delivering entirely.
+// so the stall watchdog only fires when the stream stops delivering
+// entirely.
 type watchdogReader struct {
 	r      io.Reader
 	timers *streamTimers
@@ -702,7 +753,7 @@ func (p *AudioPlayer) suspendIfIdleLocked() {
 	}
 }
 
-// Stop halts the current audio playback and cancels any Play call that is
+// Stop halts the current audio playback and aborts any Play call that is
 // still connecting, unless gen is older than the newest generation seen (a
 // stale stop must not tear down a newer session). The fade-out and teardown
 // run asynchronously, so this returns immediately.
@@ -713,6 +764,10 @@ func (p *AudioPlayer) Stop(gen uint64) {
 		return
 	}
 	p.playGen = gen
+	if p.connecting != nil {
+		p.connecting.abort(ErrSuperseded)
+		p.connecting = nil
+	}
 	old := p.current
 	p.current = nil
 	p.mu.Unlock()

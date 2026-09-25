@@ -1,7 +1,7 @@
 # ADR-0013: Stream resilience: jitter buffer, stall watchdog, clean EOF is an error, reconnect forever
 
 - **Status:** Accepted
-- **Date:** 2026-07-05 (jitter buffer 2026-09-01)
+- **Date:** 2026-07-05 (jitter buffer 2026-09-01; connect deadline to first decoded frame 2026-09-25)
 - **Sources:** eead2e1, d39497b, de8dd79, f062394, 1f9dec1; `internal/audio/player.go`, `buffer.go`; earlier ae9f67c, 4ee15a3, 4f3332d; rejection of watchdog re-arm on 2026-09-03
 
 ## Context
@@ -19,6 +19,14 @@ hiccup longer than the audio device's own small buffer was audible.
   "trading a possible stutter for the shortest dropout."
 - A 30 s no-data watchdog aborts a connection that died without a FIN. It
   is armed before the request so a server that never answers is caught.
+- **2026-09-25:** before playback, a 10 s connect deadline runs from the
+  request until the first frame *decodes*, not until the first byte: a
+  server sending data that never decodes (the wrong format, an endless
+  error page) keeps the watchdog quiet and used to hold `Play` for as long
+  as it kept sending. The ADTS reader likewise gives up after 32 KiB
+  without a valid header. A `Stop` or newer `Play` aborts a `Play` that is
+  still connecting instead of letting it run into its deadline. None of
+  this touches an established stream, where the watchdog alone applies.
 - A clean EOF is treated as an error: "a live stream never ends on its
   own; a clean EOF means the server hung up."
 - Reconnection backs off exponentially to a one-minute cap and then

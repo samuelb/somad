@@ -60,7 +60,8 @@ func FuzzADTSReader(f *testing.F) {
 		for {
 			fr, err := r.next()
 			if err != nil {
-				if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, errADTSMultipleBlocks) {
+				if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) &&
+					!errors.Is(err, errADTSMultipleBlocks) && !errors.Is(err, errADTSLostSync) {
 					t.Fatalf("unexpected error class: %v", err)
 				}
 				return
