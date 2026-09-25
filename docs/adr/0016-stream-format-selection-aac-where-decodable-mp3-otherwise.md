@@ -1,7 +1,7 @@
 # ADR-0016: Prefer AAC where the platform decodes it, MP3 elsewhere, always the highest quality; no Linux AAC decoder
 
 - **Status:** Accepted
-- **Date:** 2026-09-02 (quality ranking 2026-07-02; Linux AAC declined 2026-09-03)
+- **Date:** 2026-09-02 (quality ranking 2026-07-02; Linux AAC declined 2026-09-03; HE-AAC decoding 2026-09-25)
 - **Sources:** 477e879, 6005115, 591c434; `internal/audio/decoder.go`, `aac_darwin.go`, `aac_other.go`, `internal/channels/select.go`
 
 ## Context
@@ -24,6 +24,19 @@ quality depend on API ordering.
   erroring, so the ADTS parse is the real "is this AAC?" check.
 - HE-AAC (`aacp`) playlists are never selected: decoding them as AAC-LC
   would silently drop the SBR band.
+- **2026-09-25:** the converter's format comes from the stream, not from
+  the ADTS header. SBR (HE-AAC) and parametric stereo (HE-AAC v2) are
+  signalled only inside the payload, and the header describes the AAC-LC
+  core at half the output rate. The premise above was wrong: 31 of 46
+  SomaFM `aac` playlists (the 128 kbps "highest" ones) are HE-AAC with a
+  22.05 kHz core, and were decoded as that core alone, so they played
+  band-limited to 11 kHz. The first frames now go through the system ADTS
+  parser (`AudioFileStream`), which inspects the payload and reports the
+  richest decodable format (AAC-LC, HE-AAC, HE-AAC v2) and a magic cookie
+  for the converter; output is always 16-bit stereo at the stream's real
+  rate. Hand-building the format from the header was tried and rejected:
+  AudioToolbox needs the cookie for HE-AAC v2, and without one it crashed
+  inside the converter on a mono-core stream.
 - Within a format the highest quality label wins. The rank seed sits above
   the unknown rank so a channel with only unrecognized labels still picks
   something.

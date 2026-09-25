@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +23,15 @@ import (
 //
 //	afconvert -f adts -d aac -b 96000 sine-stereo.wav sine-stereo.aac
 //	afconvert -f adts -d aac -b 64000 sine-mono.wav sine-mono.aac
+//
+// plus two HE-AAC fixtures shaped like SomaFM's "aacp" streams (a 22.05 kHz
+// AAC-LC core in the ADTS header, SBR and parametric stereo only in the
+// payload), each 0.5 s at 44.1 kHz: a 440 Hz sine with a quieter 15 kHz
+// sine on both channels, which only the SBR band can carry, and a 440 Hz
+// sine on the left channel alone, which only parametric stereo can place:
+//
+//	afconvert -f adts -d aach -b 64000 he-aac-stereo.wav he-aac-stereo.aac
+//	afconvert -f adts -d aacp -b 32000 he-aac-v2-left.wav he-aac-v2-left.aac
 const (
 	fixtureRate    = 44100
 	fixtureSeconds = 0.5
@@ -108,6 +118,90 @@ func TestAACDecodeMonoDuplicatesChannels(t *testing.T) {
 	}
 	if f := dominantFreq(left, fixtureRate); f < fixtureFreq*0.9 || f > fixtureFreq*1.1 {
 		t.Fatalf("dominant frequency %.1f Hz, want about %.0f", f, fixtureFreq)
+	}
+}
+
+// highBandFraction returns the share of ch's power above lo Hz, from a
+// Hann-windowed DFT of one block past the encoder's priming samples.
+func highBandFraction(ch []int16, rate int, lo float64) float64 {
+	const skip, n = 4096, 2048
+	if len(ch) < skip+n {
+		return 0
+	}
+	block := make([]float64, n)
+	for i := range block {
+		block[i] = float64(ch[skip+i]) * (0.5 - 0.5*math.Cos(2*math.Pi*float64(i)/n))
+	}
+	var total, high float64
+	for k := 1; k < n/2; k++ {
+		var re, im float64
+		for i, x := range block {
+			angle := 2 * math.Pi * float64(k*i) / n
+			re += x * math.Cos(angle)
+			im -= x * math.Sin(angle)
+		}
+		p := re*re + im*im
+		total += p
+		if float64(k)*float64(rate)/n > lo {
+			high += p
+		}
+	}
+	return high / total
+}
+
+// tonePower returns the mean power of ch at freq (Goertzel), skipping the
+// encoder's priming samples at the start.
+func tonePower(ch []int16, rate int, freq float64) float64 {
+	const skip = 4096
+	if len(ch) <= skip {
+		return 0
+	}
+	ch = ch[skip:]
+	k := 2 * math.Cos(2*math.Pi*freq/float64(rate))
+	var s1, s2 float64
+	for _, x := range ch {
+		s1, s2 = float64(x)+k*s1-s2, s1
+	}
+	n := float64(len(ch))
+	return (s1*s1 + s2*s2 - k*s1*s2) / (n * n)
+}
+
+func TestAACDecodeHEAACRestoresTheSBRBand(t *testing.T) {
+	dec, pcm := decodeAllAAC(t, bytes.NewReader(readFixture(t, "he-aac-stereo.aac")))
+
+	// The ADTS header says 22.05 kHz; SBR doubles it. Decoding the core
+	// alone would cap the audio at 11 kHz and lose the 15 kHz tone.
+	require.Equal(t, fixtureRate, dec.SampleRate())
+	left, right := stereoSamples(pcm)
+	frames := len(left)
+	want := int(fixtureSeconds * fixtureRate)
+	if frames < want*8/10 || frames > want*13/10 {
+		t.Fatalf("decoded %d frames, want about %d", frames, want)
+	}
+	for name, ch := range map[string][]int16{"left": left, "right": right} {
+		// The 15 kHz tone carries a ninth of the input's power; SBR
+		// rebuilds it from a coarse envelope, so only the band is checked.
+		if frac := highBandFraction(ch, fixtureRate, 11500); frac < 0.05 {
+			t.Fatalf("%s: %.2f%% of the power above 11.5 kHz, want about 11%%; the SBR band is missing",
+				name, 100*frac)
+		}
+	}
+}
+
+func TestAACDecodeHEAACv2RestoresParametricStereo(t *testing.T) {
+	dec, pcm := decodeAllAAC(t, bytes.NewReader(readFixture(t, "he-aac-v2-left.aac")))
+
+	// A mono core in the header; parametric stereo puts the tone back on
+	// the left. Decoding the core alone would duplicate it onto both sides.
+	require.Equal(t, fixtureRate, dec.SampleRate())
+	left, right := stereoSamples(pcm)
+	if f := dominantFreq(left, fixtureRate); f < fixtureFreq*0.9 || f > fixtureFreq*1.1 {
+		t.Fatalf("left: dominant frequency %.1f Hz, want about %.0f", f, fixtureFreq)
+	}
+	l, r := tonePower(left, fixtureRate, fixtureFreq), tonePower(right, fixtureRate, fixtureFreq)
+	if r > l/10 {
+		t.Fatalf("right channel carries the left-only tone at %.1f dB below the left; want a stereo image",
+			10*math.Log10(l/r))
 	}
 }
 

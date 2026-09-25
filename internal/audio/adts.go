@@ -33,9 +33,10 @@ var errADTSLostSync = errors.New("not an ADTS stream: no valid frame header foun
 
 // adtsFrame is one AAC access unit extracted from an ADTS stream.
 type adtsFrame struct {
-	sampleRate int
-	channels   int
-	payload    []byte // raw AAC frame, header and CRC stripped
+	sampleRate int    // the header's rate: the AAC core rate, half the output rate with SBR
+	channels   int    // the header's channel count: 1 for a parametric-stereo stream
+	raw        []byte // the whole ADTS frame, header included
+	payload    []byte // raw AAC frame, header and CRC stripped (a suffix of raw)
 }
 
 // adtsReader extracts AAC frames from an ADTS bitstream (the framing
@@ -81,13 +82,11 @@ func (r *adtsReader) next() (adtsFrame, error) {
 		if err != nil {
 			return adtsFrame{}, err
 		}
-		if _, err := r.src.Discard(hdrLen); err != nil {
+		f.raw = make([]byte, frameLen)
+		if _, err := io.ReadFull(r.src, f.raw); err != nil {
 			return adtsFrame{}, err
 		}
-		f.payload = make([]byte, frameLen-hdrLen)
-		if _, err := io.ReadFull(r.src, f.payload); err != nil {
-			return adtsFrame{}, err
-		}
+		f.payload = f.raw[hdrLen:]
 		r.aligned = true
 		return f, nil
 	}

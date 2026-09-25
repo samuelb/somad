@@ -43,36 +43,104 @@ static OSStatus somaAACInputProc(AudioConverterRef conv, UInt32 *ioNumberDataPac
 	return noErr;
 }
 
-static OSStatus somaAACNewConverter(Float64 sampleRate, UInt32 channels, AudioConverterRef *out) {
-	AudioStreamBasicDescription src = {0};
-	src.mSampleRate = sampleRate;
-	src.mFormatID = kAudioFormatMPEG4AAC;
-	src.mFramesPerPacket = 1024;
-	src.mChannelsPerFrame = channels;
+// somaAACFormat is what the system ADTS parser makes of a stream's first
+// frames: the best format it can decode (AAC-LC, HE-AAC, or HE-AAC v2) and
+// the magic cookie describing it to the converter.
+typedef struct {
+	AudioStreamBasicDescription asbd;
+	UInt8 cookie[256];
+	UInt32 cookieLen;
+	int found;
+} somaAACFormat;
 
+static void somaAACProbeProperty(void *inClientData, AudioFileStreamID stream, AudioFileStreamPropertyID id, AudioFileStreamPropertyFlags *ioFlags) {
+	somaAACFormat *f = (somaAACFormat *)inClientData;
+	UInt32 size = 0;
+	Boolean writable;
+	if (id == kAudioFileStreamProperty_MagicCookieData) {
+		if (AudioFileStreamGetPropertyInfo(stream, id, &size, &writable) != noErr || size > sizeof(f->cookie)) {
+			return;
+		}
+		if (AudioFileStreamGetProperty(stream, id, &size, f->cookie) == noErr) {
+			f->cookieLen = size;
+		}
+	} else if (id == kAudioFileStreamProperty_FormatList) {
+		// The list runs from the richest decoding the stream supports (HE-AAC
+		// v2, HE-AAC) down to its plain AAC-LC core.
+		AudioFormatListItem items[8];
+		if (AudioFileStreamGetPropertyInfo(stream, id, &size, &writable) != noErr) {
+			return;
+		}
+		if (size > sizeof(items)) {
+			size = sizeof(items);
+		}
+		if (AudioFileStreamGetProperty(stream, id, &size, items) != noErr || size < sizeof(items[0])) {
+			return;
+		}
+		UInt32 index = 0, indexSize = sizeof(index);
+		if (AudioFormatGetProperty(kAudioFormatProperty_FirstPlayableFormatFromList, size, items, &indexSize, &index) != noErr ||
+			index >= size / sizeof(items[0])) {
+			return;
+		}
+		f->asbd = items[index].mASBD;
+		f->found = 1;
+	}
+}
+
+static void somaAACProbePackets(void *inClientData, UInt32 inNumberBytes, UInt32 inNumberPackets, const void *inInputData, AudioStreamPacketDescription *inPacketDescriptions) {
+}
+
+// somaAACProbe runs ADTS bytes through the system stream parser, which,
+// unlike an ADTS header, reveals SBR (HE-AAC) and parametric stereo
+// (HE-AAC v2): both are signalled only inside the payload. f->found stays 0
+// until the parser has seen enough of the stream.
+static OSStatus somaAACProbe(const UInt8 *data, UInt32 len, somaAACFormat *f) {
+	AudioFileStreamID stream;
+	OSStatus st = AudioFileStreamOpen(f, somaAACProbeProperty, somaAACProbePackets, kAudioFileAAC_ADTSType, &stream);
+	if (st != noErr) {
+		return st;
+	}
+	st = AudioFileStreamParseBytes(stream, len, data, 0);
+	AudioFileStreamClose(stream);
+	return st;
+}
+
+// somaAACNewConverter prepares a converter from the probed format to 16-bit
+// interleaved stereo PCM at the format's output rate. Mono input is
+// duplicated onto both channels by the converter.
+static OSStatus somaAACNewConverter(const somaAACFormat *f, AudioConverterRef *out) {
 	AudioStreamBasicDescription dst = {0};
-	dst.mSampleRate = sampleRate;
+	dst.mSampleRate = f->asbd.mSampleRate;
 	dst.mFormatID = kAudioFormatLinearPCM;
 	dst.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
 	dst.mBitsPerChannel = 16;
-	dst.mChannelsPerFrame = channels;
+	dst.mChannelsPerFrame = 2;
 	dst.mFramesPerPacket = 1;
-	dst.mBytesPerFrame = 2 * channels;
-	dst.mBytesPerPacket = 2 * channels;
+	dst.mBytesPerFrame = 4;
+	dst.mBytesPerPacket = 4;
 
-	return AudioConverterNew(&src, &dst, out);
+	OSStatus st = AudioConverterNew(&f->asbd, &dst, out);
+	if (st != noErr || f->cookieLen == 0) {
+		return st;
+	}
+	st = AudioConverterSetProperty(*out, kAudioConverterDecompressionMagicCookie, f->cookieLen, f->cookie);
+	if (st != noErr) {
+		AudioConverterDispose(*out);
+		*out = NULL;
+	}
+	return st;
 }
 
 // somaAACDecode feeds one AAC packet through the converter. On entry
-// ioFrames is the output buffer's capacity in PCM frames; on return it is
-// the number of frames produced. The converter running out of input is the
-// expected way a call ends, not an error.
-static OSStatus somaAACDecode(AudioConverterRef conv, const UInt8 *pkt, UInt32 pktLen, void *outBuf, UInt32 *ioFrames, UInt32 channels) {
+// ioFrames is the output buffer's capacity in stereo PCM frames; on return
+// it is the number of frames produced. The converter running out of input
+// is the expected way a call ends, not an error.
+static OSStatus somaAACDecode(AudioConverterRef conv, const UInt8 *pkt, UInt32 pktLen, void *outBuf, UInt32 *ioFrames) {
 	somaAACInput in = { pkt, pktLen, {0}, 0 };
 	AudioBufferList out;
 	out.mNumberBuffers = 1;
-	out.mBuffers[0].mNumberChannels = channels;
-	out.mBuffers[0].mDataByteSize = (*ioFrames) * 2 * channels;
+	out.mBuffers[0].mNumberChannels = 2;
+	out.mBuffers[0].mDataByteSize = (*ioFrames) * 4;
 	out.mBuffers[0].mData = outBuf;
 	OSStatus st = AudioConverterFillComplexBuffer(conv, somaAACInputProc, &in, ioFrames, &out, NULL);
 	if (st == somaAACNoMoreData) {
@@ -84,6 +152,7 @@ static OSStatus somaAACDecode(AudioConverterRef conv, const UInt8 *pkt, UInt32 p
 import "C"
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -95,28 +164,45 @@ import (
 const aacSupported = true
 
 // aacFrameCapacity is the per-packet output capacity in PCM frames. AAC-LC
-// yields 1024 frames per packet; double that leaves headroom for
-// converter-internal buffering.
-const aacFrameCapacity = 2048
+// yields 1024 frames per packet and HE-AAC 2048 (SBR doubles the rate);
+// double that leaves headroom for converter-internal buffering.
+const aacFrameCapacity = 4096
 
-// aacDecoder decodes an ADTS AAC stream to 16-bit little-endian stereo PCM
-// through the system AudioToolbox converter. Like the MP3 decoder, mono
-// input comes out duplicated onto both channels.
+// aacProbeFrames bounds how many frames newAACDecoder feeds the system
+// parser before giving up on identifying the stream. The parser needs about
+// 128 bytes, which one frame of a real stream exceeds; an encoder's
+// priming frames can be shorter.
+const aacProbeFrames = 8
+
+// aacDecoder decodes an ADTS AAC stream — AAC-LC, HE-AAC (SBR), or HE-AAC
+// v2 (parametric stereo) — to 16-bit little-endian stereo PCM through the
+// system AudioToolbox converter. Like the MP3 decoder, mono input comes out
+// duplicated onto both channels.
 type aacDecoder struct {
 	frames     *adtsReader
 	conv       C.AudioConverterRef
-	sampleRate int
-	channels   int
-	first      *adtsFrame // parsed by the constructor, decoded by the first Read
-	scratch    []byte     // converter output, native channel count
-	stereo     []byte     // mono-to-stereo expansion buffer (mono streams only)
-	pcm        []byte     // decoded bytes not yet handed to Read
-	err        error
+	sampleRate int // output rate: twice the ADTS header's rate with SBR
+	// coreRate and coreChannels are the first frame's ADTS header values,
+	// which every later frame must repeat.
+	coreRate     int
+	coreChannels int
+	queued       []adtsFrame // read while probing, decoded by the first Reads
+	scratch      []byte      // converter output
+	pcm          []byte      // decoded bytes not yet handed to Read
+	err          error
 }
 
-// newAACDecoder blocks until the stream's first ADTS frame has arrived (so
-// the caller gets synchronous connect semantics, like mp3.NewDecoder), then
-// prepares the system converter for the stream's parameters.
+// newAACDecoder blocks until the stream's first ADTS frames have arrived
+// (so the caller gets synchronous connect semantics, like mp3.NewDecoder),
+// identifies the stream's format, and prepares the system converter for it.
+//
+// The ADTS header only describes the AAC-LC core. SomaFM's HE-AAC streams
+// (the "aacp" playlists, and many "aac" ones too) carry SBR and parametric
+// stereo in the payload, at twice the header's sample rate; decoding them
+// as the header says would silently drop everything above half the output
+// rate and any stereo image. So the first frames go through the system's
+// own ADTS parser, which inspects the payload and reports the full format
+// and a magic cookie for the converter.
 func newAACDecoder(r io.Reader) (pcmDecoder, error) {
 	frames := newADTSReader(r)
 	first, err := frames.next()
@@ -124,18 +210,21 @@ func newAACDecoder(r io.Reader) (pcmDecoder, error) {
 		return nil, fmt.Errorf("reading first ADTS frame: %w", err)
 	}
 	d := &aacDecoder{
-		frames:     frames,
-		sampleRate: first.sampleRate,
-		channels:   first.channels,
-		first:      &first,
-		scratch:    make([]byte, aacFrameCapacity*2*first.channels),
+		frames:       frames,
+		coreRate:     first.sampleRate,
+		coreChannels: first.channels,
+		queued:       []adtsFrame{first},
+		scratch:      make([]byte, aacFrameCapacity*4),
 	}
-	if first.channels == 1 {
-		d.stereo = make([]byte, aacFrameCapacity*4)
+
+	format, err := d.probe()
+	if err != nil {
+		return nil, err
 	}
+	d.sampleRate = int(format.asbd.mSampleRate)
 	// nolint below: gocritic's dupSubExpr trips on the pointer checks cgo
 	// generates for &d.conv, not on anything in this source line.
-	if st := C.somaAACNewConverter(C.Float64(d.sampleRate), C.UInt32(d.channels), &d.conv); st != 0 { //nolint:gocritic
+	if st := C.somaAACNewConverter(format, &d.conv); st != 0 { //nolint:gocritic
 		return nil, fmt.Errorf("creating the system AAC converter: OSStatus %d", int32(st))
 	}
 	// The playback pipeline drops decoders rather than closing them (the
@@ -156,7 +245,32 @@ func newAACDecoder(r io.Reader) (pcmDecoder, error) {
 	return d, nil
 }
 
-// SampleRate returns the stream's sample rate in Hz.
+// probe identifies the stream's format from its first frames, reading
+// further frames into d.queued until the system parser has seen enough.
+func (d *aacDecoder) probe() (*C.somaAACFormat, error) {
+	format := new(C.somaAACFormat)
+	var head []byte
+	for i := 0; ; i++ {
+		head = append(head, d.queued[i].raw...)
+		st := C.somaAACProbe((*C.UInt8)(unsafe.Pointer(&head[0])), C.UInt32(len(head)), format)
+		if st != 0 {
+			return nil, fmt.Errorf("identifying the AAC stream format: OSStatus %d", int32(st))
+		}
+		if format.found != 0 {
+			return format, nil
+		}
+		if i+1 == aacProbeFrames {
+			return nil, errors.New("identifying the AAC stream format: no format found")
+		}
+		f, err := d.frames.next()
+		if err != nil {
+			return nil, fmt.Errorf("reading ADTS frame: %w", err)
+		}
+		d.queued = append(d.queued, f)
+	}
+}
+
+// SampleRate returns the stream's output sample rate in Hz.
 func (d *aacDecoder) SampleRate() int { return d.sampleRate }
 
 // Read returns decoded stereo PCM, decoding further ADTS frames as needed.
@@ -178,45 +292,29 @@ func (d *aacDecoder) Read(p []byte) (int, error) {
 // and yield zero frames (start-up priming); the Read loop simply continues.
 func (d *aacDecoder) decodeNext() error {
 	var f adtsFrame
-	if d.first != nil {
-		f, d.first = *d.first, nil
+	if len(d.queued) > 0 {
+		f, d.queued = d.queued[0], d.queued[1:]
 	} else {
 		var err error
 		if f, err = d.frames.next(); err != nil {
 			return err
 		}
 	}
-	if f.sampleRate != d.sampleRate || f.channels != d.channels {
+	if f.sampleRate != d.coreRate || f.channels != d.coreChannels {
 		return fmt.Errorf("AAC stream parameters changed mid-stream (%d Hz, %d ch -> %d Hz, %d ch)",
-			d.sampleRate, d.channels, f.sampleRate, f.channels)
+			d.coreRate, d.coreChannels, f.sampleRate, f.channels)
 	}
 
 	frames := C.UInt32(aacFrameCapacity)
 	st := C.somaAACDecode(d.conv,
 		(*C.UInt8)(unsafe.Pointer(&f.payload[0])), C.UInt32(len(f.payload)),
-		unsafe.Pointer(&d.scratch[0]), &frames, C.UInt32(d.channels))
+		unsafe.Pointer(&d.scratch[0]), &frames)
 	if st != 0 { // noErr
 		return fmt.Errorf("decoding AAC frame: OSStatus %d", int32(st))
 	}
 
-	out := d.scratch[:int(frames)*2*d.channels]
-	if d.channels == 1 {
-		out = d.expandMono(out)
-	}
-	// Reusing scratch/stereo across calls is safe: decodeNext only runs
-	// once the previous output has been fully consumed.
-	d.pcm = out
+	// Reusing scratch across calls is safe: decodeNext only runs once the
+	// previous output has been fully consumed.
+	d.pcm = d.scratch[:int(frames)*4]
 	return nil
-}
-
-// expandMono duplicates each 16-bit mono sample onto both stereo channels.
-func (d *aacDecoder) expandMono(src []byte) []byte {
-	dst := d.stereo[:len(src)*2]
-	for i := 0; i+1 < len(src); i += 2 {
-		dst[2*i] = src[i]
-		dst[2*i+1] = src[i+1]
-		dst[2*i+2] = src[i]
-		dst[2*i+3] = src[i+1]
-	}
-	return dst
 }

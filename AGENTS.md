@@ -232,8 +232,10 @@ delegate and lipgloss styles.
 **Supporting packages**:
 - `internal/audio` — stream playback via oto: MP3 through go-mp3
   everywhere, AAC through macOS AudioToolbox (`aac_darwin.go` /
-  `aac_other.go`), format preference in `PreferredFormats`, ICY metadata,
-  jitter buffer, stall watchdog, reconnection
+  `aac_other.go`; AAC-LC, HE-AAC and HE-AAC v2, told apart by the system
+  ADTS parser since only the payload signals SBR and parametric stereo),
+  format preference in `PreferredFormats`, ICY metadata, jitter buffer,
+  stall watchdog, reconnection
 - `internal/channels` — SomaFM catalog fetch/cache, selection by ID or name
 - `internal/state` — persisted user state; atomic writes, corrupt-file
   quarantine; `lastfm.go` persists the Last.fm session key the same way, in
