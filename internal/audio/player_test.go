@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -886,6 +887,68 @@ func TestReportTrack_NewestWins(t *testing.T) {
 		assert.Equal(t, "Second", info.Title)
 	default:
 		t.Fatal("expected a pending track update")
+	}
+}
+
+func TestReportTrack_OlderGenerationNeverDisplacesNewer(t *testing.T) {
+	p := newTestPlayer()
+	p.playGen = 2
+
+	p.reportTrack(context.Background(), TrackInfo{Title: "New Channel", Gen: 2})
+	// The previous channel, still fading out, reports a title of its own.
+	p.reportTrack(context.Background(), TrackInfo{Title: "Old Channel", Gen: 1})
+
+	select {
+	case info := <-p.TrackUpdates():
+		assert.Equal(t, "New Channel", info.Title)
+	default:
+		t.Fatal("expected a pending track update")
+	}
+}
+
+// The new stream's first title usually arrives before Play commits the
+// session. It must survive the commit instead of being discarded as a
+// leftover of the previous channel, which generations already filter out.
+func TestPlay_KeepsTitleReportedBeforeCommit(t *testing.T) {
+	p, _, _ := newLifecycleTestPlayer(t)
+	securitytest.AllowTestHosts(t)
+	// Shorter than one MP3 frame, so the title is demuxed before the
+	// decoder has its first frame, i.e. before the session commits.
+	const icyInt = 100
+	const title = "StreamTitle='First Song';"
+	audio := silentMP3Frames(30)
+	var body bytes.Buffer
+	for i := 0; i < len(audio); i += icyInt {
+		body.Write(audio[i:min(i+icyInt, len(audio))])
+		if i != 0 {
+			body.WriteByte(0) // no metadata change
+			continue
+		}
+		metaLen := (len(title) + 15) / 16
+		body.WriteByte(byte(metaLen))
+		body.WriteString(title)
+		body.Write(make([]byte, metaLen*16-len(title)))
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("icy-metaint", strconv.Itoa(icyInt))
+		_, _ = w.Write(body.Bytes())
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { stopNext(p) })
+
+	gen := testGen.Add(1)
+	require.NoError(t, p.Play(server.URL, FormatMP3, gen))
+
+	select {
+	case info := <-p.TrackUpdates():
+		assert.Equal(t, "First Song", info.Title)
+		assert.Equal(t, gen, info.Gen)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stream's first title was lost")
 	}
 }
 

@@ -364,8 +364,10 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 		return discard(err)
 	}
 
-	// Titles buffered from the previous channel must not leak into this one.
-	p.drainTrackUpdates()
+	// No drain of pending titles here: this stream's first title often
+	// arrives before the commit and must survive it. A title from the
+	// previous channel is told apart by its generation, in reportTrack and
+	// by the server.
 
 	// The old session fades out on its own goroutine, briefly crossfading
 	// with the new stream for gapless switching.
@@ -635,9 +637,18 @@ func (p *AudioPlayer) TrackUpdates() <-chan TrackInfo {
 }
 
 // reportTrack publishes a track update, replacing any pending one so the
-// newest title wins. Updates from cancelled (superseded) sessions are dropped.
+// newest title wins. Updates from cancelled (superseded) sessions are
+// dropped, and so are those from a generation older than the newest Play or
+// Stop: a stream still fading out under its successor would otherwise push
+// the successor's first title out of the one-slot channel. mu makes the
+// check and the offer one step, so a newer Play cannot slip between them.
 func (p *AudioPlayer) reportTrack(ctx context.Context, info TrackInfo) {
 	if ctx != nil && ctx.Err() != nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if info.Gen < p.playGen {
 		return
 	}
 	offerLatest(p.trackChan, info)
