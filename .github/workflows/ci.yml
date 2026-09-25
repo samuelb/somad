@@ -22,6 +22,11 @@ on:
       - "demo.tape"
       - ".github/workflows/website.yml"
 
+# No job publishes anything; ADR-0027 gives non-publishing jobs read-only
+# tokens.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
@@ -104,6 +109,16 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.13.2
+
+      # Builds use -mod=vendor, which never checks vendored files against
+      # go.sum (ADR-0023), so a hand-edited or stale vendor/ would go
+      # unnoticed without this.
+      - name: Check go.mod, go.sum and vendor/ are in sync
+        run: |
+          go mod tidy
+          go mod vendor
+          git status --porcelain -- go.mod go.sum vendor | tee /tmp/vendor-drift
+          test ! -s /tmp/vendor-drift
 
   # linux/arm64 and the darwin universal binary are release targets that
   # `test` (linux/amd64) and `test-macos` (host arch only) never compile.
