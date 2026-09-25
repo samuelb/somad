@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -107,7 +108,7 @@ func newDaemonFlagSet(cfg *config.Config, f *daemonFlags) *flag.FlagSet {
 	fs.BoolVar(&f.notify, "notify", boolVal(cfg.Server.Notify),
 		"show a desktop notification when the playing track changes")
 	fs.StringVar(&f.quality, "quality", str(cfg.Server.Quality),
-		"preferred stream quality: highest, high, or low (falls back to the nearest available; default highest)")
+		"preferred stream quality: highest, high, or low (falls back to the nearest available; high and low are HE-AAC, macOS only; default highest)")
 	fs.StringVar(&f.listen, "listen", str(cfg.Server.Listen),
 		"also listen for frontends on this TCP host:port (empty: Unix socket only)")
 	fs.BoolVar(&f.tls, "tls", boolVal(cfg.Server.TLS),
@@ -334,6 +335,10 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 	player, err := audio.NewPlayer(userAgent())
 	if err != nil {
 		return nil, nil, fmt.Errorf("error initializing the audio player: %w", err)
+	}
+	if opts.quality != "" && opts.quality != "highest" && !slices.Contains(audio.PreferredFormats(), audio.FormatAACP) {
+		log.Printf("note: stream quality %q has no effect in this build: SomaFM offers its lower qualities "+
+			"only as HE-AAC, which only the macOS build decodes, so every channel plays at the highest quality", opts.quality)
 	}
 	appState, err := state.LoadState()
 	if err != nil {

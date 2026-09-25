@@ -89,8 +89,8 @@ extra:
     - label: SomaFM
       text: >-
         Plays each channel's best stream directly, AAC on macOS and MP3 on Linux
-        (stream quality is configurable), and reconnects on its own when the
-        network hiccups.
+        (a lower quality can be picked on macOS), and reconnects on its own
+        when the network hiccups.
 ---
 
 {% <prose id="install" title="Install"> %}
@@ -215,7 +215,7 @@ Every command works without the TUI, which makes them handy for scripts, keybind
 | `soma lastfm login` | Authorize soma with your Last.fm account and save the session (see [Last.fm](#lastfm)) |
 | `soma lastfm logout` | Remove the saved Last.fm session |
 | `soma lastfm status [--json]` | Show whether Last.fm scrobbling is configured and logged in |
-| `soma daemon [flags]` | Run the daemon in the foreground (`--idle-timeout <duration>` exits after that long idle; `--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--quality` prefers a stream quality; `--listen`, `--tls`, `--tls-cert`/`--tls-key`, `--psk-file` serve [remote frontends](#remote-control), `--insecure` without TLS and a PSK; `--gen-psk` generates a pre-shared key; `--show-cert` prints the certificate fingerprint; `soma daemon --help` describes every flag) |
+| `soma daemon [flags]` | Run the daemon in the foreground (`--idle-timeout <duration>` exits after that long idle; `--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--quality` prefers a stream quality, lower ones on macOS only; `--listen`, `--tls`, `--tls-cert`/`--tls-key`, `--psk-file` serve [remote frontends](#remote-control), `--insecure` without TLS and a PSK; `--gen-psk` generates a pre-shared key; `--show-cert` prints the certificate fingerprint; `soma daemon --help` describes every flag) |
 | `soma daemon stop` | Shut down the daemon |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell |
 | `soma --version` | Print version information |
@@ -259,7 +259,7 @@ After an upgrade, the running daemon is restarted onto the new version the next 
 
 `soma stop --in 45m` arms a sleep timer instead of stopping right away; the daemon owns it, so it fires even if you close the TUI or the terminal, and a new `--in` replaces it. `soma stop --cancel` drops a pending timer without stopping. `soma status` and the TUI status line show “sleep in Nm” while one is pending.
 
-The server picks each channel's best stream quality by default; set `--quality` (or `server.quality`) to `highest`, `high`, or `low` to prefer a lower one, e.g. to save bandwidth — a channel lacking that exact quality falls back to the nearest one it has.
+The server picks each channel's best stream quality by default; set `--quality` (or `server.quality`) to `highest`, `high`, or `low` to prefer a lower one, e.g. to save bandwidth — a channel lacking that exact quality falls back to the nearest one it has. SomaFM offers the lower qualities (`high`, about 64 kbps, and `low`, about 32 kbps) only as HE-AAC, which only the macOS build decodes; on Linux, which plays MP3, every channel stays at its highest quality.
 
 Set `--notify` (or `server.notify: true`) to show a desktop notification — title as the heading, artist and channel as the body — on every track change. Off by default, and fired from the daemon itself so it works with the TUI closed.
 
@@ -351,7 +351,8 @@ On the first daemon start the file is created as a template with every setting p
   idle_timeout: 5m
   <span class="c"># Show the tray / menu-bar icon. Default: true.</span>
   tray: false
-  <span class="c"># Preferred stream quality: highest (default), high, or low.</span>
+  <span class="c"># Preferred stream quality: highest (default), high, or low.
+  # high and low take effect on macOS only (HE-AAC).</span>
   quality: high
   <span class="c"># Desktop notification on track change. Default: false.</span>
   notify: true

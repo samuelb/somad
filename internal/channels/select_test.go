@@ -70,11 +70,50 @@ func TestSelectPlaylists_FormatOrderIsPreferenceOrder(t *testing.T) {
 
 	got := SelectPlaylists(playlists, []string{"aac", "mp3"}, "")
 
-	// AAC leads, MP3 is the fallback, aacp is never selected.
+	// AAC leads, MP3 is the fallback, aacp is not a requested format.
 	assert.Equal(t, []string{
 		"http://somafm.com/groovesalad130.pls",
 		"http://somafm.com/groovesalad.pls",
 	}, urls(got))
+}
+
+func TestSelectPlaylists_QualityOutranksFormatPreference(t *testing.T) {
+	// A real SomaFM channel: MP3 and AAC exist at "highest" only, the lower
+	// qualities only as HE-AAC.
+	const (
+		mp3     = "https://api.somafm.com/groovesalad.pls"
+		aac     = "https://api.somafm.com/groovesalad130.pls"
+		aacHigh = "https://api.somafm.com/groovesalad64.pls"
+		aacLow  = "https://api.somafm.com/groovesalad32.pls"
+	)
+	playlists := []Playlist{
+		{URL: mp3, Format: "mp3", Quality: "highest"},
+		{URL: aac, Format: "aac", Quality: "highest"},
+		{URL: aacHigh, Format: "aacp", Quality: "high"},
+		{URL: aacLow, Format: "aacp", Quality: "low"},
+	}
+
+	tests := []struct {
+		quality string
+		want    []string
+	}{
+		{quality: "", want: []string{aac, mp3, aacHigh}},
+		{quality: "highest", want: []string{aac, mp3, aacHigh}},
+		// The format that has the quality leads, whatever its preference.
+		{quality: "high", want: []string{aacHigh, aac, mp3}},
+		{quality: "low", want: []string{aacLow, aac, mp3}},
+	}
+	for _, tt := range tests {
+		t.Run("quality "+tt.quality, func(t *testing.T) {
+			got := SelectPlaylists(playlists, []string{"aac", "aacp", "mp3"}, tt.quality)
+			assert.Equal(t, tt.want, urls(got))
+		})
+	}
+
+	// Where only MP3 decodes, there is only "highest" to choose.
+	for _, quality := range []string{"highest", "high", "low"} {
+		assert.Equal(t, []string{mp3}, urls(SelectPlaylists(playlists, []string{"mp3"}, quality)), quality)
+	}
 }
 
 func TestSelectPlaylists_MissingFormatSkipped(t *testing.T) {

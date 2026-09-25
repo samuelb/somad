@@ -168,6 +168,31 @@ func TestPlay_UsesConfiguredQuality(t *testing.T) {
 	player.mu.Unlock()
 }
 
+func TestPlay_LowerQualityPicksHEAACWhereDecodable(t *testing.T) {
+	s, player := newTestServer(t, Config{Quality: "high"})
+	supportedFormats = func() []string { return []string{audio.FormatAAC, audio.FormatAACP, audio.FormatMP3} }
+	// Shaped like the real catalog: the lower qualities exist only as HE-AAC.
+	s.setCatalog(append(testChannels(), channels.Channel{
+		ID:    "heaac",
+		Title: "HE-AAC",
+		Playlists: []channels.Playlist{
+			{URL: "http://somafm.com/heaac.pls", Format: "mp3", Quality: "highest"},
+			{URL: "http://somafm.com/heaac130.pls", Format: "aac", Quality: "highest"},
+			{URL: "http://somafm.com/heaac64.pls", Format: "aacp", Quality: "high"},
+			{URL: "http://somafm.com/heaac32.pls", Format: "aacp", Quality: "low"},
+		},
+	}))
+
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "heaac"}))
+
+	player.mu.Lock()
+	assert.Equal(t, []string{"http://somafm.com/heaac64.pls#stream"}, player.playURLs)
+	assert.Equal(t, []string{audio.FormatAACP}, player.playFormats)
+	player.mu.Unlock()
+}
+
 func TestPlay_UnconfiguredQualityStillPrefersHighest(t *testing.T) {
 	s, player := newTestServer(t, Config{}) // no quality preference configured
 

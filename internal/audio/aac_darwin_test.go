@@ -15,6 +15,7 @@ import (
 
 	"somad/internal/security/securitytest"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -203,6 +204,15 @@ func TestAACDecodeHEAACv2RestoresParametricStereo(t *testing.T) {
 		t.Fatalf("right channel carries the left-only tone at %.1f dB below the left; want a stereo image",
 			10*math.Log10(l/r))
 	}
+}
+
+func TestNewDecoder_HEAACFormatIsDecoded(t *testing.T) {
+	// SomaFM's "aacp" playlists (its "high" and "low" qualities) are HE-AAC,
+	// decoded by the same decoder as "aac".
+	assert.Contains(t, PreferredFormats(), FormatAACP)
+	dec, err := newDecoder(FormatAACP, bytes.NewReader(readFixture(t, "he-aac-v2-left.aac")))
+	require.NoError(t, err)
+	assert.Equal(t, fixtureRate, dec.SampleRate())
 }
 
 func TestAACDecodeResyncsAfterGarbage(t *testing.T) {

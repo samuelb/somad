@@ -34,8 +34,8 @@ Linux and macOS — other platforms are not supported and may not work.
 - Browse and filter the full list of SomaFM radio channels
 - Plays each channel's best stream directly in your terminal — AAC on
   macOS (via the system decoder, falling back to MP3 automatically if the
-  AAC stream fails), MP3 on Linux; stream quality (`highest`/`high`/`low`)
-  is configurable with `soma daemon --quality`
+  AAC stream fails), MP3 on Linux; on macOS a lower stream quality
+  (`high`/`low`, to save bandwidth) can be picked with `soma daemon --quality`
 - View real-time track information (artist/title) from ICY metadata
 - Optional desktop notification on track change (opt in with `soma daemon --notify`)
 - Browse recent now-playing history for a channel (`soma history`, or the
@@ -232,7 +232,7 @@ background if one isn't running yet.
 | `soma lastfm login`        | Authorize soma with your Last.fm account and save the session (see [Last.fm](#lastfm)) |
 | `soma lastfm logout`       | Remove the saved Last.fm session                          |
 | `soma lastfm status [--json]` | Show whether Last.fm scrobbling is configured and logged in |
-| `soma daemon [flags]`      | Run the playback daemon in the foreground (`--idle-timeout <duration>` exits after that long idle; `--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--quality` prefers a stream quality; `--listen`, `--tls`, `--tls-cert`/`--tls-key`, `--psk-file` serve [remote frontends](#remote-control-over-tcp), `--insecure` without TLS and a PSK; `--gen-psk` generates a pre-shared key; `--show-cert` prints the certificate fingerprint; `soma daemon --help` describes every flag) |
+| `soma daemon [flags]`      | Run the playback daemon in the foreground (`--idle-timeout <duration>` exits after that long idle; `--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--quality` prefers a stream quality, lower ones on macOS only; `--listen`, `--tls`, `--tls-cert`/`--tls-key`, `--psk-file` serve [remote frontends](#remote-control-over-tcp), `--insecure` without TLS and a PSK; `--gen-psk` generates a pre-shared key; `--show-cert` prints the certificate fingerprint; `soma daemon --help` describes every flag) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
 | `soma --version`           | Print version information                                |
@@ -307,7 +307,11 @@ Each channel offers a few stream qualities; the server picks the best one by
 default. Pass `soma daemon --quality <highest|high|low>` (or set
 `server.quality` in the [configuration file](#configuration)) to prefer a
 lower one instead, e.g. to save bandwidth — a channel that lacks the exact
-quality you asked for falls back to the nearest one it does have.
+quality you asked for falls back to the nearest one it does have. SomaFM
+offers the lower qualities (`high`, about 64 kbps, and `low`, about
+32 kbps) only as HE-AAC, which only the macOS build decodes; on Linux,
+which plays MP3, every channel stays at its highest quality whatever you
+set.
 
 Pass `soma daemon --notify` (or set `server.notify: true` in the
 [configuration file](#configuration)) to show a desktop notification —
@@ -471,7 +475,8 @@ server:
 
   # Preferred stream quality: "highest" (the default), "high", or "low". A
   # channel lacking a playlist at exactly that quality falls back to the
-  # nearest one it does have. Same as --quality.
+  # nearest one it does have. "high" and "low" take effect on macOS only
+  # (they are HE-AAC streams). Same as --quality.
   quality: high
 
   # Show a desktop notification when the playing track changes. Default:

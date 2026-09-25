@@ -218,10 +218,11 @@ func printUsage(w io.Writer) {
                                   long idle; --no-tray hides the tray /
                                   menu-bar icon; --notify shows a desktop
                                   notification on track change; --quality
-                                  prefers a stream quality; --listen
-                                  <host:port> also serves frontends over
-                                  TCP, --tls encrypts it, --tls-cert and
-                                  --tls-key supply your own certificate,
+                                  prefers a stream quality, lower ones on
+                                  macOS only; --listen <host:port> also
+                                  serves frontends over TCP, --tls encrypts
+                                  it, --tls-cert and --tls-key supply your
+                                  own certificate,
                                   --psk-file requires a pre-shared key,
                                   --gen-psk generates one, --insecure serves
                                   a non-loopback address without them;
@@ -250,7 +251,7 @@ Server and connection flags can also be set in %s
     idle_timeout: 5m       # exit after this long idle (default "0": never)
     tray: false            # hide the tray / menu-bar icon
     notify: true           # desktop notification on track change (default false)
-    quality: high          # preferred stream quality (default "highest")
+    quality: high          # preferred stream quality (default "highest"; high/low: macOS only)
     listen: ":5454"        # also serve frontends over TCP
     tls: true              # ...encrypted (auto-generated certificate)
     psk_file: ~/.config/somad/psk  # ...and authenticated (soma daemon --gen-psk writes it)

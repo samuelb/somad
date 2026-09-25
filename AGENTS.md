@@ -139,6 +139,9 @@ together; session_key requires them too, and is normally left to `soma
 lastfm login`, which persists it outside this file instead — see
 Directories). `server.quality` is one of `highest`/`high`/`low` (validated);
 a channel lacking that exact quality falls back to the nearest one it has.
+SomaFM offers `high`/`low` only as HE-AAC (`aacp`), so they take effect on
+macOS only; a daemon that cannot decode it logs a note at start when one
+is set.
 Config supplies flag defaults; explicit flags win. Path-valued keys expand
 `~/` and resolve relative paths against the config directory. A file holding
 an inline secret (`psk`, `api_secret`, `session_key`) that others can read

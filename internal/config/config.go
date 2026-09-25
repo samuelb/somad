@@ -72,9 +72,11 @@ type ServerConfig struct {
 	Insecure *bool `yaml:"insecure"`
 	// Quality is the preferred stream quality: "highest", "high", or "low".
 	// A channel lacking a playlist at that exact quality falls back to the
-	// nearest one it does have. Unset means "highest" (the pre-existing
-	// behavior). Same as the --quality flag. The valid values mirror
-	// internal/channels/select.go's qualityRank.
+	// nearest one it does have. SomaFM offers "high" and "low" only as
+	// HE-AAC, which only the macOS build decodes, so elsewhere every channel
+	// plays at "highest" whatever is set. Unset means "highest" (the
+	// pre-existing behavior). Same as the --quality flag. The valid values
+	// mirror internal/channels/select.go's qualityRank.
 	Quality *string `yaml:"quality"`
 	// Notify shows a desktop notification whenever the playing track
 	// changes. Opt-in: unset (or false) shows none, the pre-existing
@@ -379,10 +381,11 @@ const templateFormat = `# Soma configuration file.
 #
 #  # Preferred stream quality. Same as the --quality flag. A channel lacking
 #  # a playlist at exactly this quality falls back to the nearest one it
-#  # does have.
+#  # does have. "high" and "low" are HE-AAC streams, which only the macOS
+#  # build decodes; on Linux every channel plays at "highest".
 #  #   "highest"    best available (the default)
-#  #   "high"
-#  #   "low"
+#  #   "high"       about 64 kbps
+#  #   "low"        about 32 kbps
 #  quality: highest
 #
 #  # Also listen for frontends on TCP (host:port), e.g. to control this
