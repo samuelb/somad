@@ -639,7 +639,7 @@ func perceptualVolume(target float64) float64 {
 // SetVolume sets the target volume, clamped to [0, 1]. It applies to the
 // active session (via its goroutine) and to all future sessions.
 func (p *AudioPlayer) SetVolume(v float64) {
-	if v < 0 {
+	if !(v >= 0) { // also catches NaN, which fails every comparison
 		v = 0
 	}
 	if v > 1 {

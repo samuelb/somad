@@ -473,7 +473,10 @@ func (s *Server) cancelStopTimerLocked() {
 // SetVolume clamps and applies the volume, persists it, and broadcasts the
 // new state. mirrorToMPRIS is false when the change came from MPRIS itself.
 func (s *Server) SetVolume(v float64, mirrorToMPRIS bool) protocol.PlaybackState {
-	if v < 0 {
+	// Negated so NaN (from an MPRIS client; it fails every comparison) ends
+	// up at 0 too: it would otherwise break encoding every state event and
+	// the state file.
+	if !(v >= 0) {
 		v = 0
 	}
 	if v > 1 {

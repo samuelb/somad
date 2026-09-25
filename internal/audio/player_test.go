@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -652,6 +653,13 @@ func TestSetVolume_ClampsAndStores(t *testing.T) {
 
 	p.SetVolume(1.7)
 	assert.InDelta(t, 1.0, p.Volume(), 1e-9)
+
+	p.SetVolume(math.NaN())
+	assert.Zero(t, p.Volume())
+	p.SetVolume(math.Inf(1))
+	assert.InDelta(t, 1.0, p.Volume(), 1e-9)
+	p.SetVolume(math.Inf(-1))
+	assert.Zero(t, p.Volume())
 }
 
 func TestPerceptualVolume_CubicMapping(t *testing.T) {

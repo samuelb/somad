@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -679,6 +680,32 @@ func TestSetVolume_ClampsAndPersists(t *testing.T) {
 	persisted, err := state.LoadState()
 	require.NoError(t, err)
 	assert.InDelta(t, 0.4, persisted.GetVolume(), 1e-9)
+}
+
+// TestSetVolume_NonFiniteIsClamped covers MPRIS, whose D-Bus doubles can
+// carry NaN and infinities (JSON cannot): NaN fails every comparison, and
+// unclamped it broke encoding every state event and the state file.
+func TestSetVolume_NonFiniteIsClamped(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+
+	for _, tc := range []struct {
+		in, want float64
+	}{
+		{math.NaN(), 0},
+		{math.Inf(1), 1},
+		{math.Inf(-1), 0},
+	} {
+		snap := s.SetVolume(tc.in, false)
+		assert.Equal(t, tc.want, snap.Volume, "volume %v", tc.in)
+		assert.Equal(t, tc.want, player.Volume(), "volume %v", tc.in)
+		c.waitState("state event still encodes", func(st protocol.PlaybackState) bool { return st.Volume == tc.want })
+	}
+
+	persisted, err := state.LoadState()
+	require.NoError(t, err)
+	assert.Zero(t, persisted.GetVolume())
 }
 
 func TestToggleMute_MutesAndRestores(t *testing.T) {
