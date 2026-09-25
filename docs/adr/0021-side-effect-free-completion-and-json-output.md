@@ -1,6 +1,6 @@
 # ADR-0021: Shell completion is cache-only and side-effect free; scripting uses `--json`
 
-- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake)
+- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed)
 - **Date:** 2026-07-05 (completion 2026-07-11)
 - **Sources:** cc3a8f2, 224efb2, 79f4ba1, 0c2224a, 0dadcbd; `cmd/soma/completion.go`, `internal/channels` `PeekChannelsFromCache`
 
@@ -31,5 +31,9 @@ Tab press, so it must be instant and must never change anything.
 
 ## Consequences
 
-- Every new client command should accept `--json`; `play`, `next`,
-  `prev`, `pause`, `stop` and `volume` do not yet (TODO.md).
+- Every new client command should accept `--json`. The gap this record
+  once listed is closed (amended 2026-09-25): `play`, `next`, `prev`,
+  `pause`, `stop` and `volume` print the resulting playback state
+  (6d5beb6), and `history` and `lastfm status` print their own shapes.
+  Only `lastfm login`, `lastfm logout` and `daemon stop` report nothing
+  worth parsing and take no `--json`.
