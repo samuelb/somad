@@ -187,10 +187,11 @@ func drain[T any](ch chan T) {
 // abort, which cancels the fetch and fails the pipe under the decoder, so
 // Play returns at once instead of waiting on the network.
 type pendingPlay struct {
-	cancel context.CancelFunc
-	pw     *io.PipeWriter
-	once   sync.Once
-	err    error // the first abort's reason; read only after calling abort
+	cancel    context.CancelFunc
+	pw        *io.PipeWriter
+	once      sync.Once
+	err       error       // the first abort's reason; read only after calling abort
+	committed atomic.Bool // set once the session is installed; see fetchStream
 }
 
 // abort ends the attempt with err unless an earlier abort already ended it.
@@ -342,7 +343,7 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 	timedOut := fmt.Errorf("stream connect timed out: no audio decoded within %s", streamConnectTimeout)
 	deadline := time.AfterFunc(streamConnectTimeout, func() { attempt.abort(timedOut) })
 
-	go p.fetchStream(ctx, gen, url, pw)
+	go p.fetchStream(ctx, gen, url, pw, &attempt.committed)
 
 	decodedStream, err := p.buildPipeline(ctx, gen, format, pr)
 	if !deadline.Stop() {
@@ -464,6 +465,7 @@ func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, stream io.
 	old = p.current
 	p.current = s
 	p.connecting = nil // the session owns the fetch now; Stop reaches it through current
+	attempt.committed.Store(true)
 	p.sessions++
 	return s, old, nil
 }
@@ -472,13 +474,15 @@ func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, stream io.
 // requests interleaved ICY metadata so the same connection carries the
 // now-playing titles, which are demuxed out and reported via TrackUpdates.
 //
-// Each failure has exactly one owner: before any body bytes flow (request
-// setup, connect, status check) the error travels through the pipe alone —
-// Play is still blocked in the decoder and returns it synchronously, and
-// reporting it here too would leave a stale error queued that could kill a
-// later, healthy session. Once the stream is established, errors are
-// reported asynchronously via the errors channel.
-func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, pw *io.PipeWriter) {
+// Each failure has exactly one owner: until Play has committed a session
+// for this stream (committed; request setup, connect, status check, and
+// priming the decoder) the error travels through the pipe alone — Play is
+// still blocked in the decoder, or about to commit it, and returns or
+// surfaces it itself. Reporting it here too would leave a stale error
+// queued that could kill a later, healthy session: the caller retries the
+// same generation on the next mirror or format. Once the session is
+// committed, errors are reported asynchronously via the errors channel.
+func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, pw *io.PipeWriter, committed *atomic.Bool) {
 	defer func() { _ = pw.Close() }()
 
 	// The stall watchdog runs from before the request, so a server that
@@ -530,26 +534,27 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 	}
 
 	// Copy the stream to the pipe writer until cancelled or the stream ends.
-	n, err := io.Copy(pw, body)
+	_, err = io.Copy(pw, body)
 	if ctx.Err() != nil {
 		return // cancelled by a stop or a newer play; expected, not an error
-	}
-	if n == 0 && err != nil {
-		// Headers arrived but no audio ever did (the stall watchdog, or a
-		// read error on the first chunk): Play is still parked in the
-		// decoder, so the pipe is the failure's only owner, exactly as for
-		// a failure before the response.
-		pw.CloseWithError(timers.wrap(fmt.Errorf("stream read error: %w", err)))
-		return
 	}
 	if err == nil {
 		// A live stream never ends on its own: a clean EOF means the server
 		// hung up, and without a report playback would sit silent while the
 		// status still says playing.
-		p.reportError(ctx, gen, errors.New("stream ended unexpectedly"))
+		err = errors.New("stream ended unexpectedly")
+	} else {
+		err = timers.wrap(fmt.Errorf("stream read error: %w", err))
+	}
+	if !committed.Load() {
+		// No session plays this stream (yet): the pipe is the failure's
+		// only owner, exactly as for a failure before the response. Should
+		// Play commit after all, the decoder reads the error once the
+		// buffered audio is played, and errorReportingReader reports it.
+		pw.CloseWithError(err)
 		return
 	}
-	p.reportError(ctx, gen, timers.wrap(fmt.Errorf("stream read error: %w", err)))
+	p.reportError(ctx, gen, err)
 }
 
 // errorReportingReader forwards reads and hands the first error (EOF

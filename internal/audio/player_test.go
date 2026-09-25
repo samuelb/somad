@@ -407,7 +407,7 @@ func TestFetchStream_Success(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), 1, server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw, committedStream())
 
 	data, err := drainPipe(pr)
 	require.NoError(t, err)
@@ -420,6 +420,38 @@ func TestFetchStream_Success(t *testing.T) {
 		assert.Contains(t, reported.Error(), "stream ended unexpectedly")
 	default:
 		t.Fatal("expected the stream end to be reported")
+	}
+}
+
+// committedStream is fetchStream's flag for a stream whose session Play
+// has committed, so its failures are reported asynchronously.
+func committedStream() *atomic.Bool {
+	committed := new(atomic.Bool)
+	committed.Store(true)
+	return committed
+}
+
+func TestFetchStream_FailureBeforeCommitGoesThroughThePipe(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("audio-bytes"))
+	}))
+	defer server.Close()
+
+	p := newTestPlayer()
+	pr, pw := io.Pipe()
+	go p.fetchStream(context.Background(), 1, server.URL, pw, new(atomic.Bool))
+
+	// Data flowed, but no session plays it yet: Play (parked in the
+	// decoder) owns the failure, so it arrives on the pipe and only there.
+	data, err := drainPipe(pr)
+	assert.Equal(t, "audio-bytes", string(data))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stream ended unexpectedly")
+	select {
+	case reported := <-p.errChan:
+		t.Fatalf("a failure before commit must not also be reported async, got: %v", reported)
+	default:
 	}
 }
 
@@ -453,7 +485,7 @@ func TestFetchStream_StalledStreamReportsError(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		p.fetchStream(context.Background(), 1, server.URL, pw)
+		p.fetchStream(context.Background(), 1, server.URL, pw, committedStream())
 		close(done)
 	}()
 
@@ -483,7 +515,7 @@ func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), 1, server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw, committedStream())
 
 	_, err := drainPipe(pr)
 	require.Error(t, err)
@@ -632,6 +664,28 @@ func TestPlay_ConnectDeadlineEndsOnceAudioDecodes(t *testing.T) {
 	assert.Zero(t, ctx.pauses.Load(), "the session must still be playing")
 }
 
+func TestPlay_FailureBeforeCommitIsOnlyReturned(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	// Some bytes arrive, none decode, then the server hangs up: the stream
+	// fails after data flowed but before a session committed.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(make([]byte, 1024))
+	}))
+	t.Cleanup(server.Close)
+	p := newTestPlayer()
+
+	require.Error(t, playNext(p, server.URL, FormatMP3))
+
+	// Play returned the failure. The caller retries the same generation on
+	// the next mirror or format, so an async duplicate would fail the
+	// stream that then succeeds.
+	select {
+	case reported := <-p.errChan:
+		t.Fatalf("a failure before commit must not also be reported async, got: %v", reported)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestPlay_StopCancelsConnectInFlight(t *testing.T) {
 	server, arrived := newUndecodableStreamServer(t)
 	p := newTestPlayer()
@@ -701,7 +755,7 @@ func TestFetchStream_RequestsAndDemuxesICYMetadata(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), 1, server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw, committedStream())
 
 	data, err := drainPipe(pr)
 	require.NoError(t, err)
@@ -728,7 +782,7 @@ func TestFetchStream_NoICYHeaderPassesThrough(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), 1, server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw, committedStream())
 
 	data, err := drainPipe(pr)
 	require.NoError(t, err)
@@ -849,7 +903,7 @@ func TestFetchStream_InvalidURL(t *testing.T) {
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
 
-	go p.fetchStream(context.Background(), 1, "http://evil.example.com/stream", pw)
+	go p.fetchStream(context.Background(), 1, "http://evil.example.com/stream", pw, committedStream())
 
 	// The pipe reader should observe the error propagated via CloseWithError.
 	_, err := drainPipe(pr)
@@ -874,7 +928,7 @@ func TestFetchStream_BadStatusCode(t *testing.T) {
 
 	p := newTestPlayer()
 	pr, pw := io.Pipe()
-	go p.fetchStream(context.Background(), 1, server.URL, pw)
+	go p.fetchStream(context.Background(), 1, server.URL, pw, committedStream())
 
 	_, err := drainPipe(pr)
 	require.Error(t, err)
@@ -908,7 +962,7 @@ func TestFetchStream_CancelledContextSuppressesReadError(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		p.fetchStream(ctx, 1, server.URL, pw)
+		p.fetchStream(ctx, 1, server.URL, pw, committedStream())
 		close(done)
 	}()
 

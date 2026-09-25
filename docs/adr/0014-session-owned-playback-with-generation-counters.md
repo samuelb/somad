@@ -40,7 +40,12 @@ every stop or switch.
   server still says connecting (after `Play` committed, before the server
   recorded the commit) is held and applied at the commit rather than
   dropped (2026-09-25): dropping the error left a dead stream showing as
-  playing, with no reconnect.
+  playing, with no reconnect. That relies on the player never reporting
+  asynchronously for a stream it has not committed: such a failure only
+  comes back from `Play`, since the server retries the same generation on
+  the next mirror or format and a stray report would fail the stream that
+  then succeeds (2026-09-25; before, a stream that failed after its first
+  bytes but before decoding was reported both ways).
 - The oto context is process-global, so at most one `AudioPlayer` per
   process. Device initialization is lazy and bounded by a 15 s wait.
 
