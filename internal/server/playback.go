@@ -324,9 +324,9 @@ func (s *Server) PlayCurrent() (protocol.PlaybackState, error) {
 		s.mu.Unlock()
 		return snap, nil
 	}
-	idx := s.currentIndexLocked()
+	id := s.relativeChannelIDLocked(0)
 	s.mu.Unlock()
-	return s.playIndex(idx)
+	return s.playChannelID(id)
 }
 
 // PlayPause toggles between stopped and playing. SomaFM is live radio, so
@@ -348,37 +348,30 @@ func (s *Server) PlayPause() (protocol.PlaybackState, error) {
 // by MPRIS Next/Previous and the next/prev CLI commands.
 func (s *Server) PlayRelative(delta int) (protocol.PlaybackState, error) {
 	s.mu.Lock()
-	idx := s.currentIndexLocked()
-	if idx >= 0 {
-		n := len(s.catalog)
-		idx = ((idx+delta)%n + n) % n
-	}
+	id := s.relativeChannelIDLocked(delta)
 	s.mu.Unlock()
-	return s.playIndex(idx)
+	return s.playChannelID(id)
 }
 
-// currentIndexLocked returns the catalog index of the current (or last
-// played) channel, or 0 when it is not in the catalog, or -1 when the
-// catalog is empty. Caller holds s.mu.
-func (s *Server) currentIndexLocked() int {
-	if len(s.catalog) == 0 {
-		return -1
+// relativeChannelIDLocked returns the ID of the catalog entry delta
+// positions away from the current (or last played) channel, counting from
+// the top when that is not in the catalog, and wrapping around; "" when the
+// catalog is empty. It resolves the ID, not an index, in the caller's
+// critical section: a catalog re-sort (a favorite toggled, a refresh)
+// before Play re-locks would otherwise shift the index onto another
+// channel. Caller holds s.mu.
+func (s *Server) relativeChannelIDLocked(delta int) string {
+	n := len(s.catalog)
+	if n == 0 {
+		return ""
 	}
-	return max(0, slices.IndexFunc(s.catalog, func(ch channels.Channel) bool { return ch.ID == s.channelID }))
+	idx := max(0, slices.IndexFunc(s.catalog, func(ch channels.Channel) bool { return ch.ID == s.channelID }))
+	return s.catalog[((idx+delta)%n+n)%n].ID
 }
 
-// playIndex plays the catalog entry at idx, as returned by
-// currentIndexLocked; a negative idx means the catalog is empty.
-func (s *Server) playIndex(idx int) (protocol.PlaybackState, error) {
-	if idx < 0 {
-		return s.Snapshot(), errors.New("no channels loaded")
-	}
-	s.mu.Lock()
-	var id string
-	if idx < len(s.catalog) {
-		id = s.catalog[idx].ID
-	}
-	s.mu.Unlock()
+// playChannelID plays id as resolved by relativeChannelIDLocked; "" means
+// the catalog is empty.
+func (s *Server) playChannelID(id string) (protocol.PlaybackState, error) {
 	if id == "" {
 		return s.Snapshot(), errors.New("no channels loaded")
 	}

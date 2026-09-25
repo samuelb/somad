@@ -605,6 +605,38 @@ func TestPlayRelative_FromStoppedUsesLastPlayed(t *testing.T) {
 	assert.Equal(t, protocol.StatusPlaying, st.Status)
 }
 
+func TestRelativeChannelID(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	// Catalog order: groovesalad, dronezone, bothformats, aacchannel.
+	tests := []struct {
+		name    string
+		current string
+		delta   int
+		want    string
+	}{
+		{"current channel", "dronezone", 0, "dronezone"},
+		{"next", "dronezone", 1, "bothformats"},
+		{"wraps forwards", "aacchannel", 1, "groovesalad"},
+		{"wraps backwards", "groovesalad", -1, "aacchannel"},
+		{"wraps more than once", "groovesalad", -9, "aacchannel"},
+		{"unknown current counts from the top", "gone", 1, "dronezone"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.channelID = tt.current
+			assert.Equal(t, tt.want, s.relativeChannelIDLocked(tt.delta))
+		})
+	}
+
+	s.setCatalog(nil)
+	_, err := s.PlayRelative(1)
+	require.EqualError(t, err, "no channels loaded")
+	_, err = s.PlayCurrent()
+	require.EqualError(t, err, "no channels loaded")
+}
+
 func TestPlayPause_TogglesBetweenPlayingAndStopped(t *testing.T) {
 	s, _ := newTestServer(t, Config{})
 	c := connect(t, s)
