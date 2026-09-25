@@ -5,6 +5,7 @@ package platform
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -18,7 +19,17 @@ const (
 	mprisInterface  = "org.mpris.MediaPlayer2"
 	playerInterface = "org.mpris.MediaPlayer2.Player"
 	busName         = "org.mpris.MediaPlayer2.soma"
+
+	// trackIDPrefix is where the mpris:trackid object paths live. The spec
+	// reserves /org/mpris for itself, so they sit under the project's own
+	// namespace instead.
+	trackIDPrefix = "/io/github/samuelb/somad/track/"
 )
+
+// playerMethodNames maps mprisPlayer's Go method names to the D-Bus names
+// they are exported under where the two differ: a Go method named Seek must
+// have io.Seeker's signature (go vet), which MPRIS's Seek does not.
+var playerMethodNames = map[string]string{"SeekOffset": "Seek"}
 
 // MPRIS handles D-Bus MPRIS integration for desktop media control.
 type MPRIS struct {
@@ -35,6 +46,12 @@ type MPRIS struct {
 	// shutdown, so a request still being served can reach the setters after
 	// the bus is gone; they must become no-ops rather than fail.
 	closed atomic.Bool
+
+	// trackMu guards trackKey and trackSeq, the track the current
+	// mpris:trackid names and its number; see trackID.
+	trackMu  sync.Mutex
+	trackKey string
+	trackSeq uint64
 }
 
 // mprisRoot implements org.mpris.MediaPlayer2 interface.
@@ -77,23 +94,42 @@ func NewMPRIS() (*MPRIS, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("failed to export root interface: %w", err)
 	}
-	if err := conn.Export(player, mprisPath, playerInterface); err != nil {
+	if err := conn.ExportWithMap(player, playerMethodNames, mprisPath, playerInterface); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("failed to export player interface: %w", err)
 	}
 
-	// Set up properties
-	propsSpec := map[string]map[string]*prop.Prop{
+	props, err := prop.Export(conn, mprisPath, m.propsSpec())
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to export properties: %w", err)
+	}
+	m.props = props
+
+	if err := conn.Export(introspect.NewIntrospectable(introspectNode()), mprisPath, "org.freedesktop.DBus.Introspectable"); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to export introspectable: %w", err)
+	}
+
+	return m, nil
+}
+
+// propsSpec returns the exported properties of both MPRIS interfaces with
+// their initial values.
+func (m *MPRIS) propsSpec() map[string]map[string]*prop.Prop {
+	return map[string]map[string]*prop.Prop{
 		mprisInterface: {
-			"CanQuit":             {Value: true, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"CanRaise":            {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"CanSetFullscreen":    {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"DesktopEntry":        {Value: "soma", Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"Fullscreen":          {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"HasTrackList":        {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"Identity":            {Value: "Soma", Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"SupportedMimeTypes":  {Value: []string{"audio/mpeg"}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
-			"SupportedUriSchemes": {Value: []string{"http", "https"}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"CanQuit":          {Value: true, Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"CanRaise":         {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"CanSetFullscreen": {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"DesktopEntry":     {Value: "soma", Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"Fullscreen":       {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"HasTrackList":     {Value: false, Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"Identity":         {Value: "Soma", Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			// OpenUri does nothing (only SomaFM channels play), so no URI
+			// scheme or MIME type is advertised as openable.
+			"SupportedMimeTypes":  {Value: []string{}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
+			"SupportedUriSchemes": {Value: []string{}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
 		},
 		playerInterface: {
 			"CanControl":     {Value: true, Writable: false, Emit: prop.EmitTrue, Callback: nil},
@@ -111,16 +147,14 @@ func NewMPRIS() (*MPRIS, error) {
 			"Metadata":       {Value: map[string]dbus.Variant{}, Writable: false, Emit: prop.EmitTrue, Callback: nil},
 		},
 	}
+}
 
-	props, err := prop.Export(conn, mprisPath, propsSpec)
-	if err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("failed to export properties: %w", err)
-	}
-	m.props = props
-
-	// Export introspection
-	introNode := &introspect.Node{
+// introspectNode describes the exported object for introspection. Every
+// method listed must also be one godbus exports on mprisRoot or mprisPlayer
+// (see TestMPRIS_IntrospectedMethodsAreExported), or callers that trust it
+// get UnknownMethod.
+func introspectNode() *introspect.Node {
+	return &introspect.Node{
 		Name: mprisPath,
 		Interfaces: []introspect.Interface{
 			introspect.IntrospectData,
@@ -180,12 +214,6 @@ func NewMPRIS() (*MPRIS, error) {
 			},
 		},
 	}
-	if err := conn.Export(introspect.NewIntrospectable(introNode), mprisPath, "org.freedesktop.DBus.Introspectable"); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("failed to export introspectable: %w", err)
-	}
-
-	return m, nil
 }
 
 // SetSender sets the command sender for MPRIS control messages.
@@ -214,7 +242,21 @@ func (m *MPRIS) SetPlaying(station, track, artist, artURL string) {
 	}
 
 	m.setProp("PlaybackStatus", "Playing")
-	m.setProp("Metadata", buildMetadata(station, track, artist, artURL))
+	m.setProp("Metadata", buildMetadata(m.trackID(station, track, artist), station, track, artist, artURL))
+}
+
+// trackID returns the mpris:trackid for a track: the same object path for
+// as long as the same track is reported, and a new one whenever it changes,
+// which is how clients tell tracks apart.
+func (m *MPRIS) trackID(station, track, artist string) dbus.ObjectPath {
+	key := station + "\x00" + track + "\x00" + artist
+	m.trackMu.Lock()
+	defer m.trackMu.Unlock()
+	if key != m.trackKey {
+		m.trackKey = key
+		m.trackSeq++
+	}
+	return dbus.ObjectPath(trackIDPrefix + strconv.FormatUint(m.trackSeq, 10))
 }
 
 // setProp mirrors one player property to the bus. Emitting the
@@ -237,10 +279,10 @@ func (m *MPRIS) setProp(name string, v any) {
 	m.props.SetMust(playerInterface, name, v)
 }
 
-// buildMetadata assembles the MPRIS Metadata property for a playing track.
-// artURL is omitted from the map (rather than sent empty) when the channel
-// has no artwork.
-func buildMetadata(station, track, artist, artURL string) map[string]dbus.Variant {
+// buildMetadata assembles the MPRIS Metadata property for a playing track
+// named trackID. artURL is omitted from the map (rather than sent empty)
+// when the channel has no artwork.
+func buildMetadata(trackID dbus.ObjectPath, station, track, artist, artURL string) map[string]dbus.Variant {
 	// Sanitize strings to ensure valid UTF8 for D-Bus
 	station = SanitizeUTF8(station)
 	track = SanitizeUTF8(track)
@@ -248,7 +290,7 @@ func buildMetadata(station, track, artist, artURL string) map[string]dbus.Varian
 	artURL = SanitizeUTF8(artURL)
 
 	metadata := map[string]dbus.Variant{
-		"mpris:trackid": dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/Track/1")),
+		"mpris:trackid": dbus.MakeVariant(trackID),
 		"xesam:title":   dbus.MakeVariant(track),
 		"xesam:artist":  dbus.MakeVariant([]string{artist}),
 		"xesam:album":   dbus.MakeVariant(station),
@@ -339,9 +381,12 @@ func (p *mprisPlayer) Play() *dbus.Error {
 	return nil
 }
 
-func (p *mprisPlayer) Seek(offset int64, whence int) (int64, error) {
-	// D-Bus doesn't support seeking, return appropriate values
-	return 0, nil
+// SeekOffset is the D-Bus Seek method (see playerMethodNames). It does
+// nothing: live radio cannot seek, and with CanSeek false the spec asks for
+// a no-op. It must still be exported (return *dbus.Error), or a client that
+// seeks anyway gets UnknownMethod.
+func (p *mprisPlayer) SeekOffset(_ int64) *dbus.Error {
+	return nil
 }
 
 func (p *mprisPlayer) SetPosition(_ dbus.ObjectPath, _ int64) *dbus.Error {
