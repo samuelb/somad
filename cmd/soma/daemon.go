@@ -127,6 +127,12 @@ func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
 	fs.BoolVar(&f.genPSK, "gen-psk", false,
 		`generate a random pre-shared key at --psk-file (or a "psk" file in the config directory when unset), then exit`)
 	_ = fs.Parse(args)
+	// Parsing stops at the first non-flag argument, so without this check a
+	// made-up subcommand ("soma daemon shutdown") or a misplaced "stop"
+	// ("soma daemon --no-tray stop") would silently start a daemon.
+	if fs.NArg() > 0 {
+		return daemonFlags{}, fmt.Errorf("unexpected argument %q: usage: soma daemon [flags] (see soma daemon --help), or soma daemon stop to shut the running daemon down", fs.Arg(0))
+	}
 
 	for _, p := range []*string{&f.tlsCert, &f.tlsKey, &f.pskFile} {
 		expanded, err := config.ExpandHome(*p)

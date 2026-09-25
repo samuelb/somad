@@ -137,6 +137,24 @@ func TestResolveDaemonOptions_RejectsInvalidQuality(t *testing.T) {
 	assert.Contains(t, err.Error(), "--quality")
 }
 
+func TestResolveDaemonOptions_RejectsLeftoverArguments(t *testing.T) {
+	for name, args := range map[string][]string{
+		"stop after a flag":    {"--no-tray", "stop"},
+		"unknown subcommand":   {"shutdown"},
+		"after an exit action": {"--show-cert", "bogus"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// A leftover argument must not be ignored: it would start a
+			// daemon (or print a certificate) the user did not ask for.
+			_, err := resolveDaemonOptions(&config.Config{}, args)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), args[len(args)-1])
+			assert.Contains(t, err.Error(), "soma daemon stop")
+		})
+	}
+}
+
 func TestResolveDaemonOptions_RequiresTLSCertAndKeyTogether(t *testing.T) {
 	for name, args := range map[string][]string{
 		"cert without key": {"--tls-cert=/tmp/cert.pem"},
