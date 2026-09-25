@@ -2,12 +2,13 @@ package app
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"somad/internal/protocol"
 	"somad/internal/ui"
 
-	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,6 +86,78 @@ func TestUpdate_QuitKey_ShutsDownServerWhenConfigured(t *testing.T) {
 	assert.IsType(t, tea.QuitMsg{}, cmd())
 	assert.True(t, exited)
 	assert.Equal(t, 1, backend(m).shutdowns)
+}
+
+func TestUpdate_EscWithNothingToCloseDoesNotQuit(t *testing.T) {
+	m := newTestModel(t)
+	m.ShutdownOnExit = true
+
+	// The list's own quit binding includes esc and would return tea.Quit
+	// directly, skipping quitCmd and so leaving the server playing despite
+	// ShutdownOnExit. Esc must not quit at all.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	if cmd != nil {
+		assert.NotEqual(t, tea.QuitMsg{}, cmd(), "esc must not quit the TUI")
+	}
+	assert.Zero(t, backend(m).shutdowns)
+}
+
+func TestUpdate_EscClearsKeptSearchFilter(t *testing.T) {
+	m := newTestModel(t)
+	m.SearchQuery = "groove"
+	m.UpdateSearchMatches()
+	require.Len(t, m.List.Items(), 1)
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	assert.Empty(t, m.SearchQuery)
+	assert.Len(t, m.List.Items(), len(testChannels()), "clearing restores the full list")
+}
+
+func TestUpdate_EscClosesOverlayBeforeClearingSearch(t *testing.T) {
+	m := newTestModel(t)
+	m.SearchQuery = "groove"
+	m.UpdateSearchMatches()
+	m.ShowAbout = true
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	assert.False(t, m.ShowAbout, "the first esc closes the overlay")
+	assert.Equal(t, "groove", m.SearchQuery, "and leaves the filter for the next one")
+}
+
+func TestNewList_HelpShowsOnlyOurQuit(t *testing.T) {
+	// quitHelp returns the help text of the enabled bindings for q.
+	quitHelp := func(bindings []key.Binding) []string {
+		var descs []string
+		for _, b := range bindings {
+			if b.Enabled() && slices.Contains(b.Keys(), "q") {
+				descs = append(descs, b.Help().Desc)
+			}
+		}
+		return descs
+	}
+
+	for _, tt := range []struct {
+		shutdownOnExit  bool
+		short, fullHelp string
+	}{
+		{shutdownOnExit: false, short: "quit", fullHelp: "quit (keeps playing)"},
+		{shutdownOnExit: true, short: "quit (stops server)", fullHelp: "quit (stops server)"},
+	} {
+		m := &Model{ShutdownOnExit: tt.shutdownOnExit}
+		l := m.NewList()
+
+		assert.Equal(t, []string{tt.short}, quitHelp(l.ShortHelp()),
+			"shutdownOnExit %v: the short help shows our quit, not the list's", tt.shutdownOnExit)
+		var full []key.Binding
+		for _, column := range l.FullHelp() {
+			full = append(full, column...)
+		}
+		assert.Equal(t, []string{tt.fullHelp}, quitHelp(full),
+			"shutdownOnExit %v: the full help shows our quit, not the list's", tt.shutdownOnExit)
+	}
 }
 
 func TestUpdate_AboutKey_TogglesAbout(t *testing.T) {
@@ -755,18 +828,14 @@ func TestUpdate_ServerGoneMsg_ShowsError(t *testing.T) {
 	require.Error(t, m.Err)
 }
 
-// Mirrors cmd/soma main.go construction: empty list created at 0x0, then
+// Mirrors the cmd/soma TUI construction: empty list created at 0x0, then
 // channels arrive, then a window size, then enter plays the selection.
 func TestUpdate_EnterPlaysAfterStartupFlow(t *testing.T) {
 	m := &Model{
 		Backend: newFakeBackend(),
 		Loading: true,
 	}
-	delegate := ui.NewStyledDelegate(&m.PlayingID, m.IsMatch, m.IsFavorite)
-	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.SetShowTitle(false)
-	l.SetFilteringEnabled(false)
-	m.List = l
+	m.List = m.NewList()
 
 	m.Update(ServerChannelsMsg{Payload: protocol.ChannelsPayload{
 		Channels:      testChannels(),

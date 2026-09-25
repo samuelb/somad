@@ -7,9 +7,7 @@ import (
 
 	"somad/internal/channels"
 	"somad/internal/protocol"
-	"somad/internal/ui"
 
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -206,7 +204,7 @@ func testChannels() []channels.Channel {
 }
 
 // newTestModel returns a minimal Model populated with testChannels() and a
-// fake backend.
+// fake backend, its list built by NewList as in the real TUI.
 func newTestModel(t *testing.T) *Model {
 	t.Helper()
 
@@ -218,11 +216,9 @@ func newTestModel(t *testing.T) *Model {
 	}
 
 	items := ChannelsToItems(testChannels())
-	delegate := ui.NewStyledDelegate(&m.PlayingID, m.IsMatch, m.IsFavorite)
-	l := list.New(items, delegate, 80, 24)
-	l.SetShowTitle(false)
-	l.SetFilteringEnabled(false)
-	m.List = l
+	m.List = m.NewList()
+	m.List.SetItems(items)
+	m.List.SetSize(80, 24)
 	m.allItems = items
 
 	return m

@@ -7,9 +7,10 @@ import (
 	"somad/internal/protocol"
 	"somad/internal/ui"
 
-	tea "github.com/charmbracelet/bubbletea"
-
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // AboutInfo holds version and metadata for the about screen.
@@ -81,6 +82,38 @@ type Model struct {
 // Init requests the initial catalog and playback state from the server.
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.fetchChannels(), m.fetchStatus(), tea.EnterAltScreen)
+}
+
+// NewList returns the channel list component for m, empty and unsized:
+// the styled delegate, and a help bar showing our keymap. The list's own
+// title and filter give way to RenderHeader and search, and its own quit
+// keys (q, esc, ctrl+c) are disabled so every quit goes through quitCmd
+// and honors ShutdownOnExit. Set ShutdownOnExit first; the help reflects it.
+func (m *Model) NewList() list.Model {
+	delegate := ui.NewStyledDelegate(&m.PlayingID, m.IsMatch, m.IsFavorite)
+	l := list.New([]list.Item{}, delegate, 0, 0)
+	l.SetShowTitle(false)        // We render our own header with column titles
+	l.SetFilteringEnabled(false) // Disable filtering, we use search instead
+	l.DisableQuitKeybindings()
+	l.SetStatusBarItemName("channel", "channels")
+	// The bubbles default binds "h" to previous page; "h" is used for the
+	// history overlay instead (see the keymap in update.go), so drop it here
+	// rather than silently shadowing it with no help text to match.
+	l.KeyMap.PrevPage = key.NewBinding(
+		key.WithKeys("left", "pgup", "b", "u"),
+		key.WithHelp("←/pgup", "prev page"),
+	)
+	l.Styles.PaginationStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor)
+	l.Styles.HelpStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor).Padding(0, 0, 0, 2)
+
+	fullHelp, shortHelp := NewHelpKeys(m.ShutdownOnExit)
+	l.AdditionalFullHelpKeys = func() []key.Binding {
+		return fullHelp
+	}
+	l.AdditionalShortHelpKeys = func() []key.Binding {
+		return shortHelp
+	}
+	return l
 }
 
 // skewed reports whether the connected server runs a different version than the

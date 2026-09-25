@@ -9,12 +9,8 @@ import (
 	"somad/internal/app"
 	"somad/internal/client"
 	"somad/internal/protocol"
-	"somad/internal/ui"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func runTUI(shutdownOnExit bool) {
@@ -47,31 +43,7 @@ func runTUI(shutdownOnExit bool) {
 		})
 	}
 
-	// Initialize the Bubble Tea list component with styled delegate
-	delegate := ui.NewStyledDelegate(&m.PlayingID, m.IsMatch, m.IsFavorite)
-	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.SetShowTitle(false)        // We render our own header with column titles
-	l.SetFilteringEnabled(false) // Disable filtering, we use search instead
-	l.SetStatusBarItemName("channel", "channels")
-	// The bubbles default binds "h" to previous page; "h" is used for the
-	// history overlay instead (see the keymap in internal/app/update.go), so
-	// drop it here rather than silently shadowing it with no help text to
-	// match.
-	l.KeyMap.PrevPage = key.NewBinding(
-		key.WithKeys("left", "pgup", "b", "u"),
-		key.WithHelp("←/pgup", "prev page"),
-	)
-	l.Styles.PaginationStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor)
-	l.Styles.HelpStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor).Padding(0, 0, 0, 2)
-
-	fullHelp, shortHelp := app.NewHelpKeys(shutdownOnExit)
-	l.AdditionalFullHelpKeys = func() []key.Binding {
-		return fullHelp
-	}
-	l.AdditionalShortHelpKeys = func() []key.Binding {
-		return shortHelp
-	}
-	m.List = l
+	m.List = m.NewList()
 
 	// Start the Bubble Tea program with window size handling. Mouse cell
 	// motion reporting lets the mouse wheel scroll the channel list (see

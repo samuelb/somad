@@ -134,7 +134,7 @@ func (m *Model) updateSearchKey(msg tea.KeyMsg) tea.Cmd {
 
 // updateListKey handles a key press in list mode against the keymap. It
 // reports false when the key is not one of ours, or has nothing to act on
-// in the current state (say, esc with no overlay open), so the caller can
+// in the current state (say, n with no search active), so the caller can
 // hand it to the list component instead.
 func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch {
@@ -179,11 +179,15 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, keys.History):
 		return m.toggleHistory(), true
 	case key.Matches(msg, keys.Escape):
-		// Close whichever overlay is open; otherwise the list gets the key.
-		if !m.ShowHistory && !m.ShowAbout {
-			return nil, false
+		// Back out one layer: close whichever overlay is open, else clear a
+		// search filter kept after Enter. Esc never quits; that is q's job,
+		// through quitCmd.
+		switch {
+		case m.ShowHistory || m.ShowAbout:
+			m.ShowHistory, m.ShowAbout = false, false
+		case m.SearchQuery != "":
+			m.ClearSearch()
 		}
-		m.ShowHistory, m.ShowAbout = false, false
 		m.UpdateListSize()
 		return nil, true
 	case key.Matches(msg, keys.Search):
@@ -302,11 +306,13 @@ func withHelp(b key.Binding, k, desc string) key.Binding {
 }
 
 // NewHelpKeys returns additional help keys for the list: the full help
-// (every list-mode binding) and the one-line short help.
+// (every list-mode binding) and the one-line short help. Both carry our
+// quit binding, standing in for the list's own (see NewList).
 func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
-	quit := keys.Quit
+	quit, shortQuit := keys.Quit, withHelp(keys.Quit, "q", "quit")
 	if shutdownOnExit {
 		quit = withHelp(quit, "q", "quit (stops server)")
+		shortQuit = quit
 	}
 	fullHelp := []key.Binding{
 		keys.Play, keys.PlayPause, keys.Stop, keys.Favorite, keys.FavoritesOnly,
@@ -315,7 +321,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 	}
 	shortHelp := []key.Binding{
 		withHelp(keys.Play, "enter", "play"), keys.PlayPause, keys.Stop, keys.Favorite,
-		keys.Mute, withHelp(keys.Search, "/", "filter"), keys.About, keys.History,
+		keys.Mute, withHelp(keys.Search, "/", "filter"), keys.About, keys.History, shortQuit,
 	}
 	return fullHelp, shortHelp
 }

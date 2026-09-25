@@ -421,7 +421,7 @@ speak the same protocol version.
 | <kbd>c</kbd>                        | Clear the search                |
 | <kbd>a</kbd>                        | About                           |
 | <kbd>h</kbd>                        | Show recent now-playing history for the playing channel |
-| <kbd>Esc</kbd>                      | Close the about screen / history overlay / cancel the search |
+| <kbd>Esc</kbd>                      | Close the about screen / history overlay, else cancel or clear the search (never quits) |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
 
 ## Configuration
