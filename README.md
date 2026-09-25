@@ -280,9 +280,9 @@ enable it with `systemctl --user daemon-reload && systemctl --user enable
 headless hosts). On macOS, copy `packaging/launchd/com.samuelb.soma.plist`
 to `~/Library/LaunchAgents/`, edit the `soma` path inside it to match your
 install (Homebrew or wherever you copied the binary from the DMG), and run
-`launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist`; nfpm only
-builds Linux packages, so the plist isn't installed by any package and has
-to be copied in by hand.
+`launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist`; its log
+goes to `~/Library/Logs/soma.log`. nfpm only builds Linux packages, so the
+plist isn't installed by any package and has to be copied in by hand.
 
 While the server runs it shows a tray / menu-bar icon (macOS and Linux, where a
 tray host is available) with the current track, a "Channels" submenu for

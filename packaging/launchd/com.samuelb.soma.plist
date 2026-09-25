@@ -9,8 +9,11 @@
     cp packaging/launchd/com.samuelb.soma.plist ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist
 
-  Logs: /tmp/soma.log (StandardOutPath / StandardErrorPath below), plus
-  the state directory's server.log.
+  Logs: ~/Library/Logs/soma.log (also shown by Console.app). launchd
+  expands neither ~ nor $HOME in StandardOutPath, and a fixed path under
+  the shared /tmp would be readable by other users, so the daemon is
+  started through /bin/sh, which appends its output to that file. (The
+  state directory's server.log only collects daemons a client spawned.)
 
   Uninstall:
     launchctl unload ~/Library/LaunchAgents/com.samuelb.soma.plist
@@ -22,8 +25,9 @@
 	<string>com.samuelb.soma</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/usr/local/bin/soma</string>
-		<string>daemon</string>
+		<string>/bin/sh</string>
+		<string>-c</string>
+		<string>exec /usr/local/bin/soma daemon &gt;&gt;"$HOME/Library/Logs/soma.log" 2&gt;&amp;1</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -32,9 +36,5 @@
 		<key>SuccessfulExit</key>
 		<false/>
 	</dict>
-	<key>StandardOutPath</key>
-	<string>/tmp/soma.log</string>
-	<key>StandardErrorPath</key>
-	<string>/tmp/soma.log</string>
 </dict>
 </plist>

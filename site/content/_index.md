@@ -183,6 +183,8 @@ Its `ExecStart` has a commented `--no-tray` variant for headless hosts. nfpm onl
 ```sh
 launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist
 ```
+
+Its log goes to `~/Library/Logs/soma.log`.
 {% </card> %}
 {% </cards> %}
 {% </prose> %}
