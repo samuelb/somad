@@ -1265,7 +1265,7 @@ func TestPlay_FailedSwitchStopsThePreviousSession(t *testing.T) {
 
 	// Switching to a channel whose every candidate fails to resolve must
 	// not leave the old channel's audio running under the new status.
-	resolveStreamURL = func(string, string) (string, error) { return "", errors.New("resolve failed") }
+	resolveStreamURLs = func(string, string) ([]string, error) { return nil, errors.New("resolve failed") }
 	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"})
 	assert.Contains(t, resp.Error, "resolve failed")
 	assert.Equal(t, protocol.StatusReconnecting, s.Snapshot().Status)

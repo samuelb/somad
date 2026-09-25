@@ -59,6 +59,23 @@ var streamBufferPrefillWait = time.Second
 // while this one was still connecting; the newer request owns the audio state.
 var ErrSuperseded = errors.New("playback superseded by a newer request")
 
+// ErrAudioDevice marks a Play failure caused by the audio device (it could
+// not be opened, did not become ready, or would not resume) rather than by
+// the stream. Any other stream would fail the same way, after waiting for
+// the device again, so a caller working through stream candidates should
+// stop at the first such error.
+var ErrAudioDevice = errors.New("audio device error")
+
+// deviceError tags an audio-device failure as ErrAudioDevice while keeping
+// its own message.
+type deviceError struct{ err error }
+
+func (e deviceError) Error() string { return e.err.Error() }
+
+func (e deviceError) Unwrap() error { return e.err }
+
+func (e deviceError) Is(target error) bool { return target == ErrAudioDevice }
+
 // Player is the interface for audio playback operations.
 // This allows mocking the player in tests.
 //
@@ -338,7 +355,7 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 		return discard(ErrSuperseded)
 	}
 	if err := p.ensureContext(); err != nil {
-		return discard(err)
+		return discard(deviceError{err})
 	}
 
 	s, old, err := p.commitSession(gen, attempt, decodedStream, pr)
@@ -428,7 +445,7 @@ func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, stream io.
 	}
 	if p.deviceSuspended {
 		if err := p.ctx.Resume(); err != nil {
-			return nil, nil, fmt.Errorf("failed to resume audio device: %w", err)
+			return nil, nil, deviceError{fmt.Errorf("failed to resume audio device: %w", err)}
 		}
 		p.deviceSuspended = false
 	}

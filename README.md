@@ -44,7 +44,8 @@ Linux and macOS — other platforms are not supported and may not work.
 - Optional Last.fm scrobbling (opt in with `soma lastfm login`): now-playing
   updates and scrobbles after a track has played long enough, fired from the
   daemon so it works with the TUI closed
-- Buffered streaming with automatic reconnection on network issues
+- Buffered streaming with automatic reconnection on network issues, moving
+  on to SomaFM's other stream servers when one is down
 - Styled UI with color-coded playback states and visual indicators
 - Select and remember your last-played channel
 - Sleep timer (`soma stop --in 45m`) owned by the daemon, so it fires even

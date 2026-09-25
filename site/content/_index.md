@@ -65,8 +65,9 @@ extra:
         MPRIS on Linux so media keys keep working with the TUI closed.
     - title: Resilient streaming
       text: >-
-        Buffered playback with a stall watchdog and automatic reconnection, so a
-        flaky network means a pause, not a restart.
+        Buffered playback with a stall watchdog, automatic reconnection, and
+        failover to SomaFM's other stream servers, so a flaky network or a
+        server outage means a pause, not a restart.
     - title: Fast to start
       text: >-
         The channel catalog is cached and refreshed in the background, so the

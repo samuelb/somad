@@ -17,50 +17,53 @@ import (
 // so an unbounded read would be a memory hazard.
 const maxPlaylistBytes = 1 << 20 // 1 MiB
 
-// GetStreamURLFromPlaylist fetches a playlist file from a URL, parses it,
-// and returns the first stream URL found within the playlist.
+// GetStreamURLsFromPlaylist fetches a playlist file from a URL, parses it,
+// and returns every stream URL it lists, most preferred first (see
+// parseStreamURLs). SomaFM playlists list the same stream on several mirror
+// hosts, so the caller can move on to the next one when a host is down.
 // It supports .pls playlist formats.
-func GetStreamURLFromPlaylist(playlistURL, userAgent string) (string, error) {
+func GetStreamURLsFromPlaylist(playlistURL, userAgent string) ([]string, error) {
 	// Fetch the playlist file content
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	req, err := security.NewRequest(ctx, playlistURL, userAgent)
 	if err != nil {
-		return "", fmt.Errorf("invalid playlist URL: %w", err)
+		return nil, fmt.Errorf("invalid playlist URL: %w", err)
 	}
 
 	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
-		return "", fmt.Errorf("failed to get playlist from %s: %w", playlistURL, err)
+		return nil, fmt.Errorf("failed to get playlist from %s: %w", playlistURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	// Check if the HTTP request was successful
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code %d for playlist %s", resp.StatusCode, playlistURL)
+		return nil, fmt.Errorf("unexpected status code %d for playlist %s", resp.StatusCode, playlistURL)
 	}
 
-	url, err := parseFirstStreamURL(io.LimitReader(resp.Body, maxPlaylistBytes))
+	urls, err := parseStreamURLs(io.LimitReader(resp.Body, maxPlaylistBytes))
 	if err != nil {
-		return "", fmt.Errorf("error reading playlist body from %s: %w", playlistURL, err)
+		return nil, fmt.Errorf("error reading playlist body from %s: %w", playlistURL, err)
 	}
-	if url == "" {
-		return "", fmt.Errorf("no stream URL found in playlist %s", playlistURL)
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("no stream URL found in playlist %s", playlistURL)
 	}
-	return url, nil
+	return urls, nil
 }
 
-// parseFirstStreamURL scans .pls content for FileN entries and returns a
-// stream URL, or "" when none is found. It prefers the first https:// entry
-// over an earlier http:// (or other-scheme) one, since this is what
-// fetchStream connects to and a plain-http entry is vulnerable to MITM of
-// both the audio and its ICY titles; with no https entry present it falls
-// back to the first entry of any scheme. Real-world playlists are not always
+// parseStreamURLs scans .pls content for FileN entries and returns their
+// stream URLs without duplicates (none when there are none). https://
+// entries come before http:// (and other-scheme) ones, since the caller
+// connects to them in this order and a plain-http entry is vulnerable to
+// MITM of both the audio and its ICY titles; within each group the
+// playlist's own order is kept. Real-world playlists are not always
 // spec-exact, so keys match case-insensitively and whitespace around keys,
 // values, and the "=" is tolerated.
-func parseFirstStreamURL(r io.Reader) (string, error) {
-	var first, firstHTTPS string
+func parseStreamURLs(r io.Reader) ([]string, error) {
+	var https, other []string
+	seen := make(map[string]bool)
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -72,23 +75,20 @@ func parseFirstStreamURL(r io.Reader) (string, error) {
 			continue
 		}
 		url := strings.TrimSpace(value)
-		if url == "" {
+		if url == "" || seen[url] {
 			continue
 		}
-		if first == "" {
-			first = url
-		}
-		if firstHTTPS == "" && security.IsHTTPSURL(url) {
-			firstHTTPS = url
+		seen[url] = true
+		if security.IsHTTPSURL(url) {
+			https = append(https, url)
+		} else {
+			other = append(other, url)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
-	if firstHTTPS != "" {
-		return firstHTTPS, nil
-	}
-	return first, nil
+	return append(https, other...), nil
 }
 
 // isFileKey reports whether a .pls key names a stream entry: "file" followed

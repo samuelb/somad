@@ -223,6 +223,7 @@ func TestPlay_ResumeErrorDoesNotCommitSession(t *testing.T) {
 	err := playNext(p, server.URL, FormatMP3)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to resume audio device")
+	assert.ErrorIs(t, err, ErrAudioDevice)
 	assert.EqualValues(t, 1, ctx.players.Load())
 	p.mu.Lock()
 	assert.Nil(t, p.current)
@@ -231,6 +232,20 @@ func TestPlay_ResumeErrorDoesNotCommitSession(t *testing.T) {
 
 	ctx.setResumeError(nil)
 	require.NoError(t, playNext(p, server.URL, FormatMP3))
+}
+
+func TestPlay_DeviceFailureIsMarked(t *testing.T) {
+	p, _, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	p.newContext = func() (audioContext, <-chan struct{}, error) {
+		return nil, nil, errors.New("no audio hardware")
+	}
+
+	// The stream decoded fine; the device is what failed, so the error must
+	// say so for the caller to stop trying other streams.
+	err := playNext(p, server.URL, FormatMP3)
+	require.ErrorIs(t, err, ErrAudioDevice)
+	assert.Contains(t, err.Error(), "no audio hardware")
 }
 
 func TestPlaySwitch_DoesNotSuspendReplacementSession(t *testing.T) {

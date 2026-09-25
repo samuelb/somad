@@ -29,11 +29,13 @@ var callTimeout = 30 * time.Second
 
 // playCallTimeout bounds the play-ish calls, which block in the daemon
 // until a stream is decoding or every candidate has failed. The daemon's
-// worst case per candidate is the 15 s playlist fetch plus the 10 s stream
-// connect deadline, which runs until the first frame decodes (25 s); with
-// two candidates and the 15 s audio-device wait that is 65 s, so this must
-// exceed it or the client gives up while the daemon goes on to succeed on
-// the fallback. A variable so tests can shrink it.
+// worst case per candidate is the 15 s playlist fetch plus up to three
+// mirrors at the 10 s stream connect deadline each, which runs until the
+// first frame decodes (45 s); with two candidates and the 15 s
+// audio-device wait that is 105 s (see connectCandidates in
+// internal/server), so this must exceed it or the client gives up while
+// the daemon goes on to succeed on the fallback. A variable so tests can
+// shrink it.
 var playCallTimeout = 3 * time.Minute
 
 // Client is a connection to the soma daemon. Safe for concurrent use.

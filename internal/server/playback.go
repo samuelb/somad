@@ -39,9 +39,16 @@ func reconnectDelay(attempt int) time.Duration {
 	return d
 }
 
-// resolveStreamURL resolves a playlist URL to a stream URL. A variable so
-// tests can avoid the network.
-var resolveStreamURL = playlist.GetStreamURLFromPlaylist
+// resolveStreamURLs resolves a playlist URL to its stream URLs: the same
+// stream on each of SomaFM's mirror hosts, https first. A variable so tests
+// can avoid the network.
+var resolveStreamURLs = playlist.GetStreamURLsFromPlaylist
+
+// maxStreamMirrors caps how many of a playlist's mirrors one play attempt
+// tries before falling back to the next format. SomaFM lists three; the cap
+// keeps the worst case of connectCandidates bounded whatever a playlist
+// holds.
+const maxStreamMirrors = 3
 
 // supportedFormats lists the stream formats this build decodes, most
 // preferred first. A variable so tests can pin it regardless of platform.
@@ -156,9 +163,19 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 }
 
 // connectCandidates tries the channel's playable playlists in preference
-// order (AAC before MP3 where this build decodes it), falling back to the
-// next when one fails to resolve, connect, or decode. It runs off the lock
-// because resolving and connecting block on the network.
+// order (AAC before MP3 where this build decodes it), and each playlist's
+// mirrors in turn: a stream that fails to connect or decode falls back to
+// the same format on the next mirror, then to the next format. The first
+// mirror tried rotates with the reconnect attempt, so a reconnect after a
+// drop starts on a different host than the one that dropped. It runs off
+// the lock because resolving and connecting block on the network.
+//
+// Worst case before the attempt gives up: per candidate, the 15 s playlist
+// fetch plus maxStreamMirrors connects of at most 10 s each (the player's
+// connect deadline, which runs until audio decodes), so 45 s per format,
+// plus one wait of at most 15 s for the audio device, which ends the
+// attempt at once rather than being repeated for every stream. The
+// client's play-call timeout (internal/client) must stay above this.
 func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, error) {
 	formats := supportedFormats()
 	candidates := channels.SelectPlaylists(a.ch.Playlists, formats, s.quality)
@@ -167,6 +184,9 @@ func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, erro
 		return s.failConnect(a.gen, fmt.Errorf("no playable stream for %s (supported formats: %s)",
 			a.ch.Title, strings.Join(formats, ", ")), false)
 	}
+	s.mu.Lock()
+	rotation := s.reconnectAttempt
+	s.mu.Unlock()
 
 	var lastErr error
 	for _, cand := range candidates {
@@ -175,30 +195,51 @@ func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, erro
 		// back out instead of starting stale audio. This check is only an
 		// early exit: the player sees the same generation and refuses to
 		// commit a stale one itself, which closes the window between here
-		// and player.Play (resolveStreamURL blocks on the network).
+		// and player.Play (resolveStreamURLs blocks on the network).
 		if s.superseded(a.gen) {
 			return s.Snapshot(), audio.ErrSuperseded
 		}
 
-		streamURL, err := resolveStreamURL(cand.URL, s.userAgent)
+		mirrors, err := resolveStreamURLs(cand.URL, s.userAgent)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to get stream URL: %w", err)
 			continue
 		}
 
-		if err := s.player.Play(streamURL, cand.Format, a.gen); err != nil {
+		for _, streamURL := range rotateMirrors(mirrors, rotation) {
+			if s.superseded(a.gen) {
+				return s.Snapshot(), audio.ErrSuperseded
+			}
+			err := s.player.Play(streamURL, cand.Format, a.gen)
+			if err == nil {
+				log.Printf("playing %s (%s from %s)", a.ch.Title, cand.Format, streamURL)
+				return s.commitPlay(a.gen)
+			}
 			if errors.Is(err, audio.ErrSuperseded) {
 				// A newer play/stop request won; it owns the state now.
 				return s.Snapshot(), err
 			}
 			lastErr = fmt.Errorf("failed to start playback: %w", err)
-			continue
+			if errors.Is(err, audio.ErrAudioDevice) {
+				// Every other stream would wait for the device and fail
+				// the same way.
+				return s.failConnect(a.gen, lastErr, true)
+			}
+			log.Printf("stream %s failed: %v", streamURL, err)
 		}
-
-		log.Printf("playing %s (%s)", a.ch.Title, cand.Format)
-		return s.commitPlay(a.gen)
 	}
 	return s.failConnect(a.gen, lastErr, true)
+}
+
+// rotateMirrors returns the first maxStreamMirrors mirrors, starting at
+// index rotation (modulo their count) and wrapping around.
+func rotateMirrors(mirrors []string, rotation int) []string {
+	mirrors = mirrors[:min(len(mirrors), maxStreamMirrors)]
+	if len(mirrors) == 0 {
+		return nil
+	}
+	start := rotation % len(mirrors)
+	return append(slices.Clone(mirrors[start:]), mirrors[:start]...)
 }
 
 // superseded reports whether a newer play or stop has taken over since gen.

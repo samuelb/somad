@@ -1,7 +1,7 @@
 # ADR-0013: Stream resilience: jitter buffer, stall watchdog, clean EOF is an error, reconnect forever
 
 - **Status:** Accepted
-- **Date:** 2026-07-05 (jitter buffer 2026-09-01; connect deadline to first decoded frame 2026-09-25)
+- **Date:** 2026-07-05 (jitter buffer 2026-09-01; connect deadline to first decoded frame and mirror failover 2026-09-25)
 - **Sources:** eead2e1, d39497b, de8dd79, f062394, 1f9dec1; `internal/audio/player.go`, `buffer.go`; earlier ae9f67c, 4ee15a3, 4f3332d; rejection of watchdog re-arm on 2026-09-03
 
 ## Context
@@ -34,6 +34,15 @@ hiccup longer than the audio device's own small buffer was audible.
   playlist is never retried, because reconnecting cannot conjure one up;
   nor is a channel a catalog refresh dropped meanwhile, which stops with
   the error shown (2026-09-25).
+- **2026-09-25:** every SomaFM playlist lists the same stream on three
+  mirror hosts, in the same host order for every format, and only the
+  first was ever used, so one dead host failed every format and every
+  reconnect. A play attempt now tries each format on up to three mirrors
+  before falling back to the next format, and the first mirror tried
+  rotates with the reconnect attempt. That bounds an attempt at 45 s per
+  format (15 s playlist fetch plus three 10 s connect deadlines) plus one
+  audio-device wait; an audio-device failure ends the attempt at once,
+  since every other stream would wait for the device again.
 - Each failure has exactly one reporting path, and the errors channel is
   lossy by design: it signals "currently unhealthy", it is not a log.
 

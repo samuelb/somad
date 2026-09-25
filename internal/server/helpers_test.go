@@ -38,6 +38,15 @@ type mockPlayer struct {
 	// gen mirrors the real player's generation rule: Play and Stop with a
 	// generation older than the newest seen are refused/ignored.
 	gen uint64
+
+	// failURLs makes Play fail for the given stream URLs only, for
+	// exercising the fallback to the next mirror.
+	failURLs map[string]bool
+	// attempts records the URL of every Play call, failed ones included.
+	attempts []string
+	// dial, when non-nil, runs for every Play call (outside the mock's
+	// lock) and fails it with its error, e.g. to reach a real test server.
+	dial func(url string) error
 }
 
 func newMockPlayer() *mockPlayer {
@@ -52,6 +61,7 @@ func (p *mockPlayer) Play(url, format string, gen uint64) error {
 	p.mu.Lock()
 	block := p.blockPlay
 	onPlay := p.onPlay
+	dial := p.dial
 	p.mu.Unlock()
 	if onPlay != nil {
 		onPlay(format)
@@ -59,17 +69,28 @@ func (p *mockPlayer) Play(url, format string, gen uint64) error {
 	if block != nil {
 		<-block
 	}
+	var dialErr error
+	if dial != nil {
+		dialErr = dial(url)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if gen < p.gen {
 		return audio.ErrSuperseded
 	}
 	p.gen = gen
+	p.attempts = append(p.attempts, url)
+	if dialErr != nil {
+		return dialErr
+	}
 	if p.playErr != nil {
 		return p.playErr
 	}
 	if p.failFormats[format] {
 		return errors.New("mock cannot play " + format)
+	}
+	if p.failURLs[url] {
+		return errors.New("mock cannot reach " + url)
 	}
 	p.playing = true
 	p.playURLs = append(p.playURLs, url)
@@ -163,11 +184,11 @@ func newTestServer(t *testing.T, cfg Config) (*Server, *mockPlayer) {
 		cfg.Version = "test"
 	}
 
-	prevResolve := resolveStreamURL
-	resolveStreamURL = func(playlistURL, _ string) (string, error) {
-		return playlistURL + "#stream", nil
+	prevResolve := resolveStreamURLs
+	resolveStreamURLs = func(playlistURL, _ string) ([]string, error) {
+		return []string{playlistURL + "#stream"}, nil
 	}
-	t.Cleanup(func() { resolveStreamURL = prevResolve })
+	t.Cleanup(func() { resolveStreamURLs = prevResolve })
 
 	// Pin the format capability to MP3-only so tests behave the same on
 	// every platform (on macOS the real build also plays AAC).

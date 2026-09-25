@@ -15,7 +15,8 @@ quality depend on API ordering.
 
 - `PreferredFormats` returns AAC then MP3 where the build can decode AAC,
   MP3 only otherwise. Candidates are tried in order; if the preferred
-  stream fails to connect or decode, the next one is tried.
+  stream fails to connect or decode on every mirror (ADR-0013), the next
+  one is tried.
 - AAC decoding uses the macOS AudioToolbox converter through cgo
   (`aac_darwin.go`), behind a pure-Go ADTS reader that validates headers
   strictly and resynchronizes on the syncword. That strictness is
