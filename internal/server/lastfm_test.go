@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"net"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -340,6 +343,56 @@ func TestShutdown_ScrobblesFinalTrack(t *testing.T) {
 	got := scrobbler.lastScrobble()
 	assert.Equal(t, "Boards of Canada", got.artist)
 	assert.Equal(t, "Dayvan Cowboy", got.title)
+}
+
+// TestRun_ReturnsOnlyAfterShutdownCompletes covers the daemon's exit path:
+// the process exits as soon as Run returns, so Run must not return while a
+// Shutdown started elsewhere (a signal, the idle timer, a client) is still
+// waiting for the final scrobble to be sent.
+func TestRun_ReturnsOnlyAfterShutdownCompletes(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// Run refreshes the catalog; a failure keeps the seeded one.
+	fetched := make(chan struct{}, 1)
+	stubChannelsNetwork(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		select {
+		case fetched <- struct{}{}:
+		default:
+		}
+	})
+	// Run's refresh goroutine is not joined by Shutdown; waiting for its
+	// request orders its read of the stubbed URL before the cleanup that
+	// restores it.
+	t.Cleanup(func() {
+		select {
+		case <-fetched:
+		case <-time.After(5 * time.Second):
+		}
+	})
+
+	scrobbler := &fakeScrobbler{scrobbleDelay: 300 * time.Millisecond}
+	s, player := newTestServer(t, Config{Scrobbler: scrobbler})
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	runDone := make(chan error, 1)
+	go func() { runDone <- s.Run(ln) }()
+
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	time.Sleep(2 * lastfmMinPlayDuration)
+
+	go s.Shutdown() // as the signal handler does
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after Shutdown")
+	}
+	assert.Equal(t, 1, scrobbler.scrobbleCount(),
+		"Run must not return before Shutdown has sent the final scrobble")
 }
 
 func TestShutdown_LastfmWaitIsBounded(t *testing.T) {

@@ -116,7 +116,11 @@ func TestRefreshLoop_PeriodicallyRefreshesCatalog(t *testing.T) {
 	})
 
 	s := newBareServer(t)
-	go s.refreshLoop()
+	loopDone := make(chan struct{})
+	go func() {
+		defer close(loopDone)
+		s.refreshLoop()
+	}()
 
 	for range 2 {
 		select {
@@ -125,4 +129,8 @@ func TestRefreshLoop_PeriodicallyRefreshesCatalog(t *testing.T) {
 			t.Fatal("timed out waiting for a periodic catalog refresh")
 		}
 	}
+	// Join the loop before the cleanups restore the package variables it
+	// reads on every tick; a later test stubbing them again would race it.
+	s.Shutdown()
+	<-loopDone
 }

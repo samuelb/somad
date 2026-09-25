@@ -213,8 +213,9 @@ func New(cfg Config) *Server {
 
 // Run serves connections on the given listeners (typically the Unix socket,
 // plus a TCP listener when remote access is configured) until Shutdown is
-// called (by a client request, a signal, or the idle timer). It owns the
-// catalog load and the goroutines that watch the audio player.
+// called (by a client request, a signal, or the idle timer), and returns
+// only once Shutdown has finished. It owns the catalog load and the
+// goroutines that watch the audio player.
 func (s *Server) Run(lns ...net.Listener) error {
 	s.mu.Lock()
 	s.lns = lns
@@ -241,6 +242,12 @@ func (s *Server) Run(lns ...net.Listener) error {
 			s.Shutdown()
 		}
 	}
+	// The listeners close early in Shutdown, while it still flushes state
+	// and waits for the final Last.fm scrobble, and the caller exits the
+	// process as soon as Run returns. Joining the in-flight Shutdown here
+	// (shutdownOnce.Do blocks until it completes) keeps that tail from being
+	// cut off.
+	s.Shutdown()
 	return firstErr
 }
 
