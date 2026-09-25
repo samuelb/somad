@@ -162,8 +162,9 @@ func (m *Model) RenderAboutFooter() string {
 }
 
 // RenderHistoryFooter renders the now-playing history for the playing
-// channel as an inline footer, styled like the about footer. It returns an
-// empty string unless the history overlay is active.
+// channel as an inline footer, styled like the about footer. It shows only
+// the newest entries that fit the window (see historyEntryLimit). It
+// returns an empty string unless the history overlay is active.
 func (m *Model) RenderHistoryFooter() string {
 	if !m.ShowHistory {
 		return ""
@@ -178,13 +179,50 @@ func (m *Model) RenderHistoryFooter() string {
 	case len(m.History) == 0:
 		lines = append(lines, "History: "+m.HistoryChannelTitle, "No history yet.")
 	default:
-		lines = append(lines, "History: "+m.HistoryChannelTitle)
-		for _, e := range m.History {
-			lines = append(lines, fmt.Sprintf("%s  %s", e.Time.Local().Format("15:04"), e.Title))
+		entries := m.History
+		title := "History: " + m.HistoryChannelTitle
+		if limit := m.historyEntryLimit(); len(entries) > limit {
+			entries = entries[:limit]
+			title += fmt.Sprintf(" (latest %d of %d)", limit, len(m.History))
+		}
+		lines = append(lines, title)
+		for _, e := range entries {
+			// One line per entry, so the limit above holds: a title can
+			// carry line breaks from the stream.
+			lines = append(lines, fmt.Sprintf("%s  %s", e.Time.Local().Format("15:04"), lineBreaks.Replace(e.Title)))
 		}
 	}
 	lines = append(lines, "press h or esc to close")
 	return m.renderFooter(lines)
+}
+
+// lineBreaks flattens line breaks to spaces.
+var lineBreaks = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+
+const (
+	// historyFooterLines is how many lines the history footer takes
+	// besides its entries: the separator, the title and the close hint.
+	historyFooterLines = 3
+	// minListHeight is the fewest lines the list renders in, however small
+	// UpdateListSize sizes it: its status line and the blank under it, one
+	// two-line row, the pagination line and the help line.
+	minListHeight = 6
+)
+
+// historyEntryLimit is how many history entries fit on screen: the window
+// height less the bottom margin, the rest of the chrome, the history
+// footer's own lines and the list's minimum height. Before the window size
+// is known there is no limit.
+func (m *Model) historyEntryLimit() int {
+	if m.Height <= 0 {
+		return len(m.History)
+	}
+	used := 1 + historyFooterLines + minListHeight
+	above, below := m.baseChrome()
+	for _, c := range append(above, below...) {
+		used += lipgloss.Height(c)
+	}
+	return max(0, m.Height-used)
 }
 
 // renderFooter renders lines as an inline footer below the status bar: a
@@ -225,15 +263,23 @@ func (m *Model) View() string {
 // (status bar, and the about and history footers when active). View joins
 // them around the list; UpdateListSize measures them.
 func (m *Model) chrome() (above, below []string) {
+	above, below = m.baseChrome()
+	if history := m.RenderHistoryFooter(); history != "" {
+		below = append(below, history)
+	}
+	return above, below
+}
+
+// baseChrome is chrome without the history footer, the one component that
+// sizes itself to the room the others leave.
+func (m *Model) baseChrome() (above, below []string) {
 	above = []string{"", m.RenderHeader()} // "" is the top margin line
 	if searchBar := m.RenderSearchBar(); searchBar != "" {
 		above = append(above, searchBar)
 	}
 	below = []string{m.RenderStatusBar()}
-	for _, footer := range []string{m.RenderAboutFooter(), m.RenderHistoryFooter()} {
-		if footer != "" {
-			below = append(below, footer)
-		}
+	if about := m.RenderAboutFooter(); about != "" {
+		below = append(below, about)
 	}
 	return above, below
 }

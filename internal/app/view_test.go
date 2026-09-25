@@ -1,14 +1,19 @@
 package app
 
 import (
+	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"somad/internal/protocol"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRenderSearchBar_Active(t *testing.T) {
@@ -343,6 +348,103 @@ func TestView_HistoryFooter(t *testing.T) {
 	result := m.View()
 
 	assert.Contains(t, result, "Artist - Track")
+}
+
+// historyEntries returns n history entries for groovesalad, newest first.
+func historyEntries(n int) []protocol.HistoryEntry {
+	entries := make([]protocol.HistoryEntry, n)
+	for i := range entries {
+		entries[i] = protocol.HistoryEntry{ChannelID: "groovesalad", Title: fmt.Sprintf("Artist - Track %d", i+1)}
+	}
+	return entries
+}
+
+func TestRenderHistoryFooter_ShowsOnlyTheNewestEntriesThatFit(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = "groovesalad"
+	m.HistoryChannelTitle = "Groove Salad"
+	m.History = historyEntries(20)
+
+	result := m.RenderHistoryFooter()
+
+	limit := m.historyEntryLimit()
+	require.Positive(t, limit)
+	require.Less(t, limit, 20, "20 entries do not fit 24 lines")
+	assert.Equal(t, historyFooterLines+limit, lipgloss.Height(result))
+	assert.Contains(t, result, fmt.Sprintf("latest %d of 20", limit), "the cut is announced")
+	// Footer lines are padded to the full width, hence the trailing space.
+	assert.Contains(t, result, "Artist - Track 1 ", "the newest entries are kept")
+	assert.Contains(t, result, fmt.Sprintf("Artist - Track %d ", limit))
+	assert.NotContains(t, result, fmt.Sprintf("Artist - Track %d ", limit+1))
+}
+
+func TestRenderHistoryFooter_FlattensLineBreaksInTitles(t *testing.T) {
+	m := newTestModel(t)
+	m.ShowHistory = true
+	m.HistoryChannelID = "groovesalad"
+	m.History = []protocol.HistoryEntry{{Title: "Artist -\r\nTwo\nLines"}}
+
+	result := m.RenderHistoryFooter()
+
+	assert.Contains(t, result, "Artist - Two Lines")
+	assert.Equal(t, historyFooterLines+1, lipgloss.Height(result), "one line per entry")
+}
+
+func TestMinListHeight_HoldsTheList(t *testing.T) {
+	m := newTestModel(t)
+	m.List.SetSize(80, minListHeight)
+
+	view := m.List.View()
+
+	assert.LessOrEqual(t, lipgloss.Height(view), minListHeight)
+	assert.Contains(t, view, "Groove Salad", "the selected row still shows")
+}
+
+// TestView_NeverTallerThanTheWindow checks the view fits the window after
+// each message that can grow the chrome around the list. Bubble Tea cuts a
+// taller view from the top, header first.
+func TestView_NeverTallerThanTheWindow(t *testing.T) {
+	long := strings.Repeat("a rather long message ", 8)
+	playing := protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1,
+	}
+	openHistory := []tea.Msg{
+		ServerStateMsg{State: playing},
+		tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}},
+		HistoryMsg{ChannelID: "groovesalad", Entries: historyEntries(20)},
+	}
+	withStreamTrouble := playing
+	withStreamTrouble.TrackTitle = long
+	withStreamTrouble.StreamError = long
+
+	tests := []struct {
+		name string
+		msgs []tea.Msg
+	}{
+		{name: "history arrives", msgs: openHistory},
+		{name: "history and about", msgs: append(slices.Clone(openHistory), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})},
+		{name: "about then history", msgs: append([]tea.Msg{tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}}, openHistory...)},
+		{name: "history then status bar grows", msgs: append(slices.Clone(openHistory), ServerStateMsg{State: withStreamTrouble})},
+		{name: "long track title and stream error", msgs: []tea.Msg{ServerStateMsg{State: withStreamTrouble}}},
+		{name: "request error", msgs: []tea.Msg{RequestErrorMsg{Op: "play", Err: errors.New(long)}}},
+		{name: "server lost", msgs: []tea.Msg{ServerStateMsg{State: withStreamTrouble}, ServerLostMsg{}}},
+		{name: "restart failed", msgs: []tea.Msg{RestartFailedMsg{Err: errors.New(long)}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestModel(t)
+			m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			for _, msg := range tt.msgs {
+				m.Update(msg)
+			}
+
+			view := m.View()
+
+			assert.LessOrEqual(t, lipgloss.Height(view), 24)
+			assert.Contains(t, strings.Split(view, "\n")[1], "SomaFM Stations", "the header stays on screen")
+		})
+	}
 }
 
 func TestRenderAboutFooter_Hidden(t *testing.T) {

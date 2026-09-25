@@ -12,20 +12,31 @@ import (
 
 // Update handles incoming messages and updates the model's state.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := m.update(msg)
+	// Almost any message can change the chrome around the list: a status
+	// bar wrapping onto more lines, history entries arriving, an overlay or
+	// the search bar opening. Bubble Tea cuts a view taller than the
+	// terminal from the top, header first, so re-measure after every
+	// message; SetSize keeps the selection.
+	m.UpdateListSize()
+	return m, cmd
+}
+
+// update applies msg to the model and returns the command to run next.
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.Searching {
-			return m, m.updateSearchKey(msg)
+			return m.updateSearchKey(msg)
 		}
 		if cmd, handled := m.updateListKey(msg); handled {
-			return m, cmd
+			return cmd
 		}
 
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
-		m.UpdateListSize()
-		return m, nil
+		return nil
 
 	case tea.MouseMsg:
 		// The vendored bubbles/list does not handle mouse events itself, so
@@ -33,23 +44,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
 			m.List.CursorUp()
-			return m, nil
+			return nil
 		case tea.MouseButtonWheelDown:
 			m.List.CursorDown()
-			return m, nil
+			return nil
 		}
 
 	case ServerStateMsg:
 		m.applySnapshot(msg.State)
-		return m, nil
+		return nil
 
 	case ServerChannelsMsg:
 		m.applyChannels(msg.Payload)
-		return m, nil
+		return nil
 
 	case FavoritesMsg:
 		m.applyFavorites(msg.Favorites)
-		return m, nil
+		return nil
 
 	case HistoryMsg:
 		// Drop a result for a fetch that started for a channel the overlay
@@ -60,7 +71,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.History = msg.Entries
 			m.HistoryErr = msg.Err
 		}
-		return m, nil
+		return nil
 
 	case RequestErrorMsg:
 		if m.Loading && msg.Op == opLoadChannels {
@@ -68,36 +79,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// bar notice; show the error screen instead of loading forever.
 			m.Loading = false
 			m.Err = msg.Err
-			return m, nil
+			return nil
 		}
 		m.RequestErr = fmt.Sprintf("%s failed: %v", msg.Op, msg.Err)
-		return m, nil
+		return nil
 
 	case RestartFailedMsg:
 		// No reconnect will follow, so a queued channel change would never
 		// play; drop it and tell the user instead of failing silently.
 		m.pendingPlayID = ""
 		m.RequestErr = fmt.Sprintf("server restart failed: %v", msg.Err)
-		return m, nil
+		return nil
 
 	case ServerLostMsg:
 		m.ServerLost = true
-		return m, nil
+		return nil
 
 	case ServerReconnectedMsg:
-		return m, m.applyReconnect(msg)
+		return m.applyReconnect(msg)
 
 	case ServerGoneMsg:
 		m.ServerLost = false
 		m.Loading = false
 		m.Err = msg.Err
-		return m, nil
+		return nil
 	}
 
 	// Update the list component and return its command
 	var cmd tea.Cmd
 	m.List, cmd = m.List.Update(msg)
-	return m, cmd
+	return cmd
 }
 
 // updateSearchKey handles a key press while the search input is active:
@@ -109,11 +120,9 @@ func (m *Model) updateSearchKey(msg tea.KeyMsg) tea.Cmd {
 	case "enter":
 		// Exit search mode, keep at current match
 		m.Searching = false
-		m.UpdateListSize()
 	case "esc":
 		// Cancel search, clear query
 		m.ClearSearch()
-		m.UpdateListSize()
 	case "backspace":
 		if len(m.SearchQuery) > 0 {
 			_, size := utf8.DecodeLastRuneInString(m.SearchQuery)
@@ -174,7 +183,6 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, keys.About):
 		// Toggle the inline about footer.
 		m.ShowAbout = !m.ShowAbout
-		m.UpdateListSize()
 		return nil, true
 	case key.Matches(msg, keys.History):
 		return m.toggleHistory(), true
@@ -188,13 +196,11 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		case m.SearchQuery != "":
 			m.ClearSearch()
 		}
-		m.UpdateListSize()
 		return nil, true
 	case key.Matches(msg, keys.Search):
 		// Enter search mode. An existing query (kept after Enter) is
 		// pre-filled for editing rather than reset.
 		m.Searching = true
-		m.UpdateListSize()
 		return nil, true
 	case key.Matches(msg, keys.NextMatch):
 		if m.matchCount() == 0 {
@@ -228,7 +234,6 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 		m.ClearSearch()
-		m.UpdateListSize()
 		return nil, true
 	}
 	return nil, false
@@ -238,7 +243,6 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // playing channel, returning the fetch to run when it opens.
 func (m *Model) toggleHistory() tea.Cmd {
 	m.ShowHistory = !m.ShowHistory
-	m.UpdateListSize()
 	if !m.ShowHistory {
 		return nil
 	}
