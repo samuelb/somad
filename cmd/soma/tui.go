@@ -28,7 +28,7 @@ func runTUI(shutdownOnExit bool) {
 	m := &app.Model{
 		Backend: c,
 		// A skewed server keeps playing while the user browses; the next channel
-		// change or stop restarts it onto our version.
+		// change, pause or stop restarts it onto our version.
 		ServerVersion:  hr.ServerVersion,
 		Loading:        true,
 		ShutdownOnExit: shutdownOnExit,

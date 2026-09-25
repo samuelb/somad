@@ -34,8 +34,8 @@ type Model struct {
 	// ServerLost is true while the server connection is being re-established.
 	ServerLost bool
 	// ServerVersion is the version the connected server reports. When it differs
-	// from About.Version the server is out of date and the next channel change
-	// or stop restarts it onto ours (see skewed).
+	// from About.Version the server is out of date and the next channel change,
+	// pause or stop restarts it onto ours (see skewed).
 	ServerVersion string
 	// pendingPlayID is a channel to play once the server has been restarted for
 	// a version upgrade and the reconnect has delivered a fresh backend.
@@ -84,9 +84,17 @@ func (m *Model) Init() tea.Cmd {
 }
 
 // skewed reports whether the connected server runs a different version than the
-// client, meaning the next channel change or stop should restart it onto ours.
+// client, meaning the next channel change, pause or stop should restart it
+// onto ours.
 func (m *Model) skewed() bool {
 	return m.ServerVersion != "" && client.VersionSkewed(m.About.Version, m.ServerVersion)
+}
+
+// playingOrConnecting reports whether the server is playing, or connecting
+// to, channel id: the case in which it treats playing id as a no-op.
+func (m *Model) playingOrConnecting(id string) bool {
+	return id == m.Snapshot.ChannelID &&
+		(m.Snapshot.Status == protocol.StatusPlaying || m.Snapshot.Status == protocol.StatusConnecting)
 }
 
 // applySnapshot installs a playback snapshot and derives the delegate's

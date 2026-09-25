@@ -28,8 +28,8 @@ type Backend interface {
 	// history overlay.
 	History(channelID string, limit int) ([]protocol.HistoryEntry, error)
 	// Shutdown stops the server so the reconnect loop respawns a fresh one; the
-	// TUI uses it to upgrade an out-of-date server when the user changes or
-	// stops the stream.
+	// TUI uses it to upgrade an out-of-date server when the user changes,
+	// pauses or stops the stream.
 	Shutdown() error
 }
 
@@ -153,7 +153,7 @@ func (m *Model) playPauseCmd() tea.Cmd {
 // notices the dropped connection and reconnects, spawning a replacement on our
 // version; the model resumes any pending action once ServerReconnectedMsg
 // arrives. Playback is interrupted regardless, which is why the model only
-// restarts on a change or stop the user asked for.
+// restarts on a channel change, pause or stop the user asked for.
 func (m *Model) restartCmd() tea.Cmd {
 	b := m.Backend
 	return func() tea.Msg {

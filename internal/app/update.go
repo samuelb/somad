@@ -147,8 +147,10 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		// Changing channel interrupts the stream anyway, so an out-of-date
 		// server is restarted first and the channel is played once the
-		// reconnect delivers a fresh backend.
-		if m.skewed() {
+		// reconnect delivers a fresh backend. The channel already playing
+		// (or connecting) is the exception: the server keeps it going, so
+		// restarting would cut the music off just to upgrade.
+		if m.skewed() && !m.playingOrConnecting(id) {
 			m.pendingPlayID = id
 			return m.restartCmd(), true
 		}
@@ -161,7 +163,13 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return m.stopCmd(), true
 	case key.Matches(msg, keys.PlayPause):
-		// Toggle play/pause without leaving the list.
+		// Toggle play/pause without leaving the list. Pausing interrupts
+		// the stream like stopping does, so an out-of-date server is
+		// upgraded the same way: the fresh one comes up stopped, which is
+		// the pause.
+		if m.skewed() && m.Snapshot.Status != protocol.StatusStopped {
+			return m.restartCmd(), true
+		}
 		return m.playPauseCmd(), true
 	case key.Matches(msg, keys.About):
 		// Toggle the inline about footer.

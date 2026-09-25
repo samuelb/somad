@@ -422,6 +422,69 @@ func TestUpdate_StopKey_RestartsSkewedServer(t *testing.T) {
 	assert.Empty(t, m.pendingPlayID, "stop queues no playback")
 }
 
+func TestUpdate_PlayKey_SkewedServerKeepsTheChannelAlreadyPlaying(t *testing.T) {
+	for _, status := range []string{protocol.StatusPlaying, protocol.StatusConnecting} {
+		t.Run(status, func(t *testing.T) {
+			m := newTestModel(t)
+			m.About.Version = "new"
+			m.ServerVersion = "old"
+			m.applySnapshot(protocol.PlaybackState{Status: status, ChannelID: "groovesalad", Volume: 1})
+			m.List.Select(0) // groovesalad
+
+			// The server treats playing its current channel as a no-op, so
+			// Enter on it interrupts nothing; restarting would cut the
+			// music off just to upgrade (ADR 0006).
+			_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			runCmd(cmd)
+			assert.Zero(t, backend(m).shutdowns, "the playing channel is not cut off for an upgrade")
+			assert.Equal(t, []string{"groovesalad"}, backend(m).playIDs)
+			assert.Empty(t, m.pendingPlayID)
+		})
+	}
+}
+
+func TestUpdate_PlayKey_SkewedServerRestartsForAReconnectingChannel(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "new"
+	m.ServerVersion = "old"
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusReconnecting, ChannelID: "groovesalad", Volume: 1})
+	m.List.Select(0) // groovesalad
+
+	// The stream is already down and the server would reconnect it anew,
+	// so this is a natural moment to upgrade.
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(cmd)
+	assert.Equal(t, 1, backend(m).shutdowns)
+	assert.Equal(t, "groovesalad", m.pendingPlayID)
+}
+
+func TestUpdate_PlayPauseKey_RestartsSkewedPlayingServer(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "new"
+	m.ServerVersion = "old"
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1})
+
+	// Pausing interrupts the stream anyway, so the stale server is
+	// restarted; the fresh one comes up stopped, which is the pause.
+	_, cmd := sendKey(m, 'p')
+	runCmd(cmd)
+	assert.Equal(t, 1, backend(m).shutdowns)
+	assert.Zero(t, backend(m).playPauses, "the pause is not sent to the stale server")
+	assert.Empty(t, m.pendingPlayID, "pausing queues no playback")
+}
+
+func TestUpdate_PlayPauseKey_UnpausesSkewedStoppedServer(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "new"
+	m.ServerVersion = "old"
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
+
+	_, cmd := sendKey(m, 'p')
+	runCmd(cmd)
+	assert.Zero(t, backend(m).shutdowns, "like stop, only a pause that interrupts playback upgrades")
+	assert.Equal(t, 1, backend(m).playPauses)
+}
+
 func TestUpdate_PlayKey_DoesNotRestartWhenVersionsMatch(t *testing.T) {
 	m := newTestModel(t)
 	m.About.Version = "same"
