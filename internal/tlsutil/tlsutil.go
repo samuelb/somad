@@ -20,6 +20,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,6 +143,29 @@ func normalizeFingerprint(fp string) string {
 	fp = strings.ToLower(strings.TrimSpace(fp))
 	fp = strings.TrimPrefix(fp, "sha256:")
 	return strings.ReplaceAll(fp, ":", "")
+}
+
+// ExplainHostnameMismatch adds a hint to a TLS handshake error caused by the
+// server's certificate not naming the host the client dialed, and returns
+// any other error unchanged. That is the usual way --tls-ca fails: the
+// auto-generated certificate names only localhost, the loopback addresses,
+// the server's hostname and a specific --listen host, so dialing the server
+// by its LAN address fails the check. The certificate is never regenerated
+// to fix that, since that would break every client pinning its fingerprint.
+func ExplainHostnameMismatch(err error) error {
+	var hostErr x509.HostnameError
+	if !errors.As(err, &hostErr) || hostErr.Certificate == nil {
+		return err
+	}
+	names := slices.Clone(hostErr.Certificate.DNSNames)
+	for _, ip := range hostErr.Certificate.IPAddresses {
+		names = append(names, ip.String())
+	}
+	if len(names) == 0 {
+		return fmt.Errorf("%w (the daemon's certificate names no host; pin it with --tls-fingerprint instead, as printed by soma daemon --show-cert)", err)
+	}
+	return fmt.Errorf("%w (the daemon's certificate names %s; connect by one of those names, or pin the certificate with --tls-fingerprint instead, as printed by soma daemon --show-cert)",
+		err, strings.Join(names, ", "))
 }
 
 // ClientTLSConfig returns the client-side TLS configuration. Exactly one

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"somad/internal/protocol"
+	"somad/internal/tlsutil"
 )
 
 // ErrDisconnected reports that the server connection is gone; pending and
@@ -107,7 +108,7 @@ func DialEndpoint(ep Endpoint) (*Client, error) {
 		cancel()
 		if err != nil {
 			_ = nc.Close()
-			return nil, fmt.Errorf("TLS handshake with %s failed: %w", ep, err)
+			return nil, fmt.Errorf("TLS handshake with %s failed: %w", ep, tlsutil.ExplainHostnameMismatch(err))
 		}
 		nc = tc
 	}

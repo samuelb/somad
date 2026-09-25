@@ -2,10 +2,13 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
+	"path/filepath"
 	"testing"
 
 	"somad/internal/protocol"
+	"somad/internal/tlsutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,6 +80,32 @@ func TestEnsureServerForPlayback_RemoteSkewedServerIsLeftAlone(t *testing.T) {
 	st, err := c.Status()
 	require.NoError(t, err)
 	assert.Equal(t, protocol.StatusStopped, st.Status)
+}
+
+func TestDialEndpoint_HostnameMismatchNamesTheCertificateHosts(t *testing.T) {
+	dir := t.TempDir()
+	certPath, keyPath := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	_, err := tlsutil.EnsureServerCert(certPath, keyPath, nil)
+	require.NoError(t, err)
+	serverCfg, _, err := tlsutil.ServerTLSConfig(certPath, keyPath)
+	require.NoError(t, err)
+
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	fs := &fakeServer{t: t, ln: tls.NewListener(ln, serverCfg), handle: defaultHandler("dev")}
+	go fs.acceptLoop()
+	t.Cleanup(func() { _ = ln.Close() })
+
+	// --tls-ca with the daemon's own certificate, dialed by a LAN address
+	// the auto-generated certificate does not name.
+	clientCfg, err := tlsutil.ClientTLSConfig(certPath, "", "192.168.1.20")
+	require.NoError(t, err)
+	_, err = DialEndpoint(Endpoint{Network: "tcp", Address: ln.Addr().String(), TLS: clientCfg})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TLS handshake")
+	assert.Contains(t, err.Error(), "certificate names localhost")
+	assert.Contains(t, err.Error(), "--tls-fingerprint")
 }
 
 func TestRestart_RemoteEndpointRefuses(t *testing.T) {

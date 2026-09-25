@@ -397,6 +397,12 @@ That works with every command (`soma --server ... play groovesalad`,
 [configuration file](#configuration). Instead of pinning the fingerprint you
 can trust the certificate file itself (`--tls-ca`, after copying it over) or,
 with a real CA-issued certificate, plain `--tls` using the system trust store.
+Unlike a pinned fingerprint, `--tls-ca` also checks the name you connect by,
+and the generated certificate names only `localhost`, the loopback
+addresses, the server's hostname, and the `--listen` host when that is a
+specific name or address. So `--server 192.168.1.20:5454` fails with
+`--tls-ca` unless the daemon listens on exactly that address; connect by one
+of the names the error lists, or pin the fingerprint instead.
 
 A listener reachable from other machines requires both TLS and a PSK — anyone
 who can reach an unprotected port could control your radio (and shut the

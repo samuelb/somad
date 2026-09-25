@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -144,6 +145,32 @@ func TestClientTLSConfig_CAFile(t *testing.T) {
 	clientCfg, err = ClientTLSConfig(certPath, "", "other.example")
 	require.NoError(t, err)
 	assert.Error(t, handshake(t, serverCfg, clientCfg))
+}
+
+func TestExplainHostnameMismatch_ListsCertificateNames(t *testing.T) {
+	certPath, keyPath, _ := genPair(t)
+	serverCfg, _, err := ServerTLSConfig(certPath, keyPath)
+	require.NoError(t, err)
+
+	// The usual LAN setup: the CA file is right, but the client dials the
+	// server by an address the auto-generated certificate does not name.
+	clientCfg, err := ClientTLSConfig(certPath, "", "192.168.1.20")
+	require.NoError(t, err)
+	err = ExplainHostnameMismatch(handshake(t, serverCfg, clientCfg))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "192.168.1.20", "the original error is kept")
+	assert.Contains(t, err.Error(), "certificate names localhost")
+	assert.Contains(t, err.Error(), "127.0.0.1")
+	assert.Contains(t, err.Error(), "--tls-fingerprint")
+	var hostErr x509.HostnameError
+	assert.ErrorAs(t, err, &hostErr, "the hint wraps rather than replaces the error")
+}
+
+func TestExplainHostnameMismatch_LeavesOtherErrorsAlone(t *testing.T) {
+	other := errors.New("connection reset")
+	assert.Equal(t, other, ExplainHostnameMismatch(other))
+	assert.NoError(t, ExplainHostnameMismatch(nil))
 }
 
 func TestClientTLSConfig_Validation(t *testing.T) {

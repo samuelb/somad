@@ -1,6 +1,6 @@
 # ADR-0009: TLS 1.3 only, with an auto-generated long-lived self-signed certificate and three trust modes
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-09-25: a hint on hostname mismatch instead of regenerating)
 - **Date:** 2026-07-11 (TLS 1.3 floor 2026-09-01)
 - **Sources:** a396db0, 4c1cdaf; `internal/tlsutil/tlsutil.go`
 
@@ -32,3 +32,10 @@ is a pairing credential for a personal music daemon.
   fingerprint into the client config.
 - Contradictory trust settings are rejected at startup, not at connect
   time (ADR-0011).
+- The generated certificate names only `localhost`, the loopback
+  addresses, the hostname, and a specific `--listen` host, so trusting it
+  as a CA file fails when a client dials the server by a LAN address
+  (amended 2026-09-25). It is not regenerated to add names, which would
+  break every client pinning its fingerprint; instead the client's
+  hostname-mismatch error lists the names the certificate covers and
+  points at fingerprint pinning (`tlsutil.ExplainHostnameMismatch`).

@@ -319,7 +319,7 @@ soma --server myserver:5454 \
      --psk-file ~/somad-psk
 ```
 
-That works with every command, or permanently via `$SOMAD_SERVER` and the `client:` section of the [configuration file](#configuration). Instead of pinning the fingerprint you can trust the certificate file itself (`--tls-ca`) or, with a CA-issued certificate, use plain `--tls` with the system trust store.
+That works with every command, or permanently via `$SOMAD_SERVER` and the `client:` section of the [configuration file](#configuration). Instead of pinning the fingerprint you can trust the certificate file itself (`--tls-ca`) or, with a CA-issued certificate, use plain `--tls` with the system trust store. `--tls-ca` also checks the name you connect by, and the generated certificate names only `localhost`, the loopback addresses, the server's hostname and a specific `--listen` host, so a bare LAN address like `192.168.1.20` fails; connect by one of the names the error lists, or pin the fingerprint.
 
 A listener reachable from other machines requires both TLS and a PSK; the daemon refuses to start without them (`--insecure` overrides that on a trusted isolated network). A remote daemon is never auto-started or restarted by the client.
 

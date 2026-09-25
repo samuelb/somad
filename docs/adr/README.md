@@ -22,7 +22,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0006](0006-version-skew-restart-only-when-playback-is-interrupted.md) | Restart a version-skewed daemon only at moments that already interrupt playback | Accepted (amended) |
 | [0007](0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md) | The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK | Accepted |
 | [0008](0008-psk-challenge-response.md) | PSK authentication is an HMAC challenge-response; the client always authenticates when a key is configured | Accepted |
-| [0009](0009-tls-1-3-only-with-a-long-lived-self-signed-certificate.md) | TLS 1.3 only, with an auto-generated long-lived self-signed certificate and three trust modes | Accepted |
+| [0009](0009-tls-1-3-only-with-a-long-lived-self-signed-certificate.md) | TLS 1.3 only, with an auto-generated long-lived self-signed certificate and three trust modes | Accepted (amended) |
 | [0010](0010-outbound-http-restricted-to-somafm.md) | All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped | Accepted |
 | [0011](0011-strict-config-file-supplies-flag-defaults.md) | The config file is strict, supplies flag defaults, and ships fully commented out | Accepted |
 | [0012](0012-persisted-state-atomic-writes-and-corrupt-file-quarantine.md) | Persisted state uses atomic writes, quarantines corrupt files, and orders saves by sequence | Accepted |
