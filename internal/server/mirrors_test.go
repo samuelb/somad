@@ -196,3 +196,21 @@ func TestPlay_MirrorFailoverOverHTTP(t *testing.T) {
 	require.Len(t, attempts, 3)
 	assert.True(t, strings.HasPrefix(attempts[2], healthy.URL), "played %v", attempts)
 }
+
+func TestRotateMirrors_KeepsHTTPSFirst(t *testing.T) {
+	mirrors := []string{"https://ice2/s", "https://ice6/s", "http://ice5/s", "http://ice9/s"}
+	for _, tc := range []struct {
+		rotation int
+		want     []string
+	}{
+		{0, []string{"https://ice2/s", "https://ice6/s", "http://ice5/s"}},
+		{1, []string{"https://ice6/s", "https://ice2/s", "http://ice5/s"}},
+		{2, []string{"https://ice2/s", "https://ice6/s", "http://ice5/s"}},
+	} {
+		assert.Equal(t, tc.want, rotateMirrors(mirrors, tc.rotation), "rotation %d", tc.rotation)
+	}
+	assert.Equal(t, []string{"https://a/s", "http://c/s", "http://b/s"},
+		rotateMirrors([]string{"https://a/s", "http://b/s", "http://c/s"}, 1),
+		"a lone https mirror stays first however the http ones rotate")
+	assert.Empty(t, rotateMirrors(nil, 3))
+}

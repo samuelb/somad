@@ -11,6 +11,7 @@ import (
 	"somad/internal/audio"
 	"somad/internal/channels"
 	"somad/internal/protocol"
+	"somad/internal/security"
 	"somad/pkg/playlist"
 )
 
@@ -231,15 +232,31 @@ func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, erro
 	return s.failConnect(a.gen, lastErr, true)
 }
 
-// rotateMirrors returns the first maxStreamMirrors mirrors, starting at
-// index rotation (modulo their count) and wrapping around.
+// rotateMirrors returns the first maxStreamMirrors mirrors, each scheme
+// group rotated to start at index rotation (modulo its size) and wrapping
+// around, https before http as the playlist parser ordered them (ADR-0010):
+// rotating the whole list would put a plain-http mirror first on a
+// reconnect although an https one works.
 func rotateMirrors(mirrors []string, rotation int) []string {
 	mirrors = mirrors[:min(len(mirrors), maxStreamMirrors)]
-	if len(mirrors) == 0 {
+	var https, other []string
+	for _, m := range mirrors {
+		if security.IsHTTPSURL(m) {
+			https = append(https, m)
+		} else {
+			other = append(other, m)
+		}
+	}
+	return append(rotate(https, rotation), rotate(other, rotation)...)
+}
+
+// rotate returns s starting at index n (modulo its length), wrapping around.
+func rotate(s []string, n int) []string {
+	if len(s) == 0 {
 		return nil
 	}
-	start := rotation % len(mirrors)
-	return append(slices.Clone(mirrors[start:]), mirrors[:start]...)
+	start := n % len(s)
+	return append(slices.Clone(s[start:]), s[:start]...)
 }
 
 // superseded reports whether a newer play or stop has taken over since gen.
