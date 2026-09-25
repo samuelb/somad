@@ -36,7 +36,11 @@ every stop or switch.
   of the session that produced them; the server drops reports whose
   generation is not the current one, so a stream still fading out during
   the crossfade can neither show its title under the new channel nor tear
-  the new session down.
+  the new session down. A current-generation report that lands while the
+  server still says connecting (after `Play` committed, before the server
+  recorded the commit) is held and applied at the commit rather than
+  dropped (2026-09-25): dropping the error left a dead stream showing as
+  playing, with no reconnect.
 - The oto context is process-global, so at most one `AudioPlayer` per
   process. Device initialization is lazy and bounded by a 15 s wait.
 

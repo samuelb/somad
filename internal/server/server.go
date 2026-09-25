@@ -148,6 +148,14 @@ type Server struct {
 	reconnectTimer   *time.Timer
 	idleTimer        *time.Timer
 
+	// connectErr and connectTitle hold what the player reported for the
+	// current generation while the server still said connecting: a session
+	// can fail, or deliver its first title, between player.Play returning
+	// and commitPlay taking mu, and commitPlay applies them. Reset with
+	// every generation (abandonSessionLocked).
+	connectErr   error
+	connectTitle string
+
 	// stopTimer is the pending sleep-timer stop armed by StopIn, if any;
 	// stopAt is when it will fire (zero when none is pending). stopGen is
 	// bumped whenever the pending timer is armed or canceled, so a timer

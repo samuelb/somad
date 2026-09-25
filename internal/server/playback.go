@@ -211,8 +211,20 @@ func (s *Server) commitPlay(gen uint64) (protocol.PlaybackState, error) {
 		// would hit the newer, legitimate session.
 		return s.snapshotLocked(), audio.ErrSuperseded
 	}
+	if err := s.connectErr; err != nil {
+		// The committed session already failed while this commit waited
+		// for the lock (handleStreamError left the error here): going to
+		// playing would show a dead stream as healthy and never reconnect.
+		return s.failStreamLocked(gen, err, true), err
+	}
 	s.status = protocol.StatusPlaying
 	s.reconnectAttempt = 0 // connected: a later drop starts a fresh backoff
+	if title := s.connectTitle; title != "" {
+		// Its first title arrived in the same window; publishing it also
+		// mirrors the playing state to MPRIS and broadcasts it.
+		s.connectTitle = ""
+		return s.publishTrackLocked(title), nil
+	}
 	s.updateMPRISLocked()
 	return s.broadcastStateLocked(), nil
 }
@@ -251,21 +263,25 @@ func (s *Server) failStreamLocked(gen uint64, err error, retry bool) protocol.Pl
 func (s *Server) handleStreamError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Errors surfacing while connecting are (also) returned synchronously by
-	// player.Play, and errors after a stop belong to a torn-down session.
-	if s.status != protocol.StatusPlaying {
-		return
-	}
 	// A session that is still fading out after a channel switch can fail
 	// during the crossfade; its error must not tear down its successor.
 	var se *audio.StreamError
 	if errors.As(err, &se) && se.Gen != s.playGen {
 		return
 	}
-	// Stop the player so the failed session's goroutine and audio resources
-	// are released instead of lingering until the next play. The current
-	// generation targets exactly this session.
-	s.failStreamLocked(s.playGen, err, true)
+	switch s.status {
+	case protocol.StatusPlaying:
+		// Stop the player so the failed session's goroutine and audio
+		// resources are released instead of lingering until the next play.
+		// The current generation targets exactly this session.
+		s.failStreamLocked(s.playGen, err, true)
+	case protocol.StatusConnecting:
+		// A failure to connect is only ever returned by player.Play, never
+		// reported here, so this is the session the player just committed
+		// failing before commitPlay got the lock. commitPlay acts on it.
+		s.connectErr = err
+	}
+	// Otherwise (stopped, reconnecting) it belongs to a torn-down session.
 }
 
 // scheduleReconnectOrStopLocked moves to reconnecting with capped
@@ -395,6 +411,8 @@ func (s *Server) abandonSessionLocked(cancelSleepTimer bool) uint64 {
 		s.cancelStopTimerLocked()
 	}
 	s.playGen++
+	s.connectErr = nil
+	s.connectTitle = ""
 	s.cancelReconnectLocked()
 	s.endLastfmTrackLocked()
 	return s.playGen
@@ -507,18 +525,33 @@ func (s *Server) handleTrackUpdate(ti audio.TrackInfo) {
 	defer s.mu.Unlock()
 	// The previous stream keeps delivering titles while it fades out under
 	// the new one; only titles from the current generation are shown.
-	if s.status != protocol.StatusPlaying || ti.Gen != s.playGen {
+	if ti.Gen != s.playGen {
 		return
 	}
-	s.trackTitle = ti.Title
-	s.recordHistoryLocked(s.channelID, s.channelTitle, ti.Title)
+	switch s.status {
+	case protocol.StatusPlaying:
+		s.publishTrackLocked(ti.Title)
+	case protocol.StatusConnecting:
+		// The session the player just committed reported its first title
+		// before commitPlay got the lock; commitPlay publishes the latest.
+		s.connectTitle = ti.Title
+	}
+}
+
+// publishTrackLocked makes title the playing track: history, MPRIS, the
+// state broadcast (whose snapshot it returns), the desktop notification,
+// and Last.fm. Caller holds s.mu.
+func (s *Server) publishTrackLocked(title string) protocol.PlaybackState {
+	s.trackTitle = title
+	s.recordHistoryLocked(s.channelID, s.channelTitle, title)
 	s.updateMPRISLocked()
-	s.broadcastStateLocked()
+	snap := s.broadcastStateLocked()
 	s.notifyTrackLocked()
 	// Ends the previous title's pending scrobble (if it played long enough)
 	// and starts tracking/now-playing the new one, or resumes the same play
 	// when a reconnect re-reported it; see lastfm.go.
-	s.updateLastfmLocked(s.channelID, ti.Title)
+	s.updateLastfmLocked(s.channelID, title)
+	return snap
 }
 
 // notifyTrackLocked queues a desktop notification for the just-updated

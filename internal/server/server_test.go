@@ -1010,6 +1010,67 @@ func TestStreamError_FromOldGenerationIsIgnored(t *testing.T) {
 	})
 }
 
+// reportDuringConnect makes every Play on player first run report (under
+// the server's current generation), the way a report from the session the
+// player just committed lands while the server still says connecting.
+func reportDuringConnect(s *Server, player *mockPlayer, report func(gen uint64)) {
+	player.mu.Lock()
+	defer player.mu.Unlock()
+	player.onPlay = func(string) {
+		s.mu.Lock()
+		gen := s.playGen
+		s.mu.Unlock()
+		report(gen)
+	}
+}
+
+func TestStreamError_WhileConnectingIsNotLost(t *testing.T) {
+	prev := reconnectBaseDelay
+	reconnectBaseDelay = time.Hour // the retry itself is not under test
+	defer func() { reconnectBaseDelay = prev }()
+
+	s, player := newTestServer(t, Config{})
+	reportDuringConnect(s, player, func(gen uint64) {
+		s.handleStreamError(&audio.StreamError{Gen: gen, Err: errors.New("stream ended unexpectedly")})
+	})
+	c := connect(t, s)
+	c.hello()
+
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"})
+
+	assert.Contains(t, resp.Error, "stream ended unexpectedly")
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusReconnecting, snap.Status, "a stream that died before the commit must not show as playing")
+	assert.Contains(t, snap.StreamError, "stream ended unexpectedly")
+	player.mu.Lock()
+	assert.False(t, player.playing, "the failed session must be released")
+	player.onPlay = nil
+	player.mu.Unlock()
+
+	// Playing the same channel again is a real retry, not a no-op.
+	st := decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
+	assert.Equal(t, protocol.StatusPlaying, st.Status)
+	assert.Empty(t, st.StreamError)
+}
+
+func TestTrackUpdate_WhileConnectingIsPublishedOnCommit(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	reportDuringConnect(s, player, func(gen uint64) {
+		s.handleTrackUpdate(audio.TrackInfo{Title: "Stale Title", Gen: gen - 1})
+		s.handleTrackUpdate(audio.TrackInfo{Title: "Boards of Canada - Dayvan Cowboy", Gen: gen})
+	})
+	c := connect(t, s)
+	c.hello()
+
+	st := decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+
+	assert.Equal(t, protocol.StatusPlaying, st.Status)
+	assert.Equal(t, "Boards of Canada - Dayvan Cowboy", st.TrackTitle)
+	history := s.History("", 0)
+	require.Len(t, history, 1)
+	assert.Equal(t, "Boards of Canada - Dayvan Cowboy", history[0].Title)
+}
+
 func TestIdleExit_FiresWhenStoppedAndNoClients(t *testing.T) {
 	s, _ := newTestServer(t, Config{IdleTimeout: 30 * time.Millisecond})
 
