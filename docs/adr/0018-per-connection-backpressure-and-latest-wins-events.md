@@ -26,5 +26,5 @@ client could in principle block the broadcast path for everyone.
 
 - The server has no per-client queue to grow. Delta events would break
   the latest-wins property and must not be introduced.
-- The cap is per connection; a cap on the number of connections is a
-  separate open item (TODO.md, TCP hardening).
+- The cap is per connection; the number of TCP connections is capped
+  separately (`LimitListener`, ce83966).

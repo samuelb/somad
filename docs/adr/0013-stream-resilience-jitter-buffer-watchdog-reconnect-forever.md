@@ -32,8 +32,8 @@ hiccup longer than the audio device's own small buffer was audible.
 - A network drop plays out the buffered audio before the error surfaces,
   and ICY titles align with what is heard (ADR-0015).
 - The watchdog only covers the network side. A decoder error after `Play`
-  returns leaves the buffer full and the fill goroutine parked, so it is
-  invisible (P1 item in TODO.md).
+  returned used to leave the buffer full and the fill goroutine parked,
+  invisibly, until c175752 reported such errors on the error channel.
 
 ## Rejected alternatives
 

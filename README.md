@@ -169,7 +169,8 @@ go build -o soma ./cmd/soma
 ## Shell Completions
 
 Bash and Zsh completion scripts are available. If you installed soma via the
-Debian/Ubuntu package, AUR, or Nix, completions are installed automatically.
+Debian/Ubuntu or Fedora/RPM package, AUR, or Nix, completions are installed
+automatically.
 
 For manual setup:
 

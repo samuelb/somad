@@ -33,9 +33,10 @@ the `go.mod` floor toolchain, whose stdlib carried already-fixed CVEs.
 
 ## Consequences
 
-- No formatter is enabled in golangci-lint, so gofmt drift is invisible to
-  the hooks and CI (open item in TODO.md).
-- `make ci` has drifted from what CI runs (TODO.md).
+- gofmt drift was invisible to the hooks and CI until 2144e6a enabled the
+  gofmt and goimports formatters in golangci-lint.
+- `make ci` had drifted from what CI runs until 6283a1b made it mirror
+  CI again.
 
 ## Rejected alternatives
 

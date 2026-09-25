@@ -21,5 +21,6 @@ hoisting the per-frame lipgloss styles plus a set-based `IsMatch`.
 
 ## Consequences
 
-- Search stays a search-and-jump; a matches-only view and a favorites-only
-  view are still open items that would share plumbing (TODO.md).
+- Both filtered views this record anticipated landed on the flat list
+  without a pane or sort order: a favorites-only toggle (7ca6bcf) and a
+  matches-only view while searching (1198435).

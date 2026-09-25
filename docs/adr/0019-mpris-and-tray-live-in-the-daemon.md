@@ -30,5 +30,5 @@ closed, which after ADR-0001 means they must belong to the daemon.
 ## Consequences
 
 - macOS release builds compile with cgo per architecture before `lipo`.
-- `mpris:artUrl` is not set yet; adding it requires threading the channel
-  image through the server-to-platform boundary (TODO.md).
+- `mpris:artUrl` carries the channel image since ec842a7, threaded
+  through the server-to-platform boundary.

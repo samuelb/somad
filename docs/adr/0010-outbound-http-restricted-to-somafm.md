@@ -37,8 +37,8 @@ review flagged SSRF-shaped code paths.
   second allowlist entry, not a widening of the check, as Last.fm scrobbling
   did above.
 - Plain http means audio and ICY titles are MITM-able on hostile
-  networks; preferring an https playlist entry where one exists is an
-  open item in TODO.md.
+  networks; since 5704e35 an https playlist or stream entry is preferred
+  wherever the catalog offers one.
 
 ## Rejected alternatives
 

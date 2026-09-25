@@ -160,7 +160,7 @@ go build -o soma ./cmd/soma
 {% </card> %}
 
 {% <card title="Shell completions"> %}
-The Debian, Arch and Nix packages install Bash and Zsh completions automatically. For a manual setup:
+The Debian, RPM, Arch and Nix packages install Bash and Zsh completions automatically. For a manual setup:
 
 <pre><code><span class="c"># Bash</span>
 soma completion bash | sudo tee /usr/share/bash-completion/completions/soma

@@ -27,5 +27,5 @@ playing.
 - The TUI is trivially testable with a fake backend, and `internal/app` is
   one of the best-covered packages.
 - Any new playback feature needs a protocol method first, then a `Backend`
-  method, then a key binding. The missing `PlayPause` in the TUI is an
-  example of the last two steps being skipped (open item in TODO.md).
+  method, then a key binding. The TUI's `PlayPause` is an example: the
+  last two steps were skipped at first and added in 3d56200.

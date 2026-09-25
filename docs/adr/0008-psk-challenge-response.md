@@ -25,8 +25,9 @@ Unix socket is unencrypted.
 
 - An eavesdropper on plaintext TCP cannot recover the key, only replay
   nothing (nonces are single-use).
-- The PSK file's permissions are not checked and the config template
-  suggests a weak placeholder (open item in TODO.md).
+- The PSK file must be private to the user (`security.CheckOwnerOnly`),
+  and `soma daemon --gen-psk` writes a random key for the config template
+  to point at (both e9964ab); neither existed when this was decided.
 
 ## Rejected alternatives
 
@@ -34,5 +35,5 @@ Unix socket is unencrypted.
   per-connection delay is bypassed by opening another connection, but the
   challenge-response makes online key guessing against a decent key
   unrealistic. The actual threat is resource exhaustion, which the TCP
-  connection cap and deadlines address (TODO.md); a limiter map keyed by
+  connection cap and deadlines address (ce83966); a limiter map keyed by
   attacker-controlled addresses would itself need bounding.

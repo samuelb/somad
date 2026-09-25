@@ -35,7 +35,7 @@ flags. Settings needed a home that reaches auto-spawned daemons too.
 ## Consequences
 
 - Adding a config key means adding it to the struct, the validator, and
-  the template; the TODO's `quality` knob is an example.
+  the template; `server.quality` (e075e44) is an example.
 - This is the deliberate opposite of how corrupt *state* and *cache* files
   are treated (ADR-0012): user-authored input fails loudly, machine-written
   files are moved aside.

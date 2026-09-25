@@ -28,8 +28,7 @@ tests can all speak easily, and that a stateless UI can render from.
   both ends are always the same binary and local skew is handled by
   restarting the daemon (ADR-0006).
 - The 4 MiB budget exists for the server-to-client catalog; the server's
-  own read side should be capped much lower (open item in TODO.md, TCP
-  hardening).
+  own read side is capped much lower (`protocol.MaxRequestBytes`, ce83966).
 
 ## Rejected alternatives
 

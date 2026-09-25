@@ -38,5 +38,5 @@ specific binaries.
 - Signing and notarization are wired into the release workflow and switch
   on once the Developer ID secrets exist (ADR-0029); until then the
   binary ships unsigned.
-- No service unit is packaged yet although the README recommends a service
-  manager (TODO.md).
+- The deb and rpm packages install a systemd user unit, and a launchd
+  plist ships in `packaging/` for manual install (ae9c593).

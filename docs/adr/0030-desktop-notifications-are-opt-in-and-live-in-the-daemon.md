@@ -57,8 +57,8 @@ now feeds MPRIS's `xesam:artist`, landing in the same commit series.
 - Every title change notifies when enabled, even a channel with no usable
   "Artist - Title" split — the body then falls back to just the channel
   name instead of "artist · channel".
-- A future Last.fm scrobbler (TODO.md) can reuse `audio.SplitTitle` the
-  same way, instead of re-deriving artist/title itself.
+- The Last.fm scrobbler (ADR-0031) reuses `audio.SplitTitle` the same
+  way instead of re-deriving artist/title itself.
 
 ## Rejected alternatives
 
