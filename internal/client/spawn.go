@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -93,6 +94,10 @@ func openServerLog(path string) (*os.File, error) {
 // upgrade the daemon — callers about to interrupt playback anyway use
 // EnsureServerForPlayback instead.
 //
+// A local server that speaks another protocol version cannot even report
+// whether it is playing, so it too is left running: the caller gets a
+// *ProtocolSkewError telling the user how to replace it.
+//
 // A remote (TCP) endpoint is never spawned or restarted: an unreachable one
 // is an error, and a version-skewed one is left alone (the hello handshake
 // already guarantees it speaks our protocol version).
@@ -102,15 +107,20 @@ func EnsureServer(ep Endpoint, clientVersion string) (*Client, protocol.HelloRes
 
 // EnsureServerForPlayback is EnsureServer for callers about to change, pause,
 // or stop the stream: because that interrupts playback anyway, a version-skewed
-// local server is restarted onto our binary even while it is playing. The
-// interrupting command that follows establishes the new playback state, so
-// nothing is resumed here.
+// local server is restarted onto our binary even while it is playing, and one
+// that speaks another protocol version is replaced (see RestartIncompatible).
+// The interrupting command that follows establishes the new playback state,
+// so nothing is resumed here.
 func EnsureServerForPlayback(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
 	return ensureServer(ep, clientVersion, true)
 }
 
 func ensureServer(ep Endpoint, clientVersion string, restartWhilePlaying bool) (*Client, protocol.HelloResult, error) {
 	c, hr, err := connectOrSpawn(ep, clientVersion)
+	var skew *ProtocolSkewError
+	if errors.As(err, &skew) && restartWhilePlaying {
+		return RestartIncompatible(skew, ep, clientVersion)
+	}
 	if err != nil {
 		return nil, hr, err
 	}
@@ -198,12 +208,95 @@ func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloR
 		}
 	}
 
-	hr, err := c.Hello(clientVersion)
+	hr, err := Handshake(c, ep, clientVersion)
 	if err != nil {
-		_ = c.Close()
-		return nil, hr, fmt.Errorf("handshake with soma daemon failed: %w", err)
+		return nil, hr, err
 	}
 	return c, hr, nil
+}
+
+// protocolMismatchText is how every soma daemon since the client-server
+// split words its hello rejection of a client speaking another protocol
+// version. Matching on it is safe because the daemons that need recognizing
+// are the older builds, whose wording is fixed.
+const protocolMismatchText = "incompatible protocol version"
+
+// ProtocolSkewError reports a local daemon that rejected our hello because
+// it speaks another protocol version: a different soma install, older or
+// newer, is still running. Unlike a daemon that is merely version-skewed it
+// is unusable, and it refuses every request before a successful hello,
+// shutdown included, so the only way to stop it is to signal its process.
+type ProtocolSkewError struct {
+	// PID is the daemon's process, from the socket's peer credentials; 0
+	// when they could not be read, and PIDErr says why.
+	PID    int
+	PIDErr error
+	// Err is the daemon's rejection of our hello.
+	Err error
+}
+
+func (e *ProtocolSkewError) Error() string {
+	who := "the running soma daemon"
+	if e.PID > 0 {
+		who = fmt.Sprintf("the running soma daemon (pid %d)", e.PID)
+	}
+	return fmt.Sprintf("%s belongs to another soma version (%v); it is left running so its music is not cut off: "+
+		"`soma play` or `soma stop` restarts it onto this version, `soma daemon stop` just stops it", who, e.Err)
+}
+
+func (e *ProtocolSkewError) Unwrap() error { return e.Err }
+
+// Handshake performs the hello handshake on a freshly dialed connection,
+// closing it on failure. A local daemon that rejects our protocol version
+// comes back as a *ProtocolSkewError.
+func Handshake(c *Client, ep Endpoint, clientVersion string) (protocol.HelloResult, error) {
+	hr, err := c.Hello(clientVersion)
+	if err == nil {
+		return hr, nil
+	}
+	defer func() { _ = c.Close() }()
+	if ep.IsLocal() && strings.Contains(err.Error(), protocolMismatchText) {
+		pid, pidErr := peerPID(c.nc)
+		return hr, &ProtocolSkewError{PID: pid, PIDErr: pidErr, Err: err}
+	}
+	return hr, fmt.Errorf("handshake with soma daemon failed: %w", err)
+}
+
+// terminateProcess sends pid SIGTERM, which a soma daemon handles like a
+// shutdown request. A variable so tests, whose fake daemons live in the
+// test process itself, can fake it.
+var terminateProcess = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
+
+// StopIncompatible stops a local daemon that speaks another protocol version
+// (see ProtocolSkewError) by signalling its process, and waits until it has
+// let go of the socket. A remote daemon is never stopped this way.
+func StopIncompatible(skew *ProtocolSkewError, ep Endpoint) error {
+	if !ep.IsLocal() {
+		return fmt.Errorf("cannot stop the remote soma daemon at %s from here", ep)
+	}
+	if skew.PID <= 0 {
+		return fmt.Errorf("cannot stop the soma daemon on %s, which belongs to another soma version (%v): its process is unknown (%v); quit it from its tray icon or end it by hand",
+			ep, skew.Err, skew.PIDErr)
+	}
+	if err := terminateProcess(skew.PID); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("stopping the soma daemon (pid %d), which belongs to another soma version: %w", skew.PID, err)
+	}
+	if !waitForServerExit(ep) {
+		return fmt.Errorf("the soma daemon (pid %d), which belongs to another soma version, did not exit within %s", skew.PID, restartWait)
+	}
+	return nil
+}
+
+// RestartIncompatible replaces a local daemon that speaks another protocol
+// version with a fresh spawn of our binary, and returns a client to it. Like
+// Restart it is only for a command about to interrupt playback anyway: the
+// old daemon cannot say whether it is playing, so that is the only moment
+// ADR-0006 leaves for the replacement. The fresh daemon starts stopped.
+func RestartIncompatible(skew *ProtocolSkewError, ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	if err := StopIncompatible(skew, ep); err != nil {
+		return nil, protocol.HelloResult{}, err
+	}
+	return connectOrSpawn(ep, clientVersion)
 }
 
 // serverLogSize returns the server log's current size, so output written by

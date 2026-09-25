@@ -272,6 +272,13 @@ Quit item); set an idle timeout with `soma daemon --idle-timeout` or the
 make it exit on its own once playback is stopped and no client is connected
 for that long.
 
+After an upgrade, the running server is restarted onto the new version the
+next time you change channel, pause, or stop, never mid-song. If the upgrade
+changed the wire protocol, the old server cannot serve the new client at
+all: until then the other commands and the TUI fail with an error saying so
+(the music keeps playing), and `soma daemon stop` stops the old server right
+away.
+
 To run the daemon as a persistent background service instead of starting it
 by hand, this repo ships a systemd `--user` unit and a macOS LaunchAgent
 under `packaging/`. On Linux, the Debian and RPM packages install

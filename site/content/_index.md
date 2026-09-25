@@ -254,7 +254,7 @@ Audio is streamed and decoded by a separate `soma daemon` process that the TUI a
 
 The daemon keeps running until `soma daemon stop` or the tray's *Quit* item. Set `--idle-timeout` (or `server.idle_timeout`) to make it exit on its own once playback is stopped and no client is connected. While it runs it shows a tray / menu-bar icon with the current track, a channel picker and playback controls; `--no-tray` or `server.tray: false` turns that off, and headless hosts skip it automatically.
 
-After an upgrade, the running daemon is restarted onto the new version the next time you change channel, pause or stop, never mid-song.
+After an upgrade, the running daemon is restarted onto the new version the next time you change channel, pause or stop, never mid-song. If the upgrade changed the wire protocol, the old daemon cannot serve the new client at all: until then the other commands and the TUI fail with an error saying so (the music keeps playing), and `soma daemon stop` stops the old daemon right away.
 
 `soma stop --in 45m` arms a sleep timer instead of stopping right away; the daemon owns it, so it fires even if you close the TUI or the terminal, and a new `--in` replaces it. `soma stop --cancel` drops a pending timer without stopping. `soma status` and the TUI status line show “sleep in Nm” while one is pending.
 

@@ -3,10 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
+	"syscall"
 	"testing"
+	"time"
 
 	"somad/internal/client"
 	"somad/internal/protocol"
@@ -68,7 +73,9 @@ func TestStatusSnapshot_RunningServer(t *testing.T) {
 	startStatusServer(t, path, want)
 	setEndpoint(t, client.UnixEndpoint(path))
 
-	assert.Equal(t, want, statusSnapshot())
+	got, err := statusSnapshot()
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestStatusSnapshot_LocalServerNotRunning(t *testing.T) {
@@ -79,7 +86,8 @@ func TestStatusSnapshot_LocalServerNotRunning(t *testing.T) {
 
 	setEndpoint(t, client.UnixEndpoint(filepath.Join(t.TempDir(), "absent.sock")))
 
-	got := statusSnapshot()
+	got, err := statusSnapshot()
+	require.NoError(t, err)
 	assert.Equal(t, protocol.StatusStopped, got.Status)
 	assert.Empty(t, got.StreamError, "a stopped local server is normal, not an error")
 	assert.InDelta(t, 0.35, got.Volume, 1e-9, "the persisted volume completes the snapshot")
@@ -96,9 +104,92 @@ func TestStatusSnapshot_RemoteServerUnreachable(t *testing.T) {
 
 	// A status bar polls this every tick: it must get parseable output with
 	// the failure attached, not exit 1 with a message on stderr.
-	got := statusSnapshot()
+	got, err := statusSnapshot()
+	require.NoError(t, err)
 	assert.Equal(t, protocol.StatusStopped, got.Status)
 	assert.NotEmpty(t, got.StreamError)
+}
+
+// startIncompatibleDaemon runs a fake daemon from another soma version on
+// path: it rejects hello over the protocol version and refuses everything
+// else before hello, like the real one. It lives in the test process, so
+// that is where a client's SIGTERM lands; the fake catches it (instead of
+// letting it kill the test binary), stops listening like a real daemon
+// shutting down, and closes the returned channel.
+func startIncompatibleDaemon(t *testing.T, path string) <-chan struct{} {
+	t.Helper()
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = nc.Close() }()
+				sc := protocol.NewScanner(nc)
+				for sc.Scan() {
+					var req protocol.Request
+					if json.Unmarshal(sc.Bytes(), &req) != nil {
+						continue
+					}
+					msg := fmt.Sprintf("hello required before %q", req.Method)
+					if req.Method == protocol.MethodHello {
+						msg = "incompatible protocol version: server speaks 1, client speaks 2"
+					}
+					_ = protocol.WriteLine(nc, protocol.Response{ID: req.ID, Error: msg})
+				}
+			}()
+		}
+	}()
+
+	terminated := make(chan struct{})
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM)
+	go func() {
+		if _, ok := <-sigCh; ok {
+			_ = ln.Close()
+			close(terminated)
+		}
+	}()
+	t.Cleanup(func() {
+		signal.Stop(sigCh)
+		close(sigCh)
+	})
+	return terminated
+}
+
+func TestStatusSnapshot_ProtocolSkewedServerIsAnError(t *testing.T) {
+	path := filepath.Join(shortTempDir(t), "s.sock")
+	startIncompatibleDaemon(t, path)
+	setEndpoint(t, client.UnixEndpoint(path))
+
+	// The daemon answered, so it is running (and may be playing): reporting
+	// it as stopped would be wrong, and status --json must fail instead.
+	_, err := statusSnapshot()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "incompatible protocol version")
+}
+
+func TestRunServerStop_SignalsProtocolSkewedDaemon(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("reading a socket's peer PID is only implemented on macOS and Linux")
+	}
+	path := filepath.Join(shortTempDir(t), "s.sock")
+	terminated := startIncompatibleDaemon(t, path)
+	setEndpoint(t, client.UnixEndpoint(path))
+
+	out := captureStdout(t, runServerStop)
+
+	// It refuses the shutdown request, so it must have been signalled.
+	assert.Contains(t, out, "server stopped")
+	select {
+	case <-terminated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the protocol-skewed daemon was not sent SIGTERM")
+	}
 }
 
 // shortTempDir returns a temp dir short enough for sun_path limits.

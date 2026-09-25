@@ -165,7 +165,11 @@ wire change.
 `waitState`, `waitChannels`). `internal/app/helpers_test.go` has
 `newTestModel`, `fakeBackend`, `runCmd`. `cmd/soma/cli_e2e_test.go` has
 `fakeDaemon` for CLI-over-the-wire tests. `internal/audio/player_test.go`
-has `fakeAudioContext`. `internal/client` tests shrink `restartWait`.
+has `fakeAudioContext`. `internal/client` tests shrink `restartWait`;
+their fake daemons run in the test process, so a test that makes the
+client signal a protocol-skewed daemon diverts SIGTERM with `catchSIGTERM`
+(`cmd/soma` has `startIncompatibleDaemon`) or the signal kills the test
+binary.
 
 **Without lefthook installed** the git hooks do not run; `make check` is
 the equivalent, so run it before committing.
@@ -211,8 +215,13 @@ resolved in `cmd/soma/endpoint.go` from flags, `$SOMAD_SERVER`, and the
 config file. `spawn.go` auto-spawns a local daemon when none is running and
 handles version skew: a daemon whose version differs from the client's is
 restarted onto the new binary only at a moment that already interrupts
-playback (channel change, pause, stop), never mid-song. Remote endpoints
-are never spawned or restarted.
+playback (channel change, pause, stop), never mid-song. One that speaks
+another protocol version refuses every request, `shutdown` included, so at
+those moments (and on `soma daemon stop`) it is sent SIGTERM instead, its
+PID read from the socket's peer credentials (`peerpid_darwin.go` /
+`peerpid_linux.go` / `peerpid_other.go`); any other command fails with a
+`ProtocolSkewError`. Remote endpoints are never spawned, restarted, or
+signalled.
 
 **TUI** (`internal/app` + `internal/ui`): Bubble Tea Elm architecture
 (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no

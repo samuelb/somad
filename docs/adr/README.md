@@ -19,7 +19,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0003](0003-tui-holds-no-playback-state.md) | The TUI holds no playback state of its own | Accepted |
 | [0004](0004-single-daemon-instance-and-detached-spawn.md) | One daemon instance via a lock file; clients spawn it detached | Accepted |
 | [0005](0005-daemon-runs-until-stopped.md) | The daemon runs until stopped explicitly | Accepted (supersedes the two-minute default from 95fb723) |
-| [0006](0006-version-skew-restart-only-when-playback-is-interrupted.md) | Restart a version-skewed daemon only at moments that already interrupt playback | Accepted |
+| [0006](0006-version-skew-restart-only-when-playback-is-interrupted.md) | Restart a version-skewed daemon only at moments that already interrupt playback | Accepted (amended) |
 | [0007](0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md) | The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK | Accepted |
 | [0008](0008-psk-challenge-response.md) | PSK authentication is an HMAC challenge-response; the client always authenticates when a key is configured | Accepted |
 | [0009](0009-tls-1-3-only-with-a-long-lived-self-signed-certificate.md) | TLS 1.3 only, with an auto-generated long-lived self-signed certificate and three trust modes | Accepted |
@@ -34,7 +34,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0018](0018-per-connection-backpressure-and-latest-wins-events.md) | Per-connection request cap and latest-wins event delivery | Accepted |
 | [0019](0019-mpris-and-tray-live-in-the-daemon.md) | MPRIS and the system tray live in the daemon process | Accepted |
 | [0020](0020-adaptive-palette-following-somafm-no-theming.md) | The palette follows somafm.com and adapts to light and dark terminals; no user theming | Accepted |
-| [0021](0021-side-effect-free-completion-and-json-output.md) | Shell completion is cache-only and side-effect free; scripting uses `--json` | Accepted |
+| [0021](0021-side-effect-free-completion-and-json-output.md) | Shell completion is cache-only and side-effect free; scripting uses `--json` | Accepted (amended) |
 | [0022](0022-trunk-based-development-conventional-commits-git-cliff.md) | Trunk-based development, Conventional Commits, and git-cliff-driven releases | Accepted |
 | [0023](0023-vendored-dependencies.md) | Dependencies are vendored | Accepted |
 | [0024](0024-packaging-nfpm-vcs-pkgbuild-universal-macos-binary.md) | Package with nfpm, keep the PKGBUILD as a VCS build, ship a universal macOS binary in a plain DMG | Accepted |

@@ -52,9 +52,36 @@ func ensureServerForPlayback() *client.Client {
 // dialServer connects to a running server without spawning one, returning its
 // reported version. The last return value is false when no server is listening
 // locally; an unreachable remote server is an error instead, because "not
-// running" is not something this side can know or fix.
+// running" is not something this side can know or fix. So is a local server
+// that speaks another protocol version: it is left running (see
+// client.EnsureServer).
 func dialServer() (*client.Client, string, bool) {
 	c, hr, err := tryDialServer()
+	return checkDialed(c, hr, err)
+}
+
+// dialServerForPlayback is dialServer for a command about to interrupt
+// playback. Because it does, a local server that speaks another protocol
+// version (which refuses every request, so it can neither report its state
+// nor be told to stop) is replaced with a fresh spawn of our binary; the last
+// return value reports that, since the fresh server starts stopped.
+func dialServerForPlayback() (c *client.Client, serverVersion string, running, replaced bool) {
+	c, hr, err := tryDialServer()
+	var skew *client.ProtocolSkewError
+	if !errors.As(err, &skew) {
+		c, serverVersion, running = checkDialed(c, hr, err)
+		return c, serverVersion, running, false
+	}
+	c, hr, err = client.RestartIncompatible(skew, endpoint, version)
+	if err != nil {
+		fail("%v", err)
+	}
+	return c, hr.ServerVersion, true, true
+}
+
+// checkDialed is the tail of dialServer: it exits on any tryDialServer
+// failure other than a local server that is not running.
+func checkDialed(c *client.Client, hr protocol.HelloResult, err error) (*client.Client, string, bool) {
 	var nse noServerError
 	if errors.As(err, &nse) {
 		if endpoint.IsLocal() {
@@ -76,15 +103,16 @@ func (e noServerError) Error() string { return e.err.Error() }
 func (e noServerError) Unwrap() error { return e.err }
 
 // tryDialServer dials and greets a running server, without spawning one and
-// without exiting on failure. A dial failure is a noServerError.
+// without exiting on failure. A dial failure is a noServerError; a local
+// server that speaks another protocol version is a
+// *client.ProtocolSkewError.
 func tryDialServer() (*client.Client, protocol.HelloResult, error) {
 	c, err := client.DialEndpoint(endpoint)
 	if err != nil {
 		return nil, protocol.HelloResult{}, noServerError{err}
 	}
-	hr, err := c.Hello(version)
+	hr, err := client.Handshake(c, endpoint, version)
 	if err != nil {
-		_ = c.Close()
 		return nil, hr, err
 	}
 	return c, hr, nil
@@ -364,12 +392,24 @@ func runPause(args []string) {
 		fail("usage: soma pause [--json]")
 	}
 
-	c, serverVersion, running := dialServer()
+	c, serverVersion, running, replaced := dialServerForPlayback()
 	if !running {
 		printNotRunning(jsonOut, "soma: not playing (server not running)")
 		return
 	}
 	defer func() { _ = c.Close() }()
+
+	if replaced {
+		// The replaced server could not say whether it was playing. Assume
+		// it was, so the fresh server's stopped state is the pause: guessing
+		// the other way would start music the user meant to silence.
+		st, err := c.Status()
+		if err != nil {
+			fail("%v", err)
+		}
+		printState(jsonOut, st, "Paused")
+		return
+	}
 
 	if client.NeedsRestart(endpoint, version, serverVersion) {
 		// Pausing interrupts playback anyway, so upgrade the server now. The
@@ -430,7 +470,16 @@ func runStop(args []string) {
 		}
 	}
 
-	c, serverVersion, running := dialServer()
+	// Only an immediate stop interrupts playback, so only it may replace a
+	// server that speaks another protocol version.
+	var c *client.Client
+	var serverVersion string
+	var running bool
+	if *cancel || *in != "" {
+		c, serverVersion, running = dialServer()
+	} else {
+		c, serverVersion, running, _ = dialServerForPlayback()
+	}
 	if !running {
 		printNotRunning(*jsonOut, "soma: not playing (server not running)")
 		return
@@ -489,7 +538,7 @@ func runStatus(args []string) {
 		fail("usage: soma status [--json]")
 	}
 	if jsonOut {
-		printJSON(statusSnapshot())
+		printStatusSnapshot()
 		return
 	}
 
@@ -548,12 +597,16 @@ func sleepTimerLine(stopAt string) string {
 	return fmt.Sprintf("Sleep:   in %dm\n", int(remaining.Round(time.Minute).Minutes()))
 }
 
-// statusSnapshot returns the playback state for --json consumers. It never
-// exits on an unreachable server: a polling status bar needs parseable
-// output on every tick, not exit 1 with a message on stderr.
-func statusSnapshot() protocol.PlaybackState {
+// statusSnapshot returns the playback state for --json consumers. A server
+// that is not running or cannot be reached is not an error: a polling status
+// bar needs parseable output on every tick, not exit 1 with a message on
+// stderr. One that answers but fails the handshake is, though: a daemon from
+// an incompatible soma version may well be playing, and reporting it as
+// stopped would be wrong.
+func statusSnapshot() (protocol.PlaybackState, error) {
 	c, _, err := tryDialServer()
-	if err != nil {
+	var nse noServerError
+	if errors.As(err, &nse) {
 		st := protocol.PlaybackState{Status: protocol.StatusStopped}
 		if endpoint.IsLocal() {
 			// No local server means stopped; the persisted volume is what
@@ -561,20 +614,33 @@ func statusSnapshot() protocol.PlaybackState {
 			if s, err := state.LoadState(); err == nil {
 				st.Volume = s.GetVolume()
 			}
-			return st
+			return st, nil
 		}
 		// An unreachable remote server may be stopped, down, or cut off —
 		// this side cannot tell, so report stopped with the error attached.
 		st.StreamError = err.Error()
-		return st
+		return st, nil
+	}
+	if err != nil {
+		return protocol.PlaybackState{}, err
 	}
 	defer func() { _ = c.Close() }()
 
 	st, err := c.Status()
 	if err != nil {
-		return protocol.PlaybackState{Status: protocol.StatusStopped, StreamError: err.Error()}
+		return protocol.PlaybackState{Status: protocol.StatusStopped, StreamError: err.Error()}, nil
 	}
-	return st
+	return st, nil
+}
+
+// printStatusSnapshot prints statusSnapshot as JSON, exiting 1 when it
+// fails.
+func printStatusSnapshot() {
+	st, err := statusSnapshot()
+	if err != nil {
+		fail("%v", err)
+	}
+	printJSON(st)
 }
 
 // volumePercent converts a volume fraction in [0, 1] to a rounded percentage
@@ -607,7 +673,7 @@ func printState(jsonOut bool, st protocol.PlaybackState, human string) {
 // output), else msg.
 func printNotRunning(jsonOut bool, msg string) {
 	if jsonOut {
-		printJSON(statusSnapshot())
+		printStatusSnapshot()
 		return
 	}
 	fmt.Println(msg)
@@ -770,8 +836,20 @@ func formatHistory(entries []protocol.HistoryEntry) string {
 	return b.String()
 }
 
+// runServerStop shuts the server down. A local one that speaks another
+// protocol version refuses the shutdown request along with everything else,
+// so it is stopped by signal instead.
 func runServerStop() {
-	c, _, running := dialServer()
+	c, hr, err := tryDialServer()
+	var skew *client.ProtocolSkewError
+	if errors.As(err, &skew) {
+		if err := client.StopIncompatible(skew, endpoint); err != nil {
+			fail("%v", err)
+		}
+		fmt.Println("soma: server stopped")
+		return
+	}
+	c, _, running := checkDialed(c, hr, err)
 	if !running {
 		fmt.Println("soma: server not running")
 		return
