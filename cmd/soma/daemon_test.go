@@ -137,6 +137,19 @@ func TestResolveDaemonOptions_RejectsInvalidQuality(t *testing.T) {
 	assert.Contains(t, err.Error(), "--quality")
 }
 
+func TestResolveDaemonOptions_RejectsNegativeIdleTimeout(t *testing.T) {
+	// A negative server.idle_timeout is fatal in config.Load; the flag must
+	// not silently mean "never exit" instead.
+	_, err := resolveDaemonOptions(&config.Config{}, []string{"--idle-timeout=-5m"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--idle-timeout")
+
+	opts, err := resolveDaemonOptions(&config.Config{}, []string{"--idle-timeout=0"})
+	require.NoError(t, err, "0 is the documented way to disable the idle exit")
+	assert.Zero(t, opts.idleTimeout)
+}
+
 func TestResolveDaemonOptions_RejectsLeftoverArguments(t *testing.T) {
 	for name, args := range map[string][]string{
 		"stop after a flag":    {"--no-tray", "stop"},

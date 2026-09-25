@@ -148,9 +148,10 @@ func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
 // defaults), validates them, and resolves the files they name — a TLS
 // certificate pair (generating a self-signed one when none is configured),
 // a PSK file — into a daemonOptions. It returns an error instead of calling
-// log.Fatal for every failure that can occur during resolution: the
-// --quality validation, the --tls-cert/--tls-key pairing rule, certificate
-// preparation, certificate loading for --show-cert, and the PSK file read.
+// log.Fatal for every failure that can occur during resolution: leftover
+// arguments, the --quality and --idle-timeout validation, the
+// --tls-cert/--tls-key pairing rule, certificate preparation, certificate
+// loading for --show-cert, and the PSK file read.
 func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, error) {
 	f, err := parseDaemonFlags(cfg, args)
 	if err != nil {
@@ -171,6 +172,11 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 
 	if f.quality != "" && !config.ValidQuality(f.quality) {
 		return daemonOptions{}, fmt.Errorf("--quality (or server.quality in the config) must be one of %s (got %q)", config.QualityList(), f.quality)
+	}
+	// config.Load already rejects a negative server.idle_timeout; the flag
+	// needs the same check, or the idle timer would silently never fire.
+	if f.idleTimeout < 0 {
+		return daemonOptions{}, fmt.Errorf("--idle-timeout must not be negative (got %s; 0 disables the idle exit)", f.idleTimeout)
 	}
 
 	certPath, keyPath := f.tlsCert, f.tlsKey
