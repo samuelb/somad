@@ -228,6 +228,9 @@ func runServer(args []string) {
 	if err != nil {
 		log.Fatalf("error loading config: %v", err)
 	}
+	for _, w := range cfg.Warnings {
+		log.Printf("warning: %s", w)
+	}
 
 	opts, err := resolveDaemonOptions(cfg, args)
 	if err != nil {

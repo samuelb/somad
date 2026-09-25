@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"somad/internal/atomicfile"
+	"somad/internal/security"
 	"somad/internal/xdg"
 
 	"gopkg.in/yaml.v3"
@@ -34,6 +35,11 @@ type Config struct {
 	Client ClientConfig `yaml:"client"`
 	TUI    TUIConfig    `yaml:"tui"`
 	Lastfm LastfmConfig `yaml:"lastfm"`
+
+	// Warnings are problems Load noticed that do not stop soma from
+	// running, for the caller to show: the CLI prints them on stderr, the
+	// daemon logs them.
+	Warnings []string `yaml:"-"`
 }
 
 // ServerConfig configures the playback server, mirroring the flags of
@@ -186,10 +192,14 @@ func ExpandHome(path string) (string, error) {
 	return filepath.Join(home, path[len("~/"):]), nil
 }
 
-// expandConfigHomePaths expands a leading "~/" (see ExpandHome) in the
-// config's path-valued fields, so the documented "~/.config/somad/psk"
-// style examples work without a shell to expand them for us.
-func expandConfigHomePaths(cfg *Config) error {
+// resolveConfigPaths makes the config's path-valued fields independent of
+// the working directory. A leading "~/" is expanded (see ExpandHome), so the
+// documented "~/.config/somad/psk" style examples work without a shell to
+// expand them for us, and a relative path is taken relative to baseDir, the
+// config file's directory: the working directory is wherever soma happened
+// to start, which for an auto-spawned daemon is wherever its first client
+// ran.
+func resolveConfigPaths(cfg *Config, baseDir string) error {
 	for _, field := range []**string{
 		&cfg.Server.PSKFile,
 		&cfg.Server.TLSCert,
@@ -204,9 +214,53 @@ func expandConfigHomePaths(cfg *Config) error {
 		if err != nil {
 			return err
 		}
+		if !filepath.IsAbs(expanded) {
+			expanded = filepath.Join(baseDir, expanded)
+		}
 		*field = &expanded
 	}
 	return nil
+}
+
+// secretKeys names the keys set in the config that hold a secret outright
+// (not a path to one).
+func (c *Config) secretKeys() []string {
+	var keys []string
+	for _, k := range []struct {
+		name string
+		val  *string
+	}{
+		{"server.psk", c.Server.PSK},
+		{"client.psk", c.Client.PSK},
+		{"lastfm.api_secret", c.Lastfm.APISecret},
+		{"lastfm.session_key", c.Lastfm.SessionKey},
+	} {
+		if k.val != nil && *k.val != "" {
+			keys = append(keys, k.name)
+		}
+	}
+	return keys
+}
+
+// exposedSecretsWarning returns a warning when the config file at path
+// holds secrets but is not private to the current user — the check a PSK
+// file must pass (security.CheckOwnerOnly), applied to the same secret
+// written inline. The generated template is created 0600; a hand-made file
+// often is not. It warns rather than refusing, so an upgrade never stops a
+// working daemon.
+func exposedSecretsWarning(cfg *Config, path string) string {
+	keys := cfg.secretKeys()
+	if len(keys) == 0 {
+		return ""
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if err := security.CheckOwnerOnly(info, "config file "+path); err != nil {
+		return fmt.Sprintf("%v: it holds %s (chmod 600 it)", err, strings.Join(keys, ", "))
+	}
+	return ""
 }
 
 // Load reads the configuration file. A missing file is not an error and
@@ -239,7 +293,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
 	}
 
-	if err := expandConfigHomePaths(&cfg); err != nil {
+	if err := resolveConfigPaths(&cfg, filepath.Dir(path)); err != nil {
 		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
 	}
 
@@ -248,6 +302,9 @@ func Load() (*Config, error) {
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
+	}
+	if w := exposedSecretsWarning(&cfg, path); w != "" {
+		cfg.Warnings = append(cfg.Warnings, w)
 	}
 	return &cfg, nil
 }
@@ -305,7 +362,8 @@ const templateFormat = `# Soma configuration file.
 # Generated with the built-in defaults, everything commented out; uncomment a
 # setting to change it. Deleting this file is safe: it is recreated, with the
 # then-current defaults, on the next server start. Explicit soma daemon
-# flags take precedence over this file.
+# flags take precedence over this file. File paths may start with "~/";
+# relative ones are taken relative to this file's directory.
 
 #server:
 #  # Exit the playback server after this long with no connected clients and

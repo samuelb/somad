@@ -342,6 +342,61 @@ func TestLoadLeavesAbsolutePathValuedKeysUnchanged(t *testing.T) {
 	assert.Equal(t, "/etc/somad/psk", *cfg.Server.PSKFile)
 }
 
+func TestLoadResolvesRelativePathValuedKeysAgainstConfigDir(t *testing.T) {
+	writeConfig(t, `server:
+  psk_file: psk
+  tls_cert: certs/cert.pem
+  tls_key: ../key.pem
+client:
+  tls_ca: ca.pem
+`)
+	path, err := Path()
+	require.NoError(t, err)
+	dir := filepath.Dir(path)
+	t.Chdir(t.TempDir()) // the working directory must not matter
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(dir, "psk"), *cfg.Server.PSKFile)
+	assert.Equal(t, filepath.Join(dir, "certs/cert.pem"), *cfg.Server.TLSCert)
+	assert.Equal(t, filepath.Join(filepath.Dir(dir), "key.pem"), *cfg.Server.TLSKey)
+	assert.Equal(t, filepath.Join(dir, "ca.pem"), *cfg.Client.TLSCA)
+}
+
+func TestLoadWarnsWhenAConfigHoldingSecretsIsNotPrivate(t *testing.T) {
+	const secrets = "lastfm:\n  api_key: k\n  api_secret: s\nserver:\n  psk: p\n" // #nosec G101 -- fixture YAML, not real credentials
+	for _, tc := range []struct {
+		name    string
+		content string
+		mode    os.FileMode
+		warn    bool
+	}{
+		{"secrets, group-readable", secrets, 0o640, true},
+		{"secrets, private", secrets, 0o600, false},
+		{"no secrets, world-readable", "server:\n  tray: false\n", 0o644, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeConfig(t, tc.content)
+			path, err := Path()
+			require.NoError(t, err)
+			require.NoError(t, os.Chmod(path, tc.mode))
+
+			cfg, err := Load()
+
+			require.NoError(t, err, "exposed secrets warn; they never stop soma")
+			if !tc.warn {
+				assert.Empty(t, cfg.Warnings)
+				return
+			}
+			require.Len(t, cfg.Warnings, 1)
+			assert.Contains(t, cfg.Warnings[0], path)
+			assert.Contains(t, cfg.Warnings[0], "server.psk, lastfm.api_secret")
+			assert.Contains(t, cfg.Warnings[0], "chmod 600")
+		})
+	}
+}
+
 func TestLoadLastfmConfig_APIKeyAndSecretWithoutSessionKeyIsValid(t *testing.T) {
 	// The session key is normally obtained by "soma lastfm login" and
 	// persisted separately (internal/state), not written to this file.

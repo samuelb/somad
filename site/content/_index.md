@@ -331,7 +331,7 @@ A listener reachable from other machines requires both TLS and a PSK; the daemon
 
 Daemon and TUI flags can also be set in a configuration file, which matters because the daemon is usually auto-spawned and therefore runs without any flags. It lives at `~/.config/somad/config.yaml` on Linux and `~/Library/Application Support/somad/config.yaml` on macOS.
 
-On the first daemon start the file is created as a template with every setting present but commented out. All settings are optional; anything omitted keeps its built-in default, and explicit flags take precedence. A file that fails to parse or contains unknown keys stops the daemon with an error naming the offending line, so a typo never silently falls back to defaults.
+On the first daemon start the file is created as a template with every setting present but commented out. All settings are optional; anything omitted keeps its built-in default, and explicit flags take precedence. A file that fails to parse or contains unknown keys stops the daemon with an error naming the offending line, so a typo never silently falls back to defaults. Relative file paths in it are taken relative to the config directory, and soma warns when the file holds a secret but others can read it.
 
 ### Where Somad keeps its files {#files}
 

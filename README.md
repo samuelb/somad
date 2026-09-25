@@ -510,6 +510,12 @@ A config file that exists but fails to parse (or contains unknown keys)
 stops the server from starting, with an error naming the offending line —
 a typo never silently falls back to defaults.
 
+File paths in the config may start with `~/`; a relative path is taken
+relative to the config file's directory, not the directory soma was
+started from. The generated template is private to you (mode `0600`); if
+the file holds a secret (`psk`, `lastfm.api_secret`, `lastfm.session_key`)
+but others can read it, soma prints a warning (the daemon logs it).
+
 ## Data Storage
 
 - **Config**: `~/.config/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS)

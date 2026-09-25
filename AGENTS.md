@@ -139,7 +139,11 @@ together; session_key requires them too, and is normally left to `soma
 lastfm login`, which persists it outside this file instead — see
 Directories). `server.quality` is one of `highest`/`high`/`low` (validated);
 a channel lacking that exact quality falls back to the nearest one it has.
-Config supplies flag defaults; explicit flags win.
+Config supplies flag defaults; explicit flags win. Path-valued keys expand
+`~/` and resolve relative paths against the config directory. A file holding
+an inline secret (`psk`, `api_secret`, `session_key`) that others can read
+yields a `Config.Warnings` entry, printed by the CLI and logged by the daemon,
+never an error.
 
 **Directories**: config `~/.config/somad/` (Linux) or
 `~/Library/Application Support/somad/` (macOS); state (favorites, last

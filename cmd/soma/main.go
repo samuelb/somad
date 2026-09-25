@@ -84,6 +84,9 @@ func main() {
 	if err != nil {
 		fail("error loading config: %v", err)
 	}
+	for _, w := range cfg.Warnings {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
 	endpoint, err = resolveEndpoint(cf, cfg)
 	if err != nil {
 		fail("%v", err)
