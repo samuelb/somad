@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"somad/internal/channels"
+	"somad/internal/config"
 	"somad/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
@@ -109,6 +110,24 @@ func TestPrintUsage(t *testing.T) {
 	for _, cmd := range []string{"play", "list", "favorite", "next", "prev", "pause", "stop", "status", "volume", "daemon"} {
 		assert.Containsf(t, out, "soma "+cmd, "usage missing %q", cmd)
 	}
+}
+
+func TestPrintUsage_ListsEveryDaemonAndConnectionFlag(t *testing.T) {
+	var b strings.Builder
+	printUsage(&b)
+	out := b.String()
+
+	// printUsage is the declared source of truth for the CLI surface, so
+	// every flag the daemon and the connection accept must be in it.
+	connFS := flag.NewFlagSet("soma", flag.ContinueOnError)
+	var cf connFlags
+	cf.register(connFS)
+	for _, fs := range []*flag.FlagSet{newDaemonFlagSet(&config.Config{}, &daemonFlags{}), connFS} {
+		fs.VisitAll(func(f *flag.Flag) {
+			assert.Containsf(t, out, "--"+f.Name, "usage missing --%s", f.Name)
+		})
+	}
+	assert.Contains(t, out, "soma daemon --help", "usage must point at the daemon's own flag help")
 }
 
 func TestFormatChannelList_MarksFavoritesAndKeepsOrder(t *testing.T) {

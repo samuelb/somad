@@ -84,18 +84,16 @@ type daemonFlags struct {
 	genPSK      bool
 }
 
-// parseDaemonFlags parses `soma daemon`'s flags, seeded from cfg's defaults
-// so an explicit flag overrides the config file. Path-valued flags get the
-// same "~/" expansion config.Load applies to the keys they mirror (a shell
-// normally expands "~" for a flag, but a quoted value should still work).
-func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
+// newDaemonFlagSet defines `soma daemon`'s flags, storing into f and seeded
+// from cfg's defaults so an explicit flag overrides the config file. It is
+// the one list of daemon flags, which tests hold the usage text to.
+func newDaemonFlagSet(cfg *config.Config, f *daemonFlags) *flag.FlagSet {
 	defaultIdleTimeout := server.DefaultIdleTimeout
 	if cfg.Server.IdleTimeout != nil {
 		defaultIdleTimeout = time.Duration(*cfg.Server.IdleTimeout)
 	}
 	defaultNoTray := cfg.Server.Tray != nil && !*cfg.Server.Tray
 
-	var f daemonFlags
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintln(fs.Output(), "Usage: soma daemon [flags]")
@@ -126,6 +124,16 @@ func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
 		"print the TLS certificate path and fingerprint, then exit")
 	fs.BoolVar(&f.genPSK, "gen-psk", false,
 		`generate a random pre-shared key at --psk-file (or a "psk" file in the config directory when unset), then exit`)
+	return fs
+}
+
+// parseDaemonFlags parses `soma daemon`'s flags (see newDaemonFlagSet).
+// Path-valued flags get the same "~/" expansion config.Load applies to the
+// keys they mirror (a shell normally expands "~" for a flag, but a quoted
+// value should still work).
+func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
+	var f daemonFlags
+	fs := newDaemonFlagSet(cfg, &f)
 	_ = fs.Parse(args)
 	// Parsing stops at the first non-flag argument, so without this check a
 	// made-up subcommand ("soma daemon shutdown") or a misplaced "stop"

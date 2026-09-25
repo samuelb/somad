@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"somad/internal/channels"
+	"somad/internal/config"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,13 +99,13 @@ func TestCompletionScriptsCoverCLI(t *testing.T) {
 		"volume":   {"--json", "mute"},
 		"history":  {"--json", "-n"},
 		// --json belongs to `soma lastfm status`.
-		"lastfm": {"login", "logout", "status", "--json"},
-		"daemon": {
-			"stop", "--idle-timeout", "--no-tray", "--notify", "--quality", "--listen", "--tls",
-			"--tls-cert", "--tls-key", "--psk-file", "--gen-psk", "--insecure", "--show-cert",
-		},
+		"lastfm":     {"login", "logout", "status", "--json"},
+		"daemon":     {"stop"},
 		"completion": {"bash", "zsh"},
 	}
+	newDaemonFlagSet(&config.Config{}, &daemonFlags{}).VisitAll(func(f *flag.Flag) {
+		perCommand["daemon"] = append(perCommand["daemon"], "--"+f.Name)
+	})
 	channelArgs := []string{"play", "favorite", "fav", "history"}
 
 	for _, sh := range []struct {

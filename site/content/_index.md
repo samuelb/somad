@@ -214,7 +214,7 @@ Every command works without the TUI, which makes them handy for scripts, keybind
 | `soma lastfm login` | Authorize soma with your Last.fm account and save the session (see [Last.fm](#lastfm)) |
 | `soma lastfm logout` | Remove the saved Last.fm session |
 | `soma lastfm status [--json]` | Show whether Last.fm scrobbling is configured and logged in |
-| `soma daemon` | Run the daemon in the foreground (`--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--listen`, `--tls`, `--psk-file` serve [remote frontends](#remote-control); `--gen-psk` generates a pre-shared key) |
+| `soma daemon [flags]` | Run the daemon in the foreground (`--idle-timeout <duration>` exits after that long idle; `--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--quality` prefers a stream quality; `--listen`, `--tls`, `--tls-cert`/`--tls-key`, `--psk-file` serve [remote frontends](#remote-control), `--insecure` without TLS and a PSK; `--gen-psk` generates a pre-shared key; `--show-cert` prints the certificate fingerprint; `soma daemon --help` describes every flag) |
 | `soma daemon stop` | Shut down the daemon |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell |
 | `soma --version` | Print version information |

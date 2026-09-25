@@ -214,15 +214,20 @@ func printUsage(w io.Writer) {
   soma lastfm status [--json] show whether last.fm scrobbling is configured
                                  and logged in
   soma daemon [flags]         run the playback server in the foreground
-                                 (--no-tray hides the tray / menu-bar icon;
-                                  --notify shows a desktop notification on
-                                  track change; --quality prefers a stream
-                                  quality; --listen <host:port> also serves
-                                  frontends over TCP, --tls encrypts it,
+                                 (--idle-timeout <duration> exits after that
+                                  long idle; --no-tray hides the tray /
+                                  menu-bar icon; --notify shows a desktop
+                                  notification on track change; --quality
+                                  prefers a stream quality; --listen
+                                  <host:port> also serves frontends over
+                                  TCP, --tls encrypts it, --tls-cert and
+                                  --tls-key supply your own certificate,
                                   --psk-file requires a pre-shared key,
-                                  --gen-psk generates one,
+                                  --gen-psk generates one, --insecure serves
+                                  a non-loopback address without them;
                                   --show-cert prints the TLS certificate
-                                  fingerprint)
+                                  fingerprint; soma daemon --help describes
+                                  every flag)
   soma daemon stop            shut down the playback server
   soma completion <bash|zsh>  print a completion script for the given shell
   soma --version              print version information
