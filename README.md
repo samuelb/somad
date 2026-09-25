@@ -333,8 +333,11 @@ for you to press Enter once you've approved it on last.fm, then saves the
 resulting session. `soma lastfm status` reports whether scrobbling is
 configured and logged in; `soma lastfm logout` removes the saved session.
 The session key lives in a separate file in the [state directory](#data-storage),
-not the config file, so logging in never edits your hand-written config; a
-running daemon picks up a fresh login immediately, without a restart.
+not the config file, so logging in never edits your hand-written config. A
+running daemon picks up a fresh login (or logout) immediately, without a
+restart, even one started before you added the key pair. The session
+belongs to the machine you log in on: for a daemon you control over TCP
+(`--server`), run `soma lastfm login` on the host the daemon runs on.
 
 Once logged in, the daemon sends a now-playing update on every track change
 and scrobbles the previous track when it ends (next title change, stop, or

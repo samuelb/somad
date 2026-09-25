@@ -83,7 +83,8 @@ func lastfmClientFromConfig(cfg *config.Config) *lastfm.Client {
 // authorize it in a browser, exchange it for a session key once they
 // confirm, and persist that key (internal/state's lastfm.json). It then
 // asks a locally running daemon to reload it (best-effort: a daemon started
-// afterwards reads the file at startup anyway).
+// afterwards reads the file at startup anyway); see reloadRunningDaemon for
+// a remote one.
 func runLastfmLogin(cfg *config.Config, args []string) {
 	if len(args) != 0 {
 		fail("usage: soma lastfm login")
@@ -110,7 +111,7 @@ func runLastfmLogin(cfg *config.Config, args []string) {
 		fail("could not save the last.fm session: %v", err)
 	}
 
-	reloadRunningDaemon()
+	reloadRunningDaemon("login")
 	fmt.Println("Logged in to last.fm.")
 }
 
@@ -123,23 +124,32 @@ func runLastfmLogout(args []string) {
 	if err := state.ClearLastfmSession(); err != nil {
 		fail("%v", err)
 	}
-	reloadRunningDaemon()
+	reloadRunningDaemon("logout")
 	fmt.Println("Logged out of last.fm.")
 }
 
-// reloadRunningDaemon best-effort asks a locally reachable daemon to reload
-// its Last.fm session (see the reloadLastfm RPC), so a login or logout
-// takes effect immediately instead of waiting for the next restart. It
-// never fails the caller: no daemon running, or one that is unreachable,
-// is not an error here — state was already persisted successfully.
-func reloadRunningDaemon() {
+// reloadRunningDaemon best-effort asks the local daemon to reload its
+// Last.fm session (see the reloadLastfm RPC), so a login or logout takes
+// effect immediately instead of waiting for the next restart. It never
+// fails the caller: no daemon running, or one that is unreachable, is not
+// an error here — state was already persisted successfully. A remote
+// daemon (--server, $SOMAD_SERVER, client.server) is left alone: it reads
+// the session from its own host's state directory, never this one, so
+// instead a note says to run subcommand ("login" or "logout") on that
+// host.
+func reloadRunningDaemon(subcommand string) {
+	if !endpoint.IsLocal() {
+		fmt.Fprintf(os.Stderr, "soma: note: this changed the last.fm session stored on this machine only; "+
+			"the daemon at %s reads its own, so run \"soma lastfm %s\" on that host\n", endpoint, subcommand)
+		return
+	}
 	c, _, err := tryDialServer()
 	if err != nil {
 		return
 	}
 	defer func() { _ = c.Close() }()
 	if err := c.ReloadLastfm(); err != nil {
-		fmt.Printf("soma: could not tell the running daemon to reload: %v\n", err)
+		fmt.Fprintf(os.Stderr, "soma: could not tell the running daemon to reload: %v\n", err)
 	}
 }
 

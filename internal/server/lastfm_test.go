@@ -296,6 +296,62 @@ func TestReloadLastfm_NoScrobblerIsANoOp(t *testing.T) {
 	assert.False(t, called, "reload must not run when scrobbling is not configured")
 }
 
+// TestReloadLastfm_StartsScrobblingWhenConfiguredLater covers api_key and
+// api_secret being added to the config after the daemon started: "soma
+// lastfm login" then reloads a daemon that has no scrobbler at all, and it
+// must start scrobbling rather than silently ignore the login.
+func TestReloadLastfm_StartsScrobblingWhenConfiguredLater(t *testing.T) {
+	scrobbler := &fakeScrobbler{}
+	s, player := newTestServer(t, Config{
+		ReloadLastfmSession: func() (string, error) { return "fresh-key", nil },
+		LoadScrobbler:       func() (Scrobbler, error) { return scrobbler, nil },
+	})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	resp := c.call(protocol.MethodReloadLastfm, nil)
+	require.Empty(t, resp.Error)
+	scrobbler.mu.Lock()
+	assert.Equal(t, []string{"fresh-key"}, scrobbler.sessionKeys)
+	scrobbler.mu.Unlock()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 1 }, 2*time.Second, 5*time.Millisecond)
+
+	// A later reload (a logout, say) reuses it rather than building another.
+	require.NoError(t, s.ReloadLastfm())
+	scrobbler.mu.Lock()
+	assert.Len(t, scrobbler.sessionKeys, 2)
+	scrobbler.mu.Unlock()
+}
+
+func TestReloadLastfm_StillUnconfiguredIsANoOp(t *testing.T) {
+	resolved := false
+	s, _ := newTestServer(t, Config{
+		ReloadLastfmSession: func() (string, error) { resolved = true; return "x", nil },
+		LoadScrobbler:       func() (Scrobbler, error) { return nil, nil },
+	})
+
+	require.NoError(t, s.ReloadLastfm())
+	assert.False(t, resolved, "no session to apply without a scrobbler")
+	s.mu.Lock()
+	assert.Nil(t, s.scrobbler)
+	s.mu.Unlock()
+}
+
+func TestReloadLastfm_ReportsLoadError(t *testing.T) {
+	s, _ := newTestServer(t, Config{
+		LoadScrobbler: func() (Scrobbler, error) { return nil, errors.New("error loading config: bad yaml") },
+	})
+	c := connect(t, s)
+	c.hello()
+
+	resp := c.call(protocol.MethodReloadLastfm, nil)
+	assert.Contains(t, resp.Error, "bad yaml")
+}
+
 func TestReloadLastfm_PropagatesResolveError(t *testing.T) {
 	scrobbler := &fakeScrobbler{}
 	s, _ := newTestServer(t, Config{

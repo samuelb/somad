@@ -328,7 +328,7 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 	if !opts.noTray && tray.Available() {
 		tr = tray.New()
 	}
-	scrobbler, reloadLastfmSession := setUpLastfm(cfg)
+	scrobbler, reloadLastfmSession, loadScrobbler := setUpLastfm(cfg)
 
 	srv := server.New(server.Config{
 		Version:             version,
@@ -343,6 +343,7 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 		Notify:              opts.notify,
 		Scrobbler:           scrobbler,
 		ReloadLastfmSession: reloadLastfmSession,
+		LoadScrobbler:       loadScrobbler,
 	})
 	return srv, tr, nil
 }
@@ -375,24 +376,54 @@ func serve(srv *server.Server, tr *tray.Tray, listeners []net.Listener) error {
 	return <-runErrCh
 }
 
-// setUpLastfm builds the Last.fm scrobbler from the config's lastfm.*
-// keys (see internal/config), when both api_key and api_secret are set;
-// otherwise scrobbling is disabled entirely and both return values are
-// nil. The initial session key is resolveLastfmSession's result at
-// startup; the returned function recomputes it for the reloadLastfm RPC
-// that "soma lastfm login" triggers after a successful login.
-func setUpLastfm(cfg *config.Config) (server.Scrobbler, func() (string, error)) {
+// setUpLastfm returns the Last.fm wiring for server.Config: the scrobbler
+// built from cfg's lastfm.* keys with the session key
+// resolveLastfmSession finds at startup (nil, leaving scrobbling off, unless
+// both api_key and api_secret are set), and the two functions behind the
+// reloadLastfm RPC that "soma lastfm login" and "logout" trigger. Those
+// re-read the config file instead of trusting cfg, so a reload sees what
+// the CLI that just logged in saw: the first returns the current session
+// key, the second builds a scrobbler after all when api_key/api_secret
+// were added to the config after the daemon started (nil while they still
+// are not).
+func setUpLastfm(cfg *config.Config) (server.Scrobbler, func() (string, error), func() (server.Scrobbler, error)) {
+	resolveSession := func() (string, error) {
+		fresh, err := config.Load()
+		if err != nil {
+			return "", fmt.Errorf("error loading config: %w", err)
+		}
+		return resolveLastfmSession(fresh)
+	}
+	loadScrobbler := func() (server.Scrobbler, error) {
+		fresh, err := config.Load()
+		if err != nil {
+			return nil, fmt.Errorf("error loading config: %w", err)
+		}
+		// The server applies resolveSession's key right after.
+		return newScrobbler(fresh, ""), nil
+	}
+
+	var scrobbler server.Scrobbler
+	if str(cfg.Lastfm.APIKey) != "" {
+		sessionKey, err := resolveLastfmSession(cfg)
+		if err != nil {
+			log.Printf("warning: could not read the last.fm session: %v", err)
+		}
+		scrobbler = newScrobbler(cfg, sessionKey)
+	}
+	return scrobbler, resolveSession, loadScrobbler
+}
+
+// newScrobbler builds the Last.fm client from cfg's lastfm.api_key and
+// api_secret (the config requires them together), or returns a nil
+// Scrobbler when they are not set.
+func newScrobbler(cfg *config.Config, sessionKey string) server.Scrobbler {
 	apiKey := str(cfg.Lastfm.APIKey)
 	if apiKey == "" {
-		return nil, nil
+		// An untyped nil: a nil *lastfm.Client would be a non-nil interface.
+		return nil
 	}
-	apiSecret := str(cfg.Lastfm.APISecret)
-	resolveSession := func() (string, error) { return resolveLastfmSession(cfg) }
-	sessionKey, err := resolveSession()
-	if err != nil {
-		log.Printf("warning: could not read the last.fm session: %v", err)
-	}
-	return lastfm.New(apiKey, apiSecret, sessionKey, userAgent()), resolveSession
+	return lastfm.New(apiKey, str(cfg.Lastfm.APISecret), sessionKey, userAgent())
 }
 
 // ensureCertPair resolves the server certificate pair, generating a

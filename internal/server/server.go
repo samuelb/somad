@@ -57,16 +57,22 @@ type Config struct {
 	// inject a stub so they never touch D-Bus or osascript.
 	Notifier func(title, body string)
 	// Scrobbler is the Last.fm now-playing/scrobble sink (see lastfm.go);
-	// nil (the default) disables the feature entirely, regardless of
-	// ReloadLastfmSession. Normally internal/lastfm.New(...); tests inject
-	// a fake.
+	// nil (the default) disables the feature until LoadScrobbler supplies
+	// one. Normally internal/lastfm.New(...); tests inject a fake.
 	Scrobbler Scrobbler
 	// ReloadLastfmSession resolves the current Last.fm session key (the
 	// config's lastfm.session_key override, else internal/state's
 	// persisted lastfm.json) for the reloadLastfm RPC, which "soma lastfm
 	// login" calls so a freshly obtained session takes effect without
-	// restarting the daemon. Ignored when Scrobbler is nil.
+	// restarting the daemon. Unused while there is no scrobbler.
 	ReloadLastfmSession func() (string, error)
+	// LoadScrobbler, when non-nil, lets the reloadLastfm RPC start
+	// scrobbling in a daemon that has no Scrobbler: it re-reads the
+	// Last.fm settings and returns a Scrobbler when they are now
+	// configured (api_key/api_secret added to the config file after the
+	// daemon started), nil while they still are not, and an error when
+	// they cannot be read (the config file became invalid).
+	LoadScrobbler func() (Scrobbler, error)
 }
 
 // Server is the soma daemon. All mutable fields are guarded by mu; the
@@ -90,10 +96,15 @@ type Server struct {
 	// mpris.go.
 	mprisVolume chan float64
 
-	// scrobbler is nil when Last.fm scrobbling is not configured; otherwise
-	// see lastfm.go. reloadLastfmSession backs the reloadLastfm RPC.
+	// scrobbler is nil while Last.fm scrobbling is not configured;
+	// otherwise see lastfm.go. It is guarded by mu: a reloadLastfm can set
+	// it after startup (ReloadLastfm). reloadLastfmSession and
+	// loadScrobbler back that RPC; lastfmReloadMu serializes it, so two
+	// concurrent reloads cannot both install a scrobbler.
 	scrobbler           Scrobbler
 	reloadLastfmSession func() (string, error)
+	loadScrobbler       func() (Scrobbler, error)
+	lastfmReloadMu      sync.Mutex
 	// lastfmTrack is the now-playing track a future scrobble is pending
 	// for, or nil. lastfmRecent remembers, per channel ID, the play last
 	// seen on that channel after it was interrupted, so the same title
@@ -202,6 +213,7 @@ func New(cfg Config) *Server {
 	}
 	s.scrobbler = cfg.Scrobbler
 	s.reloadLastfmSession = cfg.ReloadLastfmSession
+	s.loadScrobbler = cfg.LoadScrobbler
 	s.player.SetVolume(cfg.State.GetVolume())
 	// MPRIS Play with no prior play in this process targets the last-played
 	// channel from the previous session.

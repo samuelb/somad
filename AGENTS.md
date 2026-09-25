@@ -200,8 +200,10 @@ last interrupted on each channel is kept in `lastfmRecent`, and the same
 artist/title re-reported there within `lastfmSameTrackWindow` (a reconnect,
 unpause, or channel round trip) resumes it instead of starting a new one;
 submissions run off `mu` on a goroutine with one bounded retry, never
-blocking playback. The `reloadLastfm` RPC re-reads the session key so
-`soma lastfm login` takes effect without a daemon restart.
+blocking playback. The `reloadLastfm` RPC re-reads the session key (and,
+with no scrobbler yet, builds one via `Config.LoadScrobbler`, which re-reads
+the config file) so `soma lastfm login` takes effect without a daemon
+restart; the CLI sends it to a local daemon only.
 
 **Client** (`internal/client`): protocol client shared by TUI and CLI. An
 `Endpoint` (Unix socket, or TCP with optional `tls.Config` and PSK) is

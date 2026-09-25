@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +15,7 @@ import (
 	"somad/internal/client"
 	"somad/internal/config"
 	"somad/internal/lastfm"
+	"somad/internal/protocol"
 	"somad/internal/security/securitytest"
 	"somad/internal/state"
 
@@ -129,6 +133,130 @@ func TestRunLastfmLogout_RemovesSessionAndReloadsDaemon(t *testing.T) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	assert.Equal(t, 1, d.lastfmReloads)
+}
+
+// captureLastfmOutput runs fn with os.Stdout and os.Stderr redirected and
+// returns what it wrote to each.
+func captureLastfmOutput(t *testing.T, fn func()) (stdout, stderr string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	prev := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = prev }()
+	stdout = captureStdout(t, fn)
+	require.NoError(t, w.Close())
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return stdout, string(out)
+}
+
+// startReloadFailingDaemon serves just enough of the protocol for
+// reloadRunningDaemon: hello succeeds and reloadLastfm fails, as a daemon
+// whose config file no longer loads answers.
+func startReloadFailingDaemon(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(shortTempDir(t), "d.sock")
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = nc.Close() }()
+				sc := protocol.NewScanner(nc)
+				for sc.Scan() {
+					var req protocol.Request
+					if json.Unmarshal(sc.Bytes(), &req) != nil {
+						continue
+					}
+					resp := protocol.Response{ID: req.ID, Error: "error loading config: bad yaml"}
+					if req.Method == protocol.MethodHello {
+						resp.Error = ""
+						resp.Result, _ = json.Marshal(protocol.HelloResult{ServerVersion: version, ProtocolVersion: protocol.Version})
+					}
+					_ = protocol.WriteLine(nc, resp)
+				}
+			}()
+		}
+	}()
+	setEndpoint(t, client.UnixEndpoint(path))
+}
+
+func TestRunLastfmLogout_ReloadFailureGoesToStderr(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	startReloadFailingDaemon(t)
+
+	stdout, stderr := captureLastfmOutput(t, func() { runLastfmLogout(nil) })
+
+	assert.Contains(t, stdout, "Logged out of last.fm.")
+	assert.NotContains(t, stdout, "could not tell the running daemon")
+	assert.Contains(t, stderr, "could not tell the running daemon to reload: error loading config: bad yaml")
+}
+
+func TestRunLastfmLogout_RemoteDaemonGetsANoteNotAReload(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	d := startFakeDaemon(t)
+	// The same fake, reached over TCP the way a remote daemon is.
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			nc, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go d.serve(nc)
+		}
+	}()
+	setEndpoint(t, client.Endpoint{Network: "tcp", Address: ln.Addr().String()})
+
+	stdout, stderr := captureLastfmOutput(t, func() { runLastfmLogout(nil) })
+
+	assert.Contains(t, stdout, "Logged out of last.fm.")
+	assert.Contains(t, stderr, "tcp://"+ln.Addr().String()+" reads its own")
+	assert.Contains(t, stderr, `run "soma lastfm logout" on that host`)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Zero(t, d.lastfmReloads, "the remote daemon's session is not the one that changed")
+}
+
+// TestSetUpLastfm_ReloadSeesConfigChangedAfterStartup covers a daemon
+// started before lastfm.api_key/api_secret were set: the reloadLastfm hooks
+// re-read the config file, so "soma lastfm login" can still start
+// scrobbling without a restart.
+func TestSetUpLastfm_ReloadSeesConfigChangedAfterStartup(t *testing.T) {
+	cfg := writeTestConfig(t, "")
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	scrobbler, resolveSession, loadScrobbler := setUpLastfm(cfg)
+	assert.True(t, scrobbler == nil, "no scrobbler without credentials")
+	loaded, err := loadScrobbler()
+	require.NoError(t, err)
+	assert.True(t, loaded == nil, "still no credentials: an untyped nil, not a nil *lastfm.Client")
+
+	path, err := config.Path()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte("lastfm:\n  api_key: testkey\n  api_secret: testsecret\n"), 0o600))
+	require.NoError(t, state.SaveLastfmSession("sess456"))
+
+	loaded, err = loadScrobbler()
+	require.NoError(t, err)
+	assert.NotNil(t, loaded)
+	key, err := resolveSession()
+	require.NoError(t, err)
+	assert.Equal(t, "sess456", key)
+
+	require.NoError(t, os.WriteFile(path, []byte("lastfm:\n  bogus: 1\n"), 0o600))
+	_, err = loadScrobbler()
+	require.ErrorContains(t, err, "error loading config")
+	_, err = resolveSession()
+	require.ErrorContains(t, err, "error loading config")
 }
 
 func TestRunLastfmStatus_NotConfigured(t *testing.T) {

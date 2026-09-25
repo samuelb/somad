@@ -9,7 +9,8 @@ import (
 
 // Scrobbler is the Last.fm now-playing/scrobble sink (TODO.md "Last.fm
 // scrobbling"); internal/lastfm.Client implements it against the real API.
-// A nil Scrobbler (the default) disables the feature entirely.
+// A nil Scrobbler (the default) disables the feature until a reloadLastfm
+// finds it configured (Server.ReloadLastfm).
 type Scrobbler interface {
 	// UpdateNowPlaying tells Last.fm what is currently playing.
 	UpdateNowPlaying(artist, title string) error
@@ -187,7 +188,10 @@ func (s *Server) isClosing() bool {
 // a chance to actually be sent before the process exits. A no-op when
 // scrobbling is not configured.
 func (s *Server) waitLastfmSubmissions() {
-	if s.scrobbler == nil {
+	s.mu.Lock()
+	configured := s.scrobbler != nil
+	s.mu.Unlock()
+	if !configured {
 		return
 	}
 	done := make(chan struct{})
@@ -218,17 +222,40 @@ func (s *Server) logLastfmFailureOnce(kind string, err error) {
 // lastfm.session_key override, else internal/state's persisted
 // lastfm.json — see Config.ReloadLastfmSession) and applies it to the
 // running Scrobbler, so a session obtained by "soma lastfm login" after
-// this daemon started takes effect without a restart. A no-op when
-// scrobbling is not configured at all.
+// this daemon started takes effect without a restart. With no Scrobbler
+// yet it first asks Config.LoadScrobbler for one, so credentials added to
+// the config file after startup take effect the same way; a no-op while
+// scrobbling is still not configured.
 func (s *Server) ReloadLastfm() error {
-	// Both fields are set once in New and never written again, so no lock.
-	if s.scrobbler == nil || s.reloadLastfmSession == nil {
-		return nil
+	s.lastfmReloadMu.Lock()
+	defer s.lastfmReloadMu.Unlock()
+	s.mu.Lock()
+	scrobbler := s.scrobbler
+	s.mu.Unlock()
+
+	installed := scrobbler != nil
+	if !installed {
+		if s.loadScrobbler == nil {
+			return nil
+		}
+		var err error
+		if scrobbler, err = s.loadScrobbler(); err != nil || scrobbler == nil {
+			return err
+		}
 	}
-	key, err := s.reloadLastfmSession()
-	if err != nil {
-		return err
+	if s.reloadLastfmSession != nil {
+		key, err := s.reloadLastfmSession()
+		if err != nil {
+			return err
+		}
+		scrobbler.SetSessionKey(key)
 	}
-	s.scrobbler.SetSessionKey(key)
+	if !installed {
+		// Picks up from the next title change on; the one playing now was
+		// never tracked, so it is neither announced nor scrobbled.
+		s.mu.Lock()
+		s.scrobbler = scrobbler
+		s.mu.Unlock()
+	}
 	return nil
 }

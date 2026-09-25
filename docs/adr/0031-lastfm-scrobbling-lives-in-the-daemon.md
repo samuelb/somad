@@ -1,6 +1,8 @@
 # ADR-0031: Last.fm scrobbling lives in the daemon, opt-in, with the session key kept out of the config file
 
-- **Status:** Accepted (amended 2026-09-09: one scrobble per play across interruptions)
+- **Status:** Accepted (amended 2026-09-09: one scrobble per play across
+  interruptions; 2026-09-25: a reload can start scrobbling, local daemons
+  only)
 - **Date:** 2026-09-03
 - **Sources:** TODO.md "Last.fm scrobbling"; `internal/lastfm`,
   `internal/server/lastfm.go`, `internal/state/lastfm.go`,
@@ -64,7 +66,16 @@ the config file is meant to be hand-editable, never machine-written
 - A `reloadLastfm` RPC method (protocol version 2, unreleased since the last
   bump, so no further bump was needed) lets `soma lastfm login`/`logout`
   apply a fresh (or cleared) session to an already-running daemon
-  immediately, instead of only on the next restart.
+  immediately, instead of only on the next restart. The daemon re-reads
+  the config file for it (amended 2026-09-25): a daemon started before
+  `api_key`/`api_secret` were set has no scrobbler, and used to acknowledge
+  the reload and silently keep not scrobbling; it now builds one then
+  (`server.Config.LoadScrobbler`, injected from `cmd/soma` so the server
+  stays free of config-file knowledge), and a config file that no longer
+  loads fails the reload visibly. The CLI sends the reload to a local
+  daemon only: a remote one (`--server`) reads the session file on its own
+  host, which a login here never touches, so it prints a note to log in on
+  that host instead.
 
 ## Consequences
 
@@ -73,10 +84,10 @@ the config file is meant to be hand-editable, never machine-written
   that split lives in `cmd/soma` (resolving it at daemon startup) and
   `internal/state` (persisting it), keeping the client testable against a
   bare `httptest` server.
-- A daemon started before login, or with scrobbling not configured at all,
-  needs no restart to catch up once `reloadLastfm` fires, other than the
-  first `soma lastfm login`, whose target daemon it reaches through the
-  normal client endpoint resolution.
+- A local daemon started before login, or with scrobbling not configured
+  at all, needs no restart to catch up once `reloadLastfm` fires. The
+  track already playing when a scrobbler is first built is neither
+  announced nor scrobbled; tracking starts with the next title.
 - Losing the session file (or never logging in) degrades to "scrobbling
   configured but inactive," not a startup failure: `Config.Scrobbler` is
   still constructed once `api_key`/`api_secret` are set, and calls simply
