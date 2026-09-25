@@ -2,6 +2,8 @@ module somad
 
 go 1.25.13
 
+toolchain go1.27.1
+
 require (
 	fyne.io/systray v1.12.2
 	github.com/charmbracelet/bubbles v1.0.0

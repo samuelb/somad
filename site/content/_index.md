@@ -150,7 +150,7 @@ chmod +x ./soma                        <span class="c"># Linux</span></code></pr
 {% </card> %}
 
 {% <card title="Build from source"> %}
-Needs Go 1.25 or newer. On Linux, install the ALSA development library first (`libasound2-dev` on Debian/Ubuntu, `alsa-lib-devel` on Fedora, `alsa-lib` on Arch).
+Needs Go 1.25.13 or newer. On Linux, install the ALSA development library first (`libasound2-dev` on Debian/Ubuntu, `alsa-lib-devel` on Fedora, `alsa-lib` on Arch).
 
 ```sh
 git clone https://github.com/samuelb/somad.git

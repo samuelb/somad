@@ -155,7 +155,7 @@ Then, you can run it from your terminal.
 
 ### Build from Source
 
-Prerequisites: Go 1.25 or newer
+Prerequisites: Go 1.25.13 or newer
 
 On Linux, the ALSA development library is required for audio support:
 

@@ -21,6 +21,13 @@ the `go.mod` floor toolchain, whose stdlib carried already-fixed CVEs.
 - CI runs `-race` on both Linux and macOS, runs govulncheck with
   `check-latest` on a patched toolchain, and fails if total coverage drops
   below 60 %, "comfortably below the current" value at the time.
+  - *Amendment 2026-09-25.* `check-latest` cannot move an exact patch
+    version, so CI and the release kept building on `go 1.25.13` after Go
+    1.27 had taken the 1.25 line out of support. `go.mod` now carries a
+    `toolchain` line (go1.27.1), which `actions/setup-go` prefers over the
+    `go` directive; the `go` line stays the minimum for source builds.
+    govulncheck runs against that pinned toolchain, so a standard-library
+    fix it lacks fails CI and prompts the bump, and `check-latest` is gone.
 - Test speed is a design concern: fsync-heavy persistence is injectable so
   the suite runs in well under a second where it took 29 s.
 

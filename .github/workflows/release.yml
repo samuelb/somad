@@ -79,7 +79,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          check-latest: true
 
       - name: Install ALSA
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -140,7 +139,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          check-latest: true
 
       - name: Install ALSA
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -183,7 +181,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          check-latest: true
 
       - name: Build universal binary
         # CGO is required on macOS for the menu-bar tray (Cocoa). The runner is
