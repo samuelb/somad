@@ -36,12 +36,14 @@ func CacheDir(app string) (string, error) {
 }
 
 // dir resolves <base>/app, where base is the environment variable envVar
-// when set (checked first on every platform, which is also what enables
-// tests to isolate themselves), or otherwise a fixed path under the home
-// directory: otherRel on Linux and other Unix-like systems, darwinRel on
-// macOS.
+// when set to an absolute path (checked first on every platform, which is
+// also what enables tests to isolate themselves), or otherwise a fixed path
+// under the home directory: otherRel on Linux and other Unix-like systems,
+// darwinRel on macOS. A relative value is ignored, as the XDG Base Directory
+// spec requires: it would resolve against whatever directory soma happened
+// to start in, so two invocations could disagree about where state lives.
 func dir(envVar string, otherRel, darwinRel []string, app string) (string, error) {
-	if v := os.Getenv(envVar); v != "" {
+	if v := os.Getenv(envVar); v != "" && filepath.IsAbs(v) {
 		return filepath.Join(v, app), nil
 	}
 	homeDir, err := os.UserHomeDir()

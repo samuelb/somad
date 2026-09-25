@@ -114,6 +114,16 @@ func TestSocketPath_XDGRuntimeDir(t *testing.T) {
 	assert.Equal(t, "/run/user/1000/somad.sock", SocketPath())
 }
 
+func TestSocketPath_IgnoresRelativeXDGRuntimeDir(t *testing.T) {
+	t.Setenv("SOMAD_SOCKET", "")
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	fallback := SocketPath()
+
+	t.Setenv("XDG_RUNTIME_DIR", "run")
+	assert.Equal(t, fallback, SocketPath(),
+		"a relative XDG_RUNTIME_DIR must not make the socket depend on the working directory")
+}
+
 func TestSocketPath_FallbackFitsSunPathLimit(t *testing.T) {
 	t.Setenv("SOMAD_SOCKET", "")
 	t.Setenv("XDG_RUNTIME_DIR", "")

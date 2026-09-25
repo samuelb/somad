@@ -41,6 +41,30 @@ func TestCacheDir_UsesXDGOverride(t *testing.T) {
 	assert.Equal(t, filepath.Join("/custom/cache", "somad"), dir)
 }
 
+func TestDirs_IgnoreRelativeXDGOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		env string
+		fn  func(string) (string, error)
+	}{
+		{"XDG_CONFIG_HOME", ConfigDir},
+		{"XDG_STATE_HOME", StateDir},
+		{"XDG_CACHE_HOME", CacheDir},
+	} {
+		t.Run(tc.env, func(t *testing.T) {
+			clearXDGEnv(t)
+			want, err := tc.fn("somad")
+			require.NoError(t, err)
+
+			t.Setenv(tc.env, "relative/dir")
+			got, err := tc.fn("somad")
+
+			require.NoError(t, err)
+			assert.Equal(t, want, got, "a relative %s must be ignored, per the XDG spec", tc.env)
+			assert.True(t, filepath.IsAbs(got))
+		})
+	}
+}
+
 func TestConfigDir_DefaultsMatchPlatform(t *testing.T) {
 	clearXDGEnv(t)
 	home, err := os.UserHomeDir()

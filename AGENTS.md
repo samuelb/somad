@@ -126,7 +126,9 @@ mutually exclusive.
 
 **Environment**: `SOMAD_SOCKET` (socket path), `SOMAD_SERVER` (host:port,
 like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`
-(honored on both platforms; use them to isolate manual runs).
+(honored on both platforms; use them to isolate manual runs), and
+`XDG_RUNTIME_DIR` for the socket. Relative XDG values are ignored, as the
+spec requires.
 
 **Config keys** (`internal/config`, YAML, all optional pointers; unknown keys
 and parse errors are fatal by design): `server.{idle_timeout, tray, quality,
