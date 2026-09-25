@@ -111,12 +111,15 @@ deps:
 	$(GOMOD) download
 	$(GOMOD) verify
 
-# Update dependencies
+# Update dependencies to their latest minor/patch versions, then re-sync
+# go.sum and the vendor tree (ADR-0023); `go mod tidy` alone leaves
+# vendor/modules.txt inconsistent and the next build fails.
 .PHONY: deps-update
 deps-update:
 	@echo "Updating dependencies..."
+	$(GOGET) -u ./...
 	$(GOMOD) tidy
-	$(GOMOD) download
+	$(GOMOD) vendor
 
 # Install the binary to $GOBIN
 .PHONY: install
@@ -182,12 +185,16 @@ demo: build
 	SOMAD_SOCKET="$${TMPDIR:-/tmp}/somad-demo.sock" \
 	vhs demo.tape
 
-# Format Go code
+# Format Go code. vendor/ is left alone: it must stay byte-identical to the
+# upstream modules, and nothing checks vendored files against go.sum. Asking
+# git (tracked plus new, unignored files) also skips agent worktrees nested
+# under .claude/.
+GOFILES=$(shell git ls-files --cached --others --exclude-standard -- '*.go' ':!:vendor/')
 .PHONY: fmt
 fmt:
 	@echo "Formatting Go code..."
-	gofmt -w -s .
-	goimports -w . 2>/dev/null || echo "goimports not installed, skipping"
+	gofmt -w -s $(GOFILES)
+	goimports -w $(GOFILES) 2>/dev/null || echo "goimports not installed, skipping"
 
 # Vet Go code
 .PHONY: vet
@@ -231,7 +238,7 @@ ci: lint
 dev:
 	@echo "Starting development mode (requires 'entr' tool)..."
 	@if command -v entr >/dev/null 2>&1; then \
-		find . -name "*.go" | entr -r make run; \
+		git ls-files --cached --others --exclude-standard -- '*.go' ':!:vendor/' | entr -r make run; \
 	else \
 		echo "entr not installed. Install with your package manager (e.g., apt-get install entr)"; \
 		exit 1; \
@@ -257,7 +264,7 @@ help:
 	@echo "  lint-fix          Run linter with auto-fix"
 	@echo "  clean             Remove build artifacts"
 	@echo "  deps              Download and verify dependencies"
-	@echo "  deps-update       Update dependencies"
+	@echo "  deps-update       Update dependencies and re-vendor"
 	@echo "  install           Install binary to \$$GOBIN"
 	@echo "  uninstall         Remove binary from \$$GOBIN"
 	@echo "  package-deb       Build a .deb package in dist/ with nfpm"
