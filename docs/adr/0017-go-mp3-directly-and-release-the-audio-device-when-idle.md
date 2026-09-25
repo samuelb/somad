@@ -35,6 +35,15 @@ playing, because oto's `Suspend` only pauses the audio queue.
   hung ALSA daemon or broken device fails with a message instead of
   hanging the daemon before its socket is even useful. The timeout is not
   sticky: a later `Play` can use a recovered device.
+  - *Amendment 2026-09-25.* oto 3.5 changed the Linux backend: it speaks
+    the PulseAudio protocol natively (`jfreymuth/pulse`, pure Go, so
+    PipeWire's pulse server works too) and falls back to ALSA, which it now
+    loads at runtime through purego instead of linking with cgo. Builds no
+    longer need `libasound2-dev`; the packages keep `libasound2`/`alsa-lib`
+    as a runtime dependency for the fallback. The stream is named "Soma" in
+    PulseAudio mixers (`ApplicationName`). On macOS, oto 3.5 rebuilds an
+    AudioQueue that the system invalidated (for example when the output
+    device changes) instead of going silent.
 
 ## Consequences
 

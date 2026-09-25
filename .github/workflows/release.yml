@@ -44,9 +44,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install ALSA
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-
       - name: Run tests
         run: go test -v -race ./...
 
@@ -159,9 +156,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-
-      - name: Install ALSA
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: Build
         # The tag points at the bump commit prepare pushed, not at the

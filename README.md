@@ -155,22 +155,10 @@ Then, you can run it from your terminal.
 
 ### Build from Source
 
-Prerequisites: Go 1.25.13 or newer
+Prerequisites: Go 1.25.13 or newer. No C libraries are needed at build
+time: on Linux, audio goes to PulseAudio or PipeWire directly, and the
+ALSA library (`libasound.so.2`) is loaded at runtime only as a fallback.
 
-On Linux, the ALSA development library is required for audio support:
-
-```sh
-# Debian/Ubuntu
-sudo apt-get install libasound2-dev
-
-# Fedora
-sudo dnf install alsa-lib-devel
-
-# Arch
-sudo pacman -S alsa-lib
-```
-
-Then build:
 
 ```sh
 git clone https://github.com/samuelb/somad.git

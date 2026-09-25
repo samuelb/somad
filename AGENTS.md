@@ -28,7 +28,10 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   servers allowlisted via `internal/security/securitytest`, audio uses a
   fake `outputPlayer`.
 - Dependencies are vendored. After changing `go.mod`: `go mod tidy && go mod vendor`.
-- Linux builds need `libasound2-dev`; macOS needs nothing extra.
+- Builds need no C libraries. On Linux, oto talks to PulseAudio/PipeWire
+  in pure Go and falls back to ALSA, which it `dlopen`s at runtime
+  (`libasound.so.2`, via purego). Release builds keep `CGO_ENABLED=1` for
+  glibc's resolver (mDNS `.local` names for `--server`), not for audio.
 - lefthook (`lefthook.yml`) runs lint and race tests on pre-commit and
   pre-push. CI (`.github/workflows/ci.yml`) additionally runs `govulncheck`
   and fails below 60 % total coverage on the Linux job.

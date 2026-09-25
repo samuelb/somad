@@ -30,12 +30,14 @@
 
             nativeBuildInputs = [
               pkgs.installShellFiles
-            ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-              pkgs.pkg-config
             ];
-            buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
-              pkgs.alsa-lib
-            ];
+
+            # oto speaks PulseAudio natively and dlopens ALSA only as a
+            # fallback; nothing links against it, so the fallback needs
+            # alsa-lib on the binary's runpath to find libasound.so.2.
+            postFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+              patchelf --add-rpath ${pkgs.lib.makeLibraryPath [ pkgs.alsa-lib ]} $out/bin/soma
+            '';
 
             subPackages = [ "cmd/soma" ];
             ldflags = [
@@ -79,9 +81,6 @@
           default = pkgs.mkShell {
             packages = [
               pkgs.go
-            ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-              pkgs.alsa-lib
-              pkgs.pkg-config
             ];
           };
         }

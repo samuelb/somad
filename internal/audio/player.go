@@ -202,6 +202,8 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 				SampleRate:   sampleRate,
 				ChannelCount: 2,
 				Format:       oto.FormatSignedInt16LE,
+				// Names the stream in PulseAudio/PipeWire volume mixers.
+				ApplicationName: "Soma",
 			}
 			ctx, ready, err := oto.NewContext(op)
 			if err != nil {
