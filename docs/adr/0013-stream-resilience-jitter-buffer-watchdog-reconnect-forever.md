@@ -23,7 +23,9 @@ hiccup longer than the audio device's own small buffer was audible.
   own; a clean EOF means the server hung up."
 - Reconnection backs off exponentially to a one-minute cap and then
   retries forever. Only an explicit stop or a new play ends it. A missing
-  playlist is never retried, because reconnecting cannot conjure one up.
+  playlist is never retried, because reconnecting cannot conjure one up;
+  nor is a channel a catalog refresh dropped meanwhile, which stops with
+  the error shown (2026-09-25).
 - Each failure has exactly one reporting path, and the errors channel is
   lossy by design: it signals "currently unhealthy", it is not a log.
 

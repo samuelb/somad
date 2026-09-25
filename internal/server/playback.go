@@ -110,7 +110,16 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 	}
 	ch, ok := s.findChannelLocked(channelID)
 	if !ok {
-		return nil, s.snapshotLocked(), fmt.Errorf("unknown channel: %s", channelID)
+		err := fmt.Errorf("unknown channel: %s", channelID)
+		if !userInitiated {
+			// A catalog refresh dropped the channel while it was
+			// reconnecting: there is nothing left to retry against, so stop
+			// with the error shown instead of reconnecting forever (which
+			// also kept the idle timeout from ever firing).
+			gen := s.abandonSessionLocked(false)
+			return nil, s.failStreamLocked(gen, err, false), err
+		}
+		return nil, s.snapshotLocked(), err
 	}
 	if userInitiated && ch.ID == s.channelID &&
 		(s.status == protocol.StatusPlaying || s.status == protocol.StatusConnecting) {

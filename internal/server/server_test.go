@@ -303,6 +303,31 @@ func TestStreamDrop_KeepsRetryingUntilRecovery(t *testing.T) {
 	})
 }
 
+func TestStreamDrop_ChannelGoneFromCatalogStops(t *testing.T) {
+	prev := reconnectBaseDelay
+	reconnectBaseDelay = time.Millisecond
+	defer func() { reconnectBaseDelay = prev }()
+
+	s, player := newTestServer(t, Config{})
+	go s.watchPlayerErrors()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "dronezone"}))
+	// A catalog refresh drops the channel, then its stream drops too.
+	s.setCatalog(slices.DeleteFunc(testChannels(), func(ch channels.Channel) bool { return ch.ID == "dronezone" }))
+	player.errChan <- errors.New("stream read error")
+
+	// The reconnect has nothing to connect to: it must stop with the
+	// reason shown rather than stay reconnecting forever.
+	st := c.waitState("stopped", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusStopped
+	})
+	assert.Contains(t, st.StreamError, "unknown channel: dronezone")
+	time.Sleep(20 * time.Millisecond)
+	assert.Equal(t, protocol.StatusStopped, s.Snapshot().Status, "no further reconnect may follow")
+}
+
 func TestReconnectDelay_DoublesThenCaps(t *testing.T) {
 	assert.Equal(t, 2*time.Second, reconnectDelay(1))
 	assert.Equal(t, 4*time.Second, reconnectDelay(2))
