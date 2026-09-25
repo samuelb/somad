@@ -273,6 +273,40 @@ func TestParseStopInDuration(t *testing.T) {
 	}
 }
 
+func TestParseHistoryArgs(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		wantJSON  bool
+		wantLimit int
+		wantRest  []string
+		wantErr   string
+	}{
+		{name: "defaults", args: nil, wantLimit: historyDefaultLimit},
+		{name: "limit, json and channel", args: []string{"--json", "-n", "5", "groove"}, wantJSON: true, wantLimit: 5, wantRest: []string{"groove"}},
+		{name: "one entry", args: []string{"-n", "1"}, wantLimit: 1},
+		// The server reads a limit <= 0 as its default, so these would print
+		// a full page rather than nothing.
+		{name: "zero", args: []string{"-n", "0"}, wantErr: "at least 1"},
+		{name: "negative", args: []string{"-n", "-3"}, wantErr: "at least 1"},
+		{name: "two channels", args: []string{"groove", "drone"}, wantErr: "usage"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jsonOut, limit, rest, err := parseHistoryArgs(tt.args)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantJSON, jsonOut)
+			assert.Equal(t, tt.wantLimit, limit)
+			assert.ElementsMatch(t, tt.wantRest, rest)
+		})
+	}
+}
+
 func TestChannelListEntries_MarksFavorites(t *testing.T) {
 	payload := protocol.ChannelsPayload{
 		Channels: []channels.Channel{

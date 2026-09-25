@@ -786,15 +786,9 @@ const historyDefaultLimit = 20
 // many entries are shown. With --json, it prints the
 // []protocol.HistoryEntry result instead of the human-readable table.
 func runHistory(args []string) {
-	usage := "soma history [--json] [-n N] [channel-id-or-name]"
-	fs := flag.NewFlagSet("history", flag.ExitOnError)
-	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usage) }
-	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
-	n := fs.Int("n", historyDefaultLimit, "maximum number of entries to show")
-	_ = fs.Parse(args)
-	rest := fs.Args()
-	if len(rest) > 1 {
-		fail("usage: %s", usage)
+	jsonOut, n, rest, err := parseHistoryArgs(args)
+	if err != nil {
+		fail("%v", err)
 	}
 
 	c := ensureServer()
@@ -810,15 +804,34 @@ func runHistory(args []string) {
 		channelID = ch.ID
 	}
 
-	entries, err := c.History(channelID, *n)
+	entries, err := c.History(channelID, n)
 	if err != nil {
 		fail("%v", err)
 	}
-	if *jsonOut {
+	if jsonOut {
 		printJSON(entries)
 		return
 	}
 	fmt.Print(formatHistory(entries))
+}
+
+// parseHistoryArgs parses soma history's flags and its optional channel
+// argument. -n must be at least 1: the server reads a limit of 0 or less as
+// "use the default", so "-n 0" would print a full page instead of nothing.
+func parseHistoryArgs(args []string) (jsonOut bool, limit int, rest []string, err error) {
+	usage := "soma history [--json] [-n N] [channel-id-or-name]"
+	fs := flag.NewFlagSet("history", flag.ExitOnError)
+	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usage) }
+	j := fs.Bool("json", false, "print machine-readable JSON")
+	n := fs.Int("n", historyDefaultLimit, "maximum number of entries to show")
+	_ = fs.Parse(args)
+	if fs.NArg() > 1 {
+		return false, 0, nil, fmt.Errorf("usage: %s", usage)
+	}
+	if *n < 1 {
+		return false, 0, nil, fmt.Errorf("-n must be at least 1 (got %d)", *n)
+	}
+	return *j, *n, fs.Args(), nil
 }
 
 // formatHistory renders history entries as one line per entry: local time,
