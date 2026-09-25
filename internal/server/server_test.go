@@ -727,6 +727,27 @@ func TestToggleFavorite_PersistsAndBroadcasts(t *testing.T) {
 	assert.Equal(t, []string{"dronezone"}, persisted.FavoriteChannelIDs)
 }
 
+func TestToggleFavorite_UnfavoriteRestoresCatalogOrder(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	channelIDs := func() []string {
+		chs := s.ChannelsPayload().Channels
+		ids := make([]string, 0, len(chs))
+		for _, ch := range chs {
+			ids = append(ids, ch.ID)
+		}
+		return ids
+	}
+	original := channelIDs()
+
+	_, err := s.ToggleFavorite("bothformats")
+	require.NoError(t, err)
+	assert.Equal(t, "bothformats", channelIDs()[0])
+
+	_, err = s.ToggleFavorite("bothformats")
+	require.NoError(t, err)
+	assert.Equal(t, original, channelIDs(), "unfavoriting must put the channel back where the catalog has it")
+}
+
 func TestToggleFavorite_UnknownChannel(t *testing.T) {
 	s, _ := newTestServer(t, Config{})
 	c := connect(t, s)

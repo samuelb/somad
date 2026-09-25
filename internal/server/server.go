@@ -134,7 +134,8 @@ type Server struct {
 	lns              []net.Listener
 	conns            map[*conn]struct{}
 	closing          bool
-	catalog          []channels.Channel // favorites-first order
+	catalog          []channels.Channel // favorites-first view of fetchedCatalog
+	fetchedCatalog   []channels.Channel // as fetched; the order catalog is re-derived from
 	catalogErr       string             // load failure while the catalog is empty
 	status           string
 	channelID        string // active channel while not stopped
@@ -396,6 +397,7 @@ func (s *Server) refreshCatalog() {
 func (s *Server) setCatalog(chs []channels.Channel) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.fetchedCatalog = chs
 	s.catalog = sortChannelsWithFavorites(chs, s.st.FavoriteChannelIDs)
 	s.catalogErr = ""
 	s.broadcastChannelsLocked()
@@ -485,7 +487,9 @@ func (s *Server) ToggleFavorite(channelID string) ([]string, error) {
 	}
 	s.st.ToggleFavorite(channelID)
 	save := s.stageSaveLocked()
-	s.catalog = sortChannelsWithFavorites(s.catalog, s.st.FavoriteChannelIDs)
+	// From the catalog as fetched: re-sorting the already favorites-first
+	// view would keep an unfavorited channel at the top.
+	s.catalog = sortChannelsWithFavorites(s.fetchedCatalog, s.st.FavoriteChannelIDs)
 	s.broadcastChannelsLocked()
 	// Clone: the caller marshals this after the lock is released; handing out
 	// the live header would couple it to future mutations of s.st.
