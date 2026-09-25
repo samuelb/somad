@@ -110,7 +110,14 @@ _soma() {
             --tls-cert --tls-key --psk-file --gen-psk --insecure --show-cert" -- "$cur"))
         ;;
     lastfm)
-        COMPREPLY=($(compgen -W "login logout status" -- "$cur"))
+        # The action follows "lastfm" (at index i); only status takes a flag.
+        if ((i + 1 < COMP_CWORD)); then
+            if [[ "${COMP_WORDS[i + 1]}" == status ]]; then
+                COMPREPLY=($(compgen -W "--json" -- "$cur"))
+            fi
+        else
+            COMPREPLY=($(compgen -W "login logout status" -- "$cur"))
+        fi
         ;;
     completion)
         COMPREPLY=($(compgen -W "bash zsh" -- "$cur"))

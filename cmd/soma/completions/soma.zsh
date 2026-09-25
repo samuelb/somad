@@ -90,7 +90,13 @@ _soma() {
                 '1:channel:_soma_channels' && ret=0
             ;;
         lastfm)
-            _arguments '1:action:(login logout status)' && ret=0
+            _arguments -C \
+                '1:action:(login logout status)' \
+                '*::arg:->lastfm_args' && ret=0
+            # Only `soma lastfm status` takes a flag.
+            if [[ $state == lastfm_args && $words[1] == status ]]; then
+                _arguments '--json[print machine-readable JSON]' && ret=0
+            fi
             ;;
         daemon)
             _arguments \
