@@ -245,7 +245,8 @@ delegate and lipgloss styles.
 - `internal/atomicfile` — temp-file + rename writes used by state and
   cache, plus the shared `ReadJSON`/`WriteJSON`/`Quarantine` (corrupt
   machine-written files are moved aside, ADR 0012) and `CreateExclusive`
-  (create-only-if-missing, for the config template and generated PSK)
+  (create-only-if-missing via a synced temp file hard-linked into place,
+  for the config template and generated PSK)
 - `internal/xdg` — `ConfigDir`/`StateDir`/`CacheDir(app)`: shared base-directory
   resolution behind `$XDG_CONFIG_HOME`/`$XDG_STATE_HOME`/`$XDG_CACHE_HOME`
   (falling back to the conventional `~/Library/...` paths on macOS), used

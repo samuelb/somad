@@ -1,6 +1,8 @@
 package atomicfile
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,4 +53,67 @@ func TestWriteFile_MissingDirectoryFails(t *testing.T) {
 
 	err := WriteFile(path, []byte("hello"), 0o600)
 	assert.Error(t, err)
+}
+
+func TestCreateExclusive_CreatesCompleteFileAtPerm(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "psk")
+
+	created, err := CreateExclusive(path, 0o600, func(w io.Writer) error {
+		_, err := io.WriteString(w, "secret")
+		return err
+	})
+
+	require.NoError(t, err)
+	assert.True(t, created)
+	data, err := os.ReadFile(path) // #nosec G304 -- test temp path
+	require.NoError(t, err)
+	assert.Equal(t, "secret", string(data))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	assertOnlyEntry(t, path)
+}
+
+func TestCreateExclusive_NeverTouchesAnExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("mine"), 0o600))
+
+	created, err := CreateExclusive(path, 0o600, func(w io.Writer) error {
+		_, err := io.WriteString(w, "template")
+		return err
+	})
+
+	require.NoError(t, err)
+	assert.False(t, created)
+	data, err := os.ReadFile(path) // #nosec G304 -- test temp path
+	require.NoError(t, err)
+	assert.Equal(t, "mine", string(data))
+	assertOnlyEntry(t, path)
+}
+
+// A failed write must leave nothing behind: neither a partial file at path
+// (which would block the retry) nor a temp file.
+func TestCreateExclusive_FailedWriteLeavesNoFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "psk")
+
+	created, err := CreateExclusive(path, 0o600, func(w io.Writer) error {
+		_, _ = io.WriteString(w, "half")
+		return errors.New("boom")
+	})
+
+	require.Error(t, err)
+	assert.False(t, created)
+	entries, err := os.ReadDir(filepath.Dir(path))
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+// assertOnlyEntry checks that path is the only entry in its directory, i.e.
+// no temp file was left behind.
+func assertOnlyEntry(t *testing.T, path string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Dir(path))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, filepath.Base(path), entries[0].Name())
 }

@@ -26,6 +26,11 @@ flags. Settings needed a home that reaches auto-spawned daemons too.
   setting commented out, so parsing it yields the built-in defaults even
   after those change, a user's file is never clobbered, and concurrent
   spawns cannot race.
+  - *Amendment 2026-09-25.* `atomicfile.CreateExclusive` now writes and
+    syncs a temp file and hard-links it into place (a link fails on an
+    existing path, as `O_EXCL` did), then syncs the directory. The in-place
+    `O_EXCL` write could leave an empty file after a crash, which for a
+    generated PSK stopped the daemon until the file was deleted by hand.
 
 ## Consequences
 
