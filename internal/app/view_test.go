@@ -184,6 +184,44 @@ func TestFormatSleepRemaining(t *testing.T) {
 	}
 }
 
+func TestSleepTickDelay(t *testing.T) {
+	tests := []struct {
+		name string
+		d    time.Duration
+		want time.Duration // before sleepTickSlack
+	}{
+		{name: "on a whole minute", d: 42 * time.Minute, want: 30 * time.Second},
+		{name: "rounded up", d: 41*time.Minute + 40*time.Second, want: 10 * time.Second},
+		{name: "rounded down", d: 41*time.Minute + 20*time.Second, want: 50 * time.Second},
+		{name: "last minute shown", d: time.Minute + 10*time.Second, want: 10 * time.Second},
+		{name: "seconds", d: 30 * time.Second, want: 500 * time.Millisecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := sleepTickDelay(tt.d)
+			require.True(t, ok)
+			assert.Equal(t, tt.want+sleepTickSlack, got)
+		})
+	}
+
+	for _, d := range []time.Duration{400 * time.Millisecond, 0, -time.Second} {
+		_, ok := sleepTickDelay(d)
+		assert.False(t, ok, "%v: the label reads 0s and cannot change again", d)
+	}
+}
+
+func TestSleepTickDelay_LandsJustAfterEachLabelChange(t *testing.T) {
+	for d := time.Duration(0); d < 2*time.Hour; d += 7300 * time.Millisecond {
+		delay, ok := sleepTickDelay(d)
+		if !ok {
+			continue
+		}
+		label := formatSleepRemaining(d)
+		assert.NotEqual(t, label, formatSleepRemaining(d-delay), "%v: the label has changed by the tick", d)
+		assert.Equal(t, label, formatSleepRemaining(d-delay+2*sleepTickSlack), "%v: but not long before it", d)
+	}
+}
+
 func TestSleepTimerLabel_EmptyWhenNotSet(t *testing.T) {
 	assert.Empty(t, sleepTimerLabel(""))
 }

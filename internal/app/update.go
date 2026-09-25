@@ -52,7 +52,13 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 	case ServerStateMsg:
 		m.applySnapshot(msg.State)
-		return nil
+		return m.syncSleepTick()
+
+	case sleepTickMsg:
+		if msg.gen != m.sleepTickGen {
+			return nil // from a chain a newer deadline replaced
+		}
+		return m.sleepTick()
 
 	case ServerChannelsMsg:
 		m.applyChannels(msg.Payload)

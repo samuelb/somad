@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"time"
 
 	"somad/internal/client"
 	"somad/internal/protocol"
@@ -92,6 +93,12 @@ type HistoryMsg struct {
 	ChannelID string
 	Entries   []protocol.HistoryEntry
 	Err       error
+}
+
+// sleepTickMsg re-renders the status bar so the sleep-timer countdown moves.
+// gen is the tick chain that scheduled it; see syncSleepTick.
+type sleepTickMsg struct {
+	gen int
 }
 
 // opLoadChannels marks catalog fetches so Update can escalate a failure
@@ -199,6 +206,36 @@ func (m *Model) setVolumeCmd(v float64) tea.Cmd {
 // pre-mute level and restores it.
 func (m *Model) toggleMuteCmd() tea.Cmd {
 	return m.stateCmd("mute", Backend.ToggleMute)
+}
+
+// syncSleepTick keeps one tick chain running while a sleep timer is
+// pending, so the status bar countdown moves; call it after every new
+// snapshot. A new or changed deadline starts a fresh chain under a new gen,
+// and the ticks of the one it replaces are dropped, so chains never pile up.
+func (m *Model) syncSleepTick() tea.Cmd {
+	if m.Snapshot.StopAt == m.sleepTickStopAt {
+		return nil // the running chain (or none) already fits
+	}
+	m.sleepTickStopAt = m.Snapshot.StopAt
+	m.sleepTickGen++
+	return m.sleepTick()
+}
+
+// sleepTick schedules the current chain's next tick for when the countdown
+// label next changes: about once a minute, then every second in the last
+// minute. It returns nil, ending the chain, when no timer is pending or the
+// label has reached 0s.
+func (m *Model) sleepTick() tea.Cmd {
+	at, ok := parseStopAt(m.Snapshot.StopAt)
+	if !ok {
+		return nil
+	}
+	delay, ok := sleepTickDelay(time.Until(at))
+	if !ok {
+		return nil
+	}
+	gen := m.sleepTickGen
+	return tea.Tick(delay, func(time.Time) tea.Msg { return sleepTickMsg{gen: gen} })
 }
 
 // historyOverlayLimit is how many entries the history overlay asks for and

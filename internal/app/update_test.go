@@ -3,7 +3,9 @@ package app
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"somad/internal/protocol"
 	"somad/internal/ui"
@@ -726,6 +728,63 @@ func TestUpdate_ServerStateMsg_AppliesSnapshot(t *testing.T) {
 
 	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusConnecting, ChannelID: "dronezone", Volume: 0.7}})
 	assert.Empty(t, m.PlayingID, "the playing marker only shows for actually playing channels")
+}
+
+// sleepTimerState returns a playing snapshot with a sleep timer due in d.
+func sleepTimerState(d time.Duration) ServerStateMsg {
+	return ServerStateMsg{State: protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1,
+		StopAt: time.Now().Add(d).Format(time.RFC3339),
+	}}
+}
+
+func TestUpdate_SleepTimerCountdownTicks(t *testing.T) {
+	m := newTestModel(t)
+
+	// RFC 3339 drops the fraction, so the timer is due in 1–2 s and the
+	// label changes, and the first tick fires, within a second.
+	_, cmd := m.Update(sleepTimerState(2 * time.Second))
+	require.NotNil(t, cmd, "a pending timer starts a countdown tick")
+	tick := runCmd(cmd)
+	require.Equal(t, sleepTickMsg{gen: m.sleepTickGen}, tick)
+
+	// The tick lands just after the label changed, to 1s or 0s.
+	_, cmd = m.Update(tick)
+	if strings.Contains(m.RenderStatusBar(), "sleep in 0s") {
+		assert.Nil(t, cmd, "the chain ends once the label reads 0s")
+	} else {
+		assert.Contains(t, m.RenderStatusBar(), "sleep in 1s")
+		assert.NotNil(t, cmd, "the chain re-arms until the label reads 0s")
+	}
+}
+
+func TestUpdate_SleepTimerRunsOneTickChain(t *testing.T) {
+	m := newTestModel(t)
+	state := sleepTimerState(42 * time.Minute)
+
+	_, cmd := m.Update(state)
+	require.NotNil(t, cmd)
+	first := m.sleepTickGen
+
+	_, cmd = m.Update(state)
+	assert.Nil(t, cmd, "a snapshot with the same deadline starts no second chain")
+
+	_, cmd = m.Update(sleepTickMsg{gen: first})
+	assert.NotNil(t, cmd, "the chain re-arms while the timer is pending")
+
+	// A replaced deadline starts a new chain; the old one's ticks die out.
+	_, cmd = m.Update(sleepTimerState(10 * time.Minute))
+	require.NotNil(t, cmd)
+	assert.NotEqual(t, first, m.sleepTickGen)
+	_, cmd = m.Update(sleepTickMsg{gen: first})
+	assert.Nil(t, cmd, "a superseded chain stops")
+
+	// Cancelling the timer ends the countdown.
+	current := m.sleepTickGen
+	_, cmd = m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, Volume: 1}})
+	assert.Nil(t, cmd)
+	_, cmd = m.Update(sleepTickMsg{gen: current})
+	assert.Nil(t, cmd, "no timer, no ticks")
 }
 
 func TestUpdate_ServerChannelsMsg_LoadsCatalog(t *testing.T) {

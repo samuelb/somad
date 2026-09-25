@@ -41,6 +41,11 @@ type Model struct {
 	// pendingPlayID is a channel to play once the server has been restarted for
 	// a version upgrade and the reconnect has delivered a fresh backend.
 	pendingPlayID string
+	// sleepTickStopAt is the sleep-timer deadline (Snapshot.StopAt) the
+	// countdown tick chain was started for, and sleepTickGen that chain's
+	// number; ticks from older chains are dropped. See syncSleepTick.
+	sleepTickStopAt string
+	sleepTickGen    int
 
 	Loading bool
 	Err     error

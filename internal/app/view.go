@@ -121,16 +121,46 @@ func (m *Model) RenderStatusBar() string {
 
 // sleepTimerLabel renders the pending sleep-timer stop (protocol.
 // PlaybackState.StopAt, an RFC 3339 timestamp) as "sleep in 42m", or "" when
-// no timer is pending or the timestamp cannot be parsed.
+// no timer is pending or the timestamp cannot be parsed. Nothing else
+// re-renders while playback is quiet, so syncSleepTick keeps it current.
 func sleepTimerLabel(stopAt string) string {
-	if stopAt == "" {
-		return ""
-	}
-	at, err := time.Parse(time.RFC3339, stopAt)
-	if err != nil {
+	at, ok := parseStopAt(stopAt)
+	if !ok {
 		return ""
 	}
 	return formatSleepRemaining(time.Until(at))
+}
+
+// parseStopAt parses a protocol.PlaybackState.StopAt timestamp, reporting
+// false when no timer is pending or it cannot be parsed.
+func parseStopAt(stopAt string) (time.Time, bool) {
+	if stopAt == "" {
+		return time.Time{}, false
+	}
+	at, err := time.Parse(time.RFC3339, stopAt)
+	return at, err == nil
+}
+
+// sleepTickSlack is how far past a label change sleepTickDelay aims, so
+// the tick lands after the change rather than on it.
+const sleepTickSlack = 10 * time.Millisecond
+
+// sleepTickDelay returns how long until the formatSleepRemaining label for
+// a remaining d next changes, or false once it reads 0s and cannot change
+// again. The label rounds to the nearest minute, or second in the last
+// minute, so it changes half a unit below the value it shows (and at the
+// one-minute mark, where it switches to seconds).
+func sleepTickDelay(d time.Duration) (time.Duration, bool) {
+	unit, floor := time.Second, time.Duration(0)
+	if d >= time.Minute {
+		unit, floor = time.Minute, time.Minute
+	}
+	shown := d.Round(unit)
+	if shown <= 0 {
+		return 0, false
+	}
+	next := max(shown-unit/2, floor)
+	return d - next + sleepTickSlack, true
 }
 
 // formatSleepRemaining renders a duration until a pending sleep-timer stop
