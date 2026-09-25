@@ -1,6 +1,6 @@
 # ADR-0004: One daemon instance via a lock file; clients spawn it detached
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-09-25: clients act on the spawned daemon's exit status)
 - **Date:** 2026-07-05
 - **Sources:** 95fb723; `internal/server/spawnlock.go`, `internal/client/spawn.go`, `internal/protocol/socket.go`
 
@@ -29,5 +29,11 @@ stale socket file from a crashed daemon must not block the next start.
 ## Consequences
 
 - Concurrent auto-spawns are harmless by construction; tests rely on it.
+- The spawning client waits on the daemon's exit status (amended
+  2026-09-25), so the daemon must keep it meaningful: "already running"
+  exits 0, and the client spawns again a second later in case the lock
+  holder was only shutting down; any failure to start exits non-zero,
+  which ends the client's wait at once with the server log's tail instead
+  of re-spawning into the same failure until the 15 s timeout.
 - The Unix socket is trusted precisely because of the directory check, so
   that check must never be weakened.

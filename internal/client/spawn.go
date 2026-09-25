@@ -32,15 +32,17 @@ const (
 // so tests can shrink it.
 var spawnWait = 15 * time.Second
 
-// spawnRetryInterval is how often connectOrSpawn repeats the spawn while the
-// socket stays down. A freshly spawned daemon can lose the single-instance
-// lock to an old one still finishing its shutdown: the old daemon closes its
-// listeners first (which is what a client sees as "gone") and releases the
-// lock only after flushing state and waiting for pending Last.fm
-// submissions. The new daemon then exits at once with "already running",
-// and a single spawn would leave the client polling a dead socket for the
-// whole spawnWait. Repeating the spawn covers that gap, and any other early
-// exit, at no cost: concurrent spawns are safe by construction (ADR-0004).
+// spawnRetryInterval is how long after a spawn connectOrSpawn repeats it when
+// the spawned daemon exited cleanly without the socket coming up. A freshly
+// spawned daemon can lose the single-instance lock to an old one still
+// finishing its shutdown: the old daemon closes its listeners first (which
+// is what a client sees as "gone") and releases the lock only after flushing
+// state and waiting for pending Last.fm submissions. The new daemon then
+// exits at once with "already running" (status 0), and a single spawn would
+// leave the client polling a dead socket for the whole spawnWait. Repeating
+// the spawn covers that gap at no cost: concurrent spawns are safe by
+// construction (ADR-0004). A daemon that exits non-zero failed to start, and
+// a repeat would only fail the same way, so that ends the wait instead.
 // A variable so tests can shrink it.
 var spawnRetryInterval = time.Second
 
@@ -53,11 +55,14 @@ var restartWait = 5 * time.Second
 var spawnServer = SpawnServer
 
 // SpawnServer starts a detached `soma daemon` process using the current
-// executable, with its stderr appended to the server log file.
-func SpawnServer() error {
+// executable, with its stderr appended to the server log file. The returned
+// channel receives the process's exit (nil when clean) once it ends: a
+// daemon that cannot start exits non-zero, while one that finds another
+// already running exits cleanly.
+func SpawnServer() (<-chan error, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to locate executable: %w", err)
+		return nil, fmt.Errorf("failed to locate executable: %w", err)
 	}
 
 	// context.Background: the server must outlive us, so it is never cancelled.
@@ -73,9 +78,13 @@ func SpawnServer() error {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start soma daemon: %w", err)
+		return nil, fmt.Errorf("failed to start soma daemon: %w", err)
 	}
-	return cmd.Process.Release()
+	// Waiting rather than releasing the process reports a failed start the
+	// moment it happens, and reaps the daemon should it exit while we run.
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return exited, nil
 }
 
 // openServerLog opens the server log for appending, truncating it first
@@ -179,30 +188,39 @@ func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloR
 		// Remember where the log ends now, so a startup failure can quote
 		// exactly what the new server wrote.
 		logOffset := serverLogSize()
-		if err := spawnServer(); err != nil {
+		var exited <-chan error
+		if exited, err = spawnServer(); err != nil {
 			return nil, protocol.HelloResult{}, err
 		}
-		deadline := time.Now().Add(spawnWait)
-		nextSpawn := time.Now().Add(spawnRetryInterval)
+		lastSpawn := time.Now()
+		deadline := lastSpawn.Add(spawnWait)
+		running := true // the latest spawn has not exited yet
 		for {
 			c, err = DialEndpoint(ep)
 			if err == nil {
 				break
 			}
-			if now := time.Now(); now.After(nextSpawn) && now.Before(deadline) {
-				if err := spawnServer(); err != nil {
+			if running {
+				select {
+				case exitErr := <-exited:
+					if exitErr != nil {
+						return nil, protocol.HelloResult{}, withServerLog(
+							fmt.Errorf("soma daemon failed to start (%w)", exitErr), logOffset)
+					}
+					running = false
+				default:
+				}
+			}
+			now := time.Now()
+			if now.After(deadline) {
+				return nil, protocol.HelloResult{}, withServerLog(
+					fmt.Errorf("soma daemon did not come up on %s: %w", ep.Address, err), logOffset)
+			}
+			if !running && now.Sub(lastSpawn) >= spawnRetryInterval {
+				if exited, err = spawnServer(); err != nil {
 					return nil, protocol.HelloResult{}, err
 				}
-				nextSpawn = now.Add(spawnRetryInterval)
-			}
-			if time.Now().After(deadline) {
-				spawnErr := fmt.Errorf("soma daemon did not come up on %s: %w", ep.Address, err)
-				// The failure reason lives in the server's log; without it
-				// the user only learns "did not come up".
-				if tail := serverLogSince(logOffset); tail != "" {
-					spawnErr = fmt.Errorf("%w\nserver log:\n%s", spawnErr, tail)
-				}
-				return nil, protocol.HelloResult{}, spawnErr
+				lastSpawn, running = now, true
 			}
 			time.Sleep(dialRetryInterval)
 		}
@@ -311,6 +329,16 @@ func serverLogSize() int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+// withServerLog appends what the server logged after offset to a startup
+// error: the failure reason lives there, and without it the user only
+// learns that the daemon did not come up.
+func withServerLog(err error, offset int64) error {
+	if tail := serverLogSince(offset); tail != "" {
+		return fmt.Errorf("%w\nserver log:\n%s", err, tail)
+	}
+	return err
 }
 
 // serverLogSince returns what the server wrote to its log after offset,

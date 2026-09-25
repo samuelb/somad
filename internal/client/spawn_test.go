@@ -2,12 +2,14 @@ package client
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -126,11 +128,11 @@ func TestEnsureServer_SpawnFailureQuotesServerLog(t *testing.T) {
 	t.Cleanup(func() { spawnWait = prevWait })
 
 	prevSpawn := spawnServer
-	spawnServer = func() error {
-		// The "server" writes its dying words to the log and never binds
-		// the socket.
+	spawnServer = func() (<-chan error, error) {
+		// The "server" writes a complaint to the log, then hangs without
+		// ever binding the socket.
 		appendToServerLog(t, "error initializing the audio player: no device\n")
-		return nil
+		return nil, nil
 	}
 	t.Cleanup(func() { spawnServer = prevSpawn })
 
@@ -139,6 +141,44 @@ func TestEnsureServer_SpawnFailureQuotesServerLog(t *testing.T) {
 	assert.Contains(t, err.Error(), "did not come up")
 	assert.Contains(t, err.Error(), "server log:")
 	assert.Contains(t, err.Error(), "no device")
+}
+
+// exitedWith returns a spawnServer exit channel for a daemon that has
+// already exited with err (nil: cleanly).
+func exitedWith(err error) <-chan error {
+	ch := make(chan error, 1)
+	ch <- err
+	return ch
+}
+
+func TestEnsureServer_FailedStartEndsTheWaitAtOnce(t *testing.T) {
+	setLogDir(t)
+	path := testSocketPath(t)
+
+	prevInterval := spawnRetryInterval
+	spawnRetryInterval = 10 * time.Millisecond
+	t.Cleanup(func() { spawnRetryInterval = prevInterval })
+
+	prevSpawn := spawnServer
+	var spawns atomic.Int32
+	spawnServer = func() (<-chan error, error) {
+		// Like log.Fatalf in the daemon: one line in the log, exit status 1.
+		spawns.Add(1)
+		appendToServerLog(t, "refusing to serve 0.0.0.0:59999 without authentication\n")
+		return exitedWith(errors.New("exit status 1")), nil
+	}
+	t.Cleanup(func() { spawnServer = prevSpawn })
+
+	start := time.Now()
+	_, _, err := EnsureServer(UnixEndpoint(path), "dev")
+
+	// A daemon that fails to start would fail the same way again: neither
+	// wait out spawnWait nor re-spawn it, and quote its complaint once.
+	require.Error(t, err)
+	assert.Less(t, time.Since(start), spawnWait/2, "a failed start must end the wait at once")
+	assert.Equal(t, int32(1), spawns.Load(), "a daemon that failed to start must not be spawned again")
+	assert.Contains(t, err.Error(), "failed to start (exit status 1)")
+	assert.Equal(t, 1, strings.Count(err.Error(), "refusing to serve"), "the log tail must be quoted once")
 }
 
 // incompatibleHandler answers like a daemon from another soma version: it
@@ -194,7 +234,7 @@ func TestEnsureServer_LeavesProtocolSkewedServerRunning(t *testing.T) {
 
 	prev := spawnServer
 	spawned := false
-	spawnServer = func() error { spawned = true; return nil }
+	spawnServer = func() (<-chan error, error) { spawned = true; return nil, nil }
 	t.Cleanup(func() { spawnServer = prev })
 
 	_, _, err := EnsureServer(UnixEndpoint(path), "new")
@@ -224,9 +264,9 @@ func TestEnsureServerForPlayback_ReplacesProtocolSkewedServer(t *testing.T) {
 	terminated := startIncompatibleServer(t, path)
 
 	prev := spawnServer
-	spawnServer = func() error {
+	spawnServer = func() (<-chan error, error) {
 		startFakeServer(t, path, defaultHandler("new"))
-		return nil
+		return nil, nil
 	}
 	t.Cleanup(func() { spawnServer = prev })
 

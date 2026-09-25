@@ -17,7 +17,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0001](0001-playback-in-a-background-daemon.md) | Playback runs in a background daemon, shipped in one binary | Accepted |
 | [0002](0002-newline-delimited-json-with-full-snapshots.md) | Newline-delimited JSON with full-state snapshots and an exact protocol version | Accepted |
 | [0003](0003-tui-holds-no-playback-state.md) | The TUI holds no playback state of its own | Accepted |
-| [0004](0004-single-daemon-instance-and-detached-spawn.md) | One daemon instance via a lock file; clients spawn it detached | Accepted |
+| [0004](0004-single-daemon-instance-and-detached-spawn.md) | One daemon instance via a lock file; clients spawn it detached | Accepted (amended) |
 | [0005](0005-daemon-runs-until-stopped.md) | The daemon runs until stopped explicitly | Accepted (supersedes the two-minute default from 95fb723) |
 | [0006](0006-version-skew-restart-only-when-playback-is-interrupted.md) | Restart a version-skewed daemon only at moments that already interrupt playback | Accepted (amended) |
 | [0007](0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md) | The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK | Accepted |

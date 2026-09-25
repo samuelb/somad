@@ -303,13 +303,13 @@ func TestEnsureServer_SpawnsAndRetries(t *testing.T) {
 	path := testSocketPath(t)
 
 	prev := spawnServer
-	spawnServer = func() error {
+	spawnServer = func() (<-chan error, error) {
 		// The "server" comes up only after a delay, like a real spawn.
 		go func() {
 			time.Sleep(300 * time.Millisecond)
 			startFakeServer(t, path, defaultHandler("dev"))
 		}()
-		return nil
+		return nil, nil
 	}
 	t.Cleanup(func() { spawnServer = prev })
 
@@ -359,7 +359,7 @@ func TestEnsureServer_KeepsPlayingSkewedServer(t *testing.T) {
 
 	prev := spawnServer
 	spawned := false
-	spawnServer = func() error { spawned = true; return nil }
+	spawnServer = func() (<-chan error, error) { spawned = true; return nil, nil }
 	t.Cleanup(func() { spawnServer = prev })
 
 	c, hr, err := EnsureServer(UnixEndpoint(path), "new")
@@ -382,14 +382,15 @@ func TestEnsureServer_RespawnsWhenFirstSpawnLosesTheLockRace(t *testing.T) {
 
 	prev := spawnServer
 	var spawns atomic.Int32
-	spawnServer = func() error {
+	spawnServer = func() (<-chan error, error) {
 		// The old daemon stops listening before it releases its lock, so the
-		// first spawn finds the lock held and exits at once; nothing comes up.
+		// first spawn finds the lock held and exits cleanly at once ("already
+		// running"); nothing comes up.
 		if spawns.Add(1) == 1 {
-			return nil
+			return exitedWith(nil), nil
 		}
 		startFakeServer(t, path, defaultHandler("new"))
-		return nil
+		return nil, nil
 	}
 	t.Cleanup(func() { spawnServer = prev })
 
@@ -409,9 +410,9 @@ func TestEnsureServer_RestartsIdleSkewedServer(t *testing.T) {
 
 	played := make(chan string, 1)
 	prev := spawnServer
-	spawnServer = func() error {
+	spawnServer = func() (<-chan error, error) {
 		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", played)
-		return nil
+		return nil, nil
 	}
 	t.Cleanup(func() { spawnServer = prev })
 
@@ -435,9 +436,9 @@ func TestEnsureServerForPlayback_RestartsPlayingSkewedServer(t *testing.T) {
 
 	played := make(chan string, 1)
 	prev := spawnServer
-	spawnServer = func() error {
+	spawnServer = func() (<-chan error, error) {
 		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", played)
-		return nil
+		return nil, nil
 	}
 	t.Cleanup(func() { spawnServer = prev })
 
@@ -461,7 +462,7 @@ func TestEnsureServerForPlayback_DevClientNeverRestartsSkewedServer(t *testing.T
 
 	prev := spawnServer
 	spawned := false
-	spawnServer = func() error { spawned = true; return nil }
+	spawnServer = func() (<-chan error, error) { spawned = true; return nil, nil }
 	t.Cleanup(func() { spawnServer = prev })
 
 	c, hr, err := EnsureServerForPlayback(UnixEndpoint(path), "dev")
@@ -499,7 +500,7 @@ func TestEnsureServer_FallsBackWhenStaleServerWontExit(t *testing.T) {
 	t.Cleanup(func() { restartWait = prevRestartWait })
 
 	prev := spawnServer
-	spawnServer = func() error { return nil }
+	spawnServer = func() (<-chan error, error) { return nil, nil }
 	t.Cleanup(func() { spawnServer = prev })
 
 	// The user's command outranks the upgrade: instead of failing, the

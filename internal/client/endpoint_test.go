@@ -46,7 +46,7 @@ func TestEndpoint_IsLocalAndString(t *testing.T) {
 func TestEnsureServer_RemoteUnreachableNeverSpawns(t *testing.T) {
 	spawned := false
 	prev := spawnServer
-	spawnServer = func() error { spawned = true; return nil }
+	spawnServer = func() (<-chan error, error) { spawned = true; return nil, nil }
 	t.Cleanup(func() { spawnServer = prev })
 
 	ep := Endpoint{Network: "tcp", Address: unreachableTCPAddr(t)}
