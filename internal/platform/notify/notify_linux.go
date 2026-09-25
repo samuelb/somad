@@ -5,6 +5,8 @@ package notify
 import (
 	"sync"
 
+	"somad/internal/platform"
+
 	"github.com/godbus/dbus/v5"
 )
 
@@ -56,16 +58,7 @@ func (n *Notifier) Notify(title, body string) {
 	}
 
 	obj := n.conn.Object(notifyDest, dbus.ObjectPath(notifyPath))
-	call := obj.Call(notifyInterface+".Notify", 0,
-		"soma",                    // app_name
-		n.lastID,                  // replaces_id: 0, or the previous notification's id
-		"",                        // app_icon
-		title,                     // summary
-		body,                      // body
-		[]string{},                // actions
-		map[string]dbus.Variant{}, // hints
-		int32(-1),                 // expire_timeout: server default
-	)
+	call := obj.Call(notifyInterface+".Notify", 0, notifyArgs(n.lastID, title, body)...)
 	if call.Err != nil {
 		n.failures.log(call.Err)
 		return
@@ -76,4 +69,22 @@ func (n *Notifier) Notify(title, body string) {
 		return
 	}
 	n.lastID = id
+}
+
+// notifyArgs returns the arguments of an org.freedesktop.Notifications.Notify
+// call. title and body come from ICY metadata, which can carry any bytes,
+// but D-Bus strings must be valid UTF-8 and godbus refuses to send a message
+// that breaks this. That would lose the notification and use up the
+// one-time failure log, so invalid sequences are dropped here.
+func notifyArgs(replacesID uint32, title, body string) []any {
+	return []any{
+		"soma",                       // app_name
+		replacesID,                   // replaces_id: 0, or the previous notification's id
+		"",                           // app_icon
+		platform.SanitizeUTF8(title), // summary
+		platform.SanitizeUTF8(body),  // body
+		[]string{},                   // actions
+		map[string]dbus.Variant{},    // hints
+		int32(-1),                    // expire_timeout: server default
+	}
 }
