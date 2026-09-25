@@ -85,6 +85,10 @@ type Server struct {
 	// false); otherwise it coalesces desktop-notification requests off the
 	// hot path, see notify.go.
 	notifyPipe *notifyPipeline
+	// mprisVolume is the one-slot, latest-wins queue between MPRIS volume
+	// writes and the worker that applies them off the D-Bus callback, see
+	// mpris.go.
+	mprisVolume chan float64
 
 	// scrobbler is nil when Last.fm scrobbling is not configured; otherwise
 	// see lastfm.go. reloadLastfmSession backs the reloadLastfm RPC.
@@ -175,6 +179,7 @@ func New(cfg Config) *Server {
 		psk:         cfg.PSK,
 		quality:     cfg.Quality,
 		persist:     state.SaveState,
+		mprisVolume: make(chan float64, 1),
 		done:        make(chan struct{}),
 		conns:       make(map[*conn]struct{}),
 		status:      protocol.StatusStopped,
@@ -192,6 +197,7 @@ func New(cfg Config) *Server {
 	// MPRIS Play with no prior play in this process targets the last-played
 	// channel from the previous session.
 	s.channelID = cfg.State.LastSelectedChannelID
+	go s.applyMPRISVolumes()
 	if s.mpris != nil {
 		s.mpris.SetSender(mprisSender{s})
 		s.mpris.SetVolume(cfg.State.GetVolume())

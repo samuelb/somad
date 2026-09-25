@@ -1,7 +1,8 @@
 # ADR-0019: MPRIS and the system tray live in the daemon process
 
 - **Status:** Accepted
-- **Date:** 2026-02-05 (moved into the daemon 2026-07-05, tray 2026-07-07)
+- **Date:** 2026-02-05 (moved into the daemon 2026-07-05, tray 2026-07-07,
+  volume writes queued 2026-09-25)
 - **Sources:** d0a22e0, 95fb723, d1d33df, be4000e, a6f0d6f; `internal/platform`, `internal/server/mpris.go`
 
 ## Context
@@ -24,6 +25,13 @@ closed, which after ADR-0001 means they must belong to the daemon.
   block on the network; Shutdown likewise, to avoid deadlocking the
   dispatcher. MPRIS `Quit` performs a real shutdown since `CanQuit` is
   advertised.
+- MPRIS property-write callbacks never take the server lock synchronously
+  (2026-09-25). godbus runs the `Volume` property's write callback while
+  holding its property lock, and the server takes that lock (mirroring
+  state to MPRIS) while holding its own, so a synchronous `SetVolume` there
+  deadlocked the daemon. A volume write is handed to a single worker
+  through a one-slot, latest-wins queue instead, so a dragged slider still
+  ends on its last position.
 - Redundant tray Pause/Stop items were removed: `PlayPause` already tears
   down the stream when playing.
 
