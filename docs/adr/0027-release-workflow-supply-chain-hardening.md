@@ -41,6 +41,19 @@ it. No release artifact carried build provenance.
 - `prepare` now runs `govulncheck` (it previously only ran lint and tests),
   so a release can't ship a version the `vuln` CI job would have failed on
   a rebase-flavored branch.
+  - *Amendment 2026-09-25.* Tests, lint and govulncheck moved out of
+    `prepare` into a `verify` job with `contents: read` that `prepare`
+    needs: they execute third-party code (vendored packages' `init`, the
+    linters, a `go install`), which should not run next to a token that can
+    push to `main`. The jobs that hold `contents: write` check out with
+    `persist-credentials: false` and pass the token only to the one `git
+    push` that needs it. `ci.yml` got its missing workflow-level
+    `contents: read`.
+  - *Amendment 2026-09-25.* The tag is pushed right before the GitHub
+    Release is created, after packaging, checksums and attestation, so a
+    failure in any of those no longer leaves an orphan tag that blocks both
+    a re-run and a fresh dispatch. The tag step is idempotent: a re-run
+    finds its own tag at the release commit and carries on.
 
 ## Consequences
 

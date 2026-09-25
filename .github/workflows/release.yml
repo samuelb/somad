@@ -26,9 +26,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ---------------------------------------------------------------- Verify
+  # Tests, lint and govulncheck execute third-party code (every vendored
+  # package's init, the linters, a `go install`), so they run here with a
+  # read-only token rather than in prepare, which can push to the branch.
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install ALSA
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Run tests
+        run: go test -v -race ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.13.2
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          govulncheck ./...
+
   # ---------------------------------------------------------------- Prepare
   prepare:
     name: Prepare release
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,6 +76,9 @@ jobs:
           # Full history + tags: git-cliff derives the next version from
           # conventional commits since the last tag.
           fetch-depth: 0
+          # The write token is handed only to the push in "Bump version",
+          # not left in .git/config for every step to read.
+          persist-credentials: false
 
       - name: Compute next version and release notes
         id: cliff
@@ -76,26 +114,6 @@ jobs:
           path: release-notes.md
           if-no-files-found: error
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-
-      - name: Install ALSA
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-
-      - name: Run tests
-        run: go test -v -race ./...
-
-      - name: Lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
-        with:
-          version: v2.13.2
-
-      - name: govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
-          govulncheck ./...
-
       # Keep the version recorded in flake.nix in sync with the release. On a
       # dry run the bump is rendered and discarded; on a real run it is
       # committed to the branch and the release is cut from that commit.
@@ -103,6 +121,7 @@ jobs:
         id: bump
         env:
           VERSION: ${{ steps.cliff.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           scripts/bump-version.sh "${VERSION#v}"
           if git diff --quiet; then
@@ -114,7 +133,8 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git commit -am "Release $VERSION"
-            git push origin "HEAD:$GITHUB_REF_NAME"
+            auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            git -c http.extraheader="$auth" push origin "HEAD:$GITHUB_REF_NAME"
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -280,6 +300,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.sha }}
+          # The write token goes only to the tag push and the release step,
+          # not to nfpm or the staging scripts via .git/config.
+          persist-credentials: false
 
       - name: Download release notes
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -288,16 +311,6 @@ jobs:
 
       - name: Show release notes
         run: cat release-notes.md
-
-      - name: Create tag
-        if: inputs.dry_run == false
-        env:
-          TAG: ${{ needs.prepare.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -361,6 +374,30 @@ jobs:
           path: |
             dist/*
             release-notes.md
+
+      # The tag is pushed only once every artifact exists, so a failure in
+      # packaging or attestation leaves no orphan tag behind. Re-running the
+      # job after a failed publish finds its own tag and carries on.
+      - name: Create tag
+        if: inputs.dry_run == false
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing="$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)"
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$SHA" ]; then
+              echo "::error::Tag '$TAG' already exists at $existing, not $SHA"; exit 1
+            fi
+            echo "Tag $TAG already points at $SHA."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG" "$SHA"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth" push origin "refs/tags/$TAG"
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         if: inputs.dry_run == false
