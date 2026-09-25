@@ -2,11 +2,13 @@ package ui
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"somad/internal/channels"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -131,6 +133,40 @@ func TestDelegateRender_InvalidItem(t *testing.T) {
 	delegate.Render(&buf, l, 0, mockListItem{})
 
 	assert.Empty(t, buf.String())
+}
+
+// TestRenderHeader_ListenersAlignsWithRowCounts checks the right-aligned
+// "Listeners" header ends in the same column as the counts under it, for
+// every row style (selected, playing, normal) and both header titles.
+func TestRenderHeader_ListenersAlignsWithRowCounts(t *testing.T) {
+	// endCol returns the display column just past the last occurrence of
+	// sub in the first line of s containing it.
+	endCol := func(t *testing.T, s, sub string) int {
+		t.Helper()
+		for _, line := range strings.Split(ansi.Strip(s), "\n") {
+			if i := strings.LastIndex(line, sub); i >= 0 {
+				return ansi.StringWidth(line[:i+len(sub)])
+			}
+		}
+		t.Fatalf("%q not found in %q", sub, s)
+		return 0
+	}
+
+	for _, width := range []int{60, 80, 120} {
+		for _, favoritesOnly := range []bool{false, true} {
+			playingID := "dronezone"
+			l, delegate := newTestList(testChannels(), &playingID, func(int) bool { return false })
+			l.SetSize(width, 24)
+			header := endCol(t, RenderHeader(width, favoritesOnly), "Listeners")
+
+			for i, name := range []string{"selected", "playing", "normal"} {
+				var buf bytes.Buffer
+				delegate.Render(&buf, l, i, l.Items()[i])
+				assert.Equal(t, header, endCol(t, buf.String(), "♪"),
+					"width %d, favoritesOnly %v: header must end where the %s row's count does", width, favoritesOnly, name)
+			}
+		}
+	}
 }
 
 // mockListItem is a list.Item that is not our `Item` type.

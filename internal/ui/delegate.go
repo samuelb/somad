@@ -144,7 +144,10 @@ func RenderHeader(width int, favoritesOnly bool) string {
 	if favoritesOnly {
 		titleText += " · Favorites"
 	}
-	title := TitleStyle.Width(leftColWidth).Render(titleText)
+	// Width excludes margins, so TitleStyle's left margin comes out of the
+	// column here; otherwise the header sits that many cells right of the
+	// rows below it.
+	title := TitleStyle.Width(leftColWidth - TitleStyle.GetHorizontalMargins()).Render(titleText)
 	listenerHeader := listenerNormalStyle.Width(listenerColWidth).Render("Listeners")
 	return lipgloss.JoinHorizontal(lipgloss.Bottom, title, listenerHeader)
 }
