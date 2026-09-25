@@ -1,4 +1,4 @@
-// Copyright 2022 The Oto Authors
+// Copyright 2026 The Oto Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build nintendosdk
+//go:build darwin && !ios
 
-// The actual implementation will be provided by github.com/hajimehoshi/uwagaki.
+package oto
 
-#include <cstddef>
-
-typedef void (*oto_OnReadCallbackType)(float *buf, size_t length);
-
-extern "C" void oto_OpenAudio(int sample_rate, int channel_num,
-                              oto_OnReadCallbackType on_read_callback,
-                              int buffer_size_in_bytes) {}
+// setupSessionNotifications is a no-op on macOS: AVAudioSession does not exist there,
+// and AudioQueueStart does not fail with session activation errors.
+func setupSessionNotifications() {}
