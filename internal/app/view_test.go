@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"somad/internal/channels"
 	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -25,7 +27,7 @@ func TestRenderSearchBar_Active(t *testing.T) {
 	result := m.RenderSearchBar()
 
 	assert.Contains(t, result, "groove")
-	assert.Contains(t, result, "[1/1]")
+	assert.Contains(t, result, "1 of 1")
 }
 
 func TestRenderSearchBar_ActiveNoMatches(t *testing.T) {
@@ -49,7 +51,7 @@ func TestRenderSearchBar_InactiveWithQuery(t *testing.T) {
 	result := m.RenderSearchBar()
 
 	assert.Contains(t, result, "groove")
-	assert.Contains(t, result, "[1/1]")
+	assert.Contains(t, result, "1 of 1")
 	assert.Contains(t, result, "n/N navigate")
 }
 
@@ -63,89 +65,90 @@ func TestRenderSearchBar_InactiveNoQuery(t *testing.T) {
 	assert.Empty(t, result)
 }
 
-func TestRenderStatusBar_Stopped(t *testing.T) {
+func TestRenderNowPlaying_Stopped(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "Stopped")
 	assert.Contains(t, result, "■")
 }
 
-func TestRenderStatusBar_Connecting(t *testing.T) {
+func TestRenderNowPlaying_Connecting(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{
 		Status: protocol.StatusConnecting, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1,
 	})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "Connecting")
-	assert.Contains(t, result, "◌")
+	assert.Contains(t, result, ui.Spinner(0))
 	assert.Contains(t, result, "Groove Salad")
 }
 
-func TestRenderStatusBar_ShowsVolume(t *testing.T) {
+func TestRenderNowPlaying_ShowsVolume(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 0.85})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
-	assert.Contains(t, result, "♪ 85%")
+	assert.Contains(t, result, "vol")
+	assert.Contains(t, result, "85%")
 }
 
-func TestRenderStatusBar_Reconnecting(t *testing.T) {
+func TestRenderNowPlaying_Reconnecting(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{
 		Status: protocol.StatusReconnecting, ChannelID: "groovesalad", ChannelTitle: "Groove Salad",
 		ReconnectAttempt: 2, Volume: 1,
 	})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "Reconnecting #2")
-	assert.Contains(t, result, "↻")
+	assert.Contains(t, result, ui.Spinner(0))
 	assert.Contains(t, result, "Groove Salad")
 }
 
-func TestRenderStatusBar_Playing(t *testing.T) {
+func TestRenderNowPlaying_Playing(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{
 		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1,
 	})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "Playing")
 	assert.Contains(t, result, "▶")
 	assert.Contains(t, result, "Groove Salad")
 }
 
-func TestRenderStatusBar_WithTrackInfo(t *testing.T) {
+func TestRenderNowPlaying_WithTrackInfo(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{
 		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad",
 		TrackTitle: "Artist - Song", Volume: 1,
 	})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
-	assert.Contains(t, result, "Artist - Song")
+	assert.Contains(t, result, "Artist — Song", "artist and title split like MPRIS and Last.fm do")
 	assert.Contains(t, result, "♫")
 }
 
-func TestRenderStatusBar_WithStreamError(t *testing.T) {
+func TestRenderNowPlaying_WithStreamError(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, StreamError: "connection reset", Volume: 1})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "connection reset")
 	assert.Contains(t, result, "Stream error")
 }
 
-func TestRenderStatusBar_WrapsOnNarrowTerminals(t *testing.T) {
+func TestRenderNowPlaying_WrapsOnNarrowTerminals(t *testing.T) {
 	m := newTestModel(t)
 	m.Width = 30
 	m.applySnapshot(protocol.PlaybackState{
@@ -154,7 +157,7 @@ func TestRenderStatusBar_WrapsOnNarrowTerminals(t *testing.T) {
 		Volume:      1,
 	})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	// The renderer truncates overlong lines, so an unwrapped bar would clip
 	// exactly the error it exists to show; wrapping keeps the tail visible.
@@ -230,32 +233,32 @@ func TestSleepTimerLabel_EmptyOnMalformedTimestamp(t *testing.T) {
 	assert.Empty(t, sleepTimerLabel("not-a-timestamp"))
 }
 
-func TestRenderStatusBar_ShowsSleepTimer(t *testing.T) {
+func TestRenderNowPlaying_ShowsSleepTimer(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{
 		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1,
 		StopAt: time.Now().Add(42 * time.Minute).Format(time.RFC3339),
 	})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "sleep in 42m")
 }
 
-func TestRenderStatusBar_NoSleepTimerByDefault(t *testing.T) {
+func TestRenderNowPlaying_NoSleepTimerByDefault(t *testing.T) {
 	m := newTestModel(t)
 	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1})
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.NotContains(t, result, "sleep in")
 }
 
-func TestRenderStatusBar_ServerLost(t *testing.T) {
+func TestRenderNowPlaying_ServerLost(t *testing.T) {
 	m := newTestModel(t)
 	m.ServerLost = true
 
-	result := m.RenderStatusBar()
+	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "server connection lost")
 }
@@ -265,7 +268,8 @@ func TestRenderHeader_ContainsTitles(t *testing.T) {
 
 	result := m.RenderHeader()
 
-	assert.Contains(t, result, "SomaFM Stations")
+	assert.Contains(t, result, "SomaFM")
+	assert.Contains(t, result, "Stations · 3", "the channel count")
 	assert.Contains(t, result, "Listeners")
 }
 
@@ -315,24 +319,24 @@ func TestView_AboutFooter(t *testing.T) {
 	assert.Contains(t, result, "close")
 }
 
-func TestRenderHistoryFooter_Hidden(t *testing.T) {
+func TestRenderHistory_Hidden(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowHistory = false
 
-	assert.Empty(t, m.RenderHistoryFooter())
+	assert.Empty(t, m.RenderHistory())
 }
 
-func TestRenderHistoryFooter_NothingPlaying(t *testing.T) {
+func TestRenderHistory_NothingPlaying(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowHistory = true
 	m.HistoryChannelID = ""
 
-	result := m.RenderHistoryFooter()
+	result := m.RenderHistory()
 
 	assert.Contains(t, result, "Nothing is playing")
 }
 
-func TestRenderHistoryFooter_ContainsEntries(t *testing.T) {
+func TestRenderHistory_ContainsEntries(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowHistory = true
 	m.HistoryChannelID = "groovesalad"
@@ -342,34 +346,34 @@ func TestRenderHistoryFooter_ContainsEntries(t *testing.T) {
 		{Title: "Artist - Second Track"},
 	}
 
-	result := m.RenderHistoryFooter()
+	result := m.RenderHistory()
 
 	assert.Contains(t, result, "Groove Salad")
-	assert.Contains(t, result, "Artist - First Track")
-	assert.Contains(t, result, "Artist - Second Track")
+	assert.Contains(t, result, "Artist — First Track")
+	assert.Contains(t, result, "Artist — Second Track")
 	assert.Contains(t, result, "close")
 }
 
-func TestRenderHistoryFooter_Empty(t *testing.T) {
+func TestRenderHistory_Empty(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowHistory = true
 	m.HistoryChannelID = "groovesalad"
 	m.HistoryChannelTitle = "Groove Salad"
 	m.History = nil
 
-	result := m.RenderHistoryFooter()
+	result := m.RenderHistory()
 
 	assert.Contains(t, result, "No history yet")
 }
 
-func TestRenderHistoryFooter_Error(t *testing.T) {
+func TestRenderHistory_Error(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowHistory = true
 	m.HistoryChannelID = "groovesalad"
 	m.HistoryChannelTitle = "Groove Salad"
 	m.HistoryErr = assert.AnError
 
-	result := m.RenderHistoryFooter()
+	result := m.RenderHistory()
 
 	assert.Contains(t, result, "failed to load history")
 }
@@ -385,7 +389,7 @@ func TestView_HistoryFooter(t *testing.T) {
 
 	result := m.View()
 
-	assert.Contains(t, result, "Artist - Track")
+	assert.Contains(t, result, "Artist — Track")
 }
 
 // historyEntries returns n history entries for groovesalad, newest first.
@@ -397,36 +401,36 @@ func historyEntries(n int) []protocol.HistoryEntry {
 	return entries
 }
 
-func TestRenderHistoryFooter_ShowsOnlyTheNewestEntriesThatFit(t *testing.T) {
+func TestRenderHistory_ShowsOnlyTheNewestEntriesThatFit(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowHistory = true
 	m.HistoryChannelID = "groovesalad"
 	m.HistoryChannelTitle = "Groove Salad"
 	m.History = historyEntries(20)
 
-	result := m.RenderHistoryFooter()
+	result := m.RenderHistory()
 
 	limit := m.historyEntryLimit()
 	require.Positive(t, limit)
 	require.Less(t, limit, 20, "20 entries do not fit 24 lines")
-	assert.Equal(t, historyFooterLines+limit, lipgloss.Height(result))
+	assert.Equal(t, historyCardLines+limit, lipgloss.Height(result))
 	assert.Contains(t, result, fmt.Sprintf("latest %d of 20", limit), "the cut is announced")
-	// Footer lines are padded to the full width, hence the trailing space.
-	assert.Contains(t, result, "Artist - Track 1 ", "the newest entries are kept")
-	assert.Contains(t, result, fmt.Sprintf("Artist - Track %d ", limit))
-	assert.NotContains(t, result, fmt.Sprintf("Artist - Track %d ", limit+1))
+	// Card lines are padded to the full width, hence the trailing space.
+	assert.Contains(t, result, "Artist — Track 1 ", "the newest entries are kept")
+	assert.Contains(t, result, fmt.Sprintf("Artist — Track %d ", limit))
+	assert.NotContains(t, result, fmt.Sprintf("Artist — Track %d ", limit+1))
 }
 
-func TestRenderHistoryFooter_FlattensLineBreaksInTitles(t *testing.T) {
+func TestRenderHistory_FlattensLineBreaksInTitles(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowHistory = true
 	m.HistoryChannelID = "groovesalad"
 	m.History = []protocol.HistoryEntry{{Title: "Artist -\r\nTwo\nLines"}}
 
-	result := m.RenderHistoryFooter()
+	result := m.RenderHistory()
 
-	assert.Contains(t, result, "Artist - Two Lines")
-	assert.Equal(t, historyFooterLines+1, lipgloss.Height(result), "one line per entry")
+	assert.Contains(t, result, "Artist — Two Lines")
+	assert.Equal(t, historyCardLines+1, lipgloss.Height(result), "one line per entry")
 }
 
 func TestMinListHeight_HoldsTheList(t *testing.T) {
@@ -480,19 +484,22 @@ func TestView_NeverTallerThanTheWindow(t *testing.T) {
 			view := m.View()
 
 			assert.LessOrEqual(t, lipgloss.Height(view), 24)
-			assert.Contains(t, strings.Split(view, "\n")[1], "SomaFM Stations", "the header stays on screen")
+			assert.Contains(t, strings.Split(view, "\n")[1], "SomaFM", "the header stays on screen")
+			for _, line := range strings.Split(view, "\n") {
+				assert.LessOrEqual(t, lipgloss.Width(line), 80, "no line is wider than the window")
+			}
 		})
 	}
 }
 
-func TestRenderAboutFooter_Hidden(t *testing.T) {
+func TestRenderAbout_Hidden(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowAbout = false
 
-	assert.Empty(t, m.RenderAboutFooter())
+	assert.Empty(t, m.RenderAbout())
 }
 
-func TestRenderAboutFooter_ContainsVersionInfo(t *testing.T) {
+func TestRenderAbout_ContainsVersionInfo(t *testing.T) {
 	m := newTestModel(t)
 	m.ShowAbout = true
 	m.About = AboutInfo{
@@ -501,11 +508,174 @@ func TestRenderAboutFooter_ContainsVersionInfo(t *testing.T) {
 		Date:    "2024-06-19",
 	}
 
-	result := m.RenderAboutFooter()
+	result := m.RenderAbout()
 
 	assert.Contains(t, result, "2.0.0")
 	assert.Contains(t, result, "deadbeef")
 	assert.Contains(t, result, "2024-06-19")
 	assert.Contains(t, result, "MIT")
 	assert.Contains(t, result, "close")
+}
+
+func TestRenderNowPlaying_Stopped_InvitesToPlay(t *testing.T) {
+	m := newTestModel(t)
+
+	result := m.RenderNowPlaying()
+
+	assert.Contains(t, result, "Nothing playing")
+	assert.Contains(t, result, "press enter")
+}
+
+func TestRenderNowPlaying_TitleWithoutArtist(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad",
+		TrackTitle: "Station ID", Volume: 1,
+	})
+
+	assert.Contains(t, m.RenderNowPlaying(), "♫ Station ID")
+}
+
+func TestRenderNowPlaying_Muted(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 0})
+
+	assert.Contains(t, m.RenderNowPlaying(), "muted")
+}
+
+func TestRenderNowPlaying_FitsTheWidth(t *testing.T) {
+	for _, width := range []int{30, 60, 80, 140} {
+		m := newTestModel(t)
+		m.Width = width
+		m.applySnapshot(protocol.PlaybackState{
+			Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: strings.Repeat("Groove Salad ", 10),
+			TrackTitle: strings.Repeat("Artist ", 10) + "- " + strings.Repeat("Title ", 20), Volume: 0.5,
+			StopAt: time.Now().Add(time.Hour).Format(time.RFC3339),
+		})
+
+		for _, line := range strings.Split(m.RenderNowPlaying(), "\n") {
+			assert.LessOrEqual(t, lipgloss.Width(line), width, "width %d: %q", width, line)
+		}
+	}
+}
+
+func TestView_Loading_ShowsSpinner(t *testing.T) {
+	m := newTestModel(t)
+	m.Loading = true
+
+	assert.Contains(t, m.View(), ui.Spinner(0))
+}
+
+func TestView_EmptyFavorites(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'F'}})
+	view := m.View()
+
+	assert.Contains(t, view, "No favorites yet")
+	assert.Contains(t, view, "F shows all stations")
+	assert.LessOrEqual(t, lipgloss.Height(view), 24)
+}
+
+func TestView_SearchWithoutMatches(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("xyzzy")})
+	view := m.View()
+
+	assert.Contains(t, view, "No stations match “xyzzy”")
+	assert.Contains(t, view, "esc clears the search")
+}
+
+func TestRenderHeader_CountsTheView(t *testing.T) {
+	m := newTestModel(t)
+	m.Favorites = []string{"dronezone", "gone-from-the-catalog"}
+
+	assert.Contains(t, m.RenderHeader(), "Stations · 3")
+	m.FavoritesOnly = true
+	assert.Contains(t, m.RenderHeader(), "Favorites · 1", "favorites no longer in the catalog do not count")
+}
+
+func TestRenderHelp(t *testing.T) {
+	m := newTestModel(t)
+
+	short := m.RenderHelp()
+	assert.Equal(t, 1, lipgloss.Height(short))
+	assert.LessOrEqual(t, lipgloss.Width(short), 80)
+	assert.Contains(t, short, "enter play")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	full := m.RenderHelp()
+	assert.Greater(t, lipgloss.Height(full), 1, "? expands the help")
+	assert.Contains(t, full, "favorites-only view")
+	for _, line := range strings.Split(full, "\n") {
+		assert.LessOrEqual(t, lipgloss.Width(line), 80)
+	}
+}
+
+func TestView_TuningShowsInTheList(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	assert.Contains(t, m.View(), "Groove Salad  "+ui.Spinner(0)+" tuning in…")
+}
+
+// TestView_ShortWindowsKeepTheHeader checks that in windows too short for
+// the full chrome, spacing and the short help give way before the header
+// is pushed off the top.
+func TestView_ShortWindowsKeepTheHeader(t *testing.T) {
+	for _, height := range []int{9, 10, 12, 14, 24} {
+		m := newTestModel(t)
+		m.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+
+		view := m.View()
+
+		assert.LessOrEqual(t, lipgloss.Height(view), height, "height %d", height)
+		assert.Contains(t, strings.Join(strings.Split(view, "\n")[:2], "\n"), "SomaFM", "height %d", height)
+	}
+
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	assert.Contains(t, m.View(), "enter play", "a roomy window keeps the help")
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	view := m.View()
+	assert.Contains(t, view, "favorites-only view", "the full help fits 24 lines")
+	assert.LessOrEqual(t, lipgloss.Height(view), 24)
+}
+
+func TestView_HistoryWithNoRoomLeft(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 14})
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m.Update(HistoryMsg{ChannelID: "groovesalad", Entries: historyEntries(20)})
+
+	view := m.View()
+
+	assert.LessOrEqual(t, lipgloss.Height(view), 14)
+	assert.Contains(t, strings.Split(view, "\n")[0]+strings.Split(view, "\n")[1], "SomaFM")
+}
+
+func TestView_PaginationFitsTheWidth(t *testing.T) {
+	m := newTestModel(t)
+	many := make([]channels.Channel, 40)
+	for i := range many {
+		many[i] = channels.Channel{ID: fmt.Sprintf("c%d", i), Title: fmt.Sprintf("Channel %d", i), Listeners: "1"}
+	}
+	m.Update(ServerChannelsMsg{Payload: protocol.ChannelsPayload{Channels: many}})
+
+	// 40 pages of dots are 80 cells, plus the indent: too wide for 80.
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 14})
+	for _, line := range strings.Split(m.View(), "\n") {
+		assert.LessOrEqual(t, lipgloss.Width(line), 80)
+	}
+	assert.Contains(t, m.View(), "page 1 of")
+
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 14})
+	assert.NotContains(t, m.View(), "page 1 of", "dots where they fit")
 }

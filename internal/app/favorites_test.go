@@ -11,28 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIsFavorite_OutOfBounds(t *testing.T) {
-	m := newTestModel(t)
-
-	assert.False(t, m.IsFavorite(-1))
-	assert.False(t, m.IsFavorite(100))
-}
-
-func TestIsFavorite_NotFavorite(t *testing.T) {
-	m := newTestModel(t)
-
-	assert.False(t, m.IsFavorite(0))
-	assert.False(t, m.IsFavorite(1))
-}
-
-func TestIsFavorite_IsFavorite(t *testing.T) {
-	m := newTestModel(t)
-	m.Favorites = []string{"groovesalad"}
-
-	assert.True(t, m.IsFavorite(0))
-	assert.False(t, m.IsFavorite(1))
-}
-
 func TestToggleFavorite_AddsToFavorites(t *testing.T) {
 	m := newTestModel(t)
 

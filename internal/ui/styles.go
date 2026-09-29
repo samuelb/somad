@@ -17,66 +17,98 @@ var (
 	SearchMatchColor = lipgloss.AdaptiveColor{Light: "#7A6800", Dark: "#E6DB74"} // Yellow for search matches
 	TextColor        = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#FFFFFF"} // Primary text
 	MutedTextColor   = lipgloss.AdaptiveColor{Light: "#3D3D3D", Dark: "#CCCCCC"} // De-emphasized text
+	// Chrome: card borders, the unlit part of the volume gauge, and the
+	// text on the TitleColor badge in the header.
+	BorderColor   = lipgloss.AdaptiveColor{Light: "#B4B4B4", Dark: "#444444"} // Idle card borders
+	DimColor      = lipgloss.AdaptiveColor{Light: "#D2D2D2", Dark: "#333333"} // Unlit gauge cells
+	OnAccentColor = lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"} // Text on TitleColor
 )
 
 // Styles
 var (
-	TitleStyle = lipgloss.NewStyle().
+	// PillStyle is the "SomaFM" badge that opens the header.
+	PillStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(TitleColor).
-			MarginLeft(2)
+			Foreground(OnAccentColor).
+			Background(TitleColor).
+			Padding(0, 1)
 
-	StatusBarStyle = lipgloss.NewStyle().
-			Padding(0, 1).
-			MarginTop(1)
+	SectionStyle = lipgloss.NewStyle().Bold(true).Foreground(TextColor)
+	// FavoritesSectionStyle names the favorites-only view in the header.
+	FavoritesSectionStyle = lipgloss.NewStyle().Bold(true).Foreground(PrimaryColor)
+
+	SubtleStyle = lipgloss.NewStyle().Foreground(SubtleColor)
+	MutedStyle  = lipgloss.NewStyle().Foreground(MutedTextColor)
+	TextStyle   = lipgloss.NewStyle().Foreground(TextColor)
+	BoldStyle   = lipgloss.NewStyle().Foreground(TextColor).Bold(true)
+	ErrorStyle  = lipgloss.NewStyle().Foreground(ErrorColor)
+	AccentStyle = lipgloss.NewStyle().Foreground(PrimaryColor)
+	DimStyle    = lipgloss.NewStyle().Foreground(DimColor)
 
 	StatusPlayingStyle = lipgloss.NewStyle().
 				Foreground(PlayingColor).
 				Bold(true)
 
 	StatusStoppedStyle = lipgloss.NewStyle().
-				Foreground(SubtleColor)
+				Foreground(SubtleColor).
+				Bold(true)
 
 	StatusConnectingStyle = lipgloss.NewStyle().
 				Foreground(PrimaryColor).
 				Bold(true)
 
+	StatusErrorStyle = lipgloss.NewStyle().
+				Foreground(ErrorColor).
+				Bold(true)
+
+	// TrackInfoStyle renders a stream title that does not split into artist
+	// and title.
 	TrackInfoStyle = lipgloss.NewStyle().
-			Foreground(MutedTextColor).
+			Foreground(TextColor).
 			Italic(true)
 
 	LoadingStyle = lipgloss.NewStyle().
+			Foreground(MutedTextColor)
+
+	SpinnerStyle = lipgloss.NewStyle().
 			Foreground(PrimaryColor).
-			Bold(true).
-			Padding(2, 4)
+			Bold(true)
 
 	ErrorBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ErrorColor).
-			Foreground(ErrorColor).
-			Padding(1, 2).
-			MarginTop(2).
-			MarginLeft(2)
+			Padding(1, 3)
 
-	SearchBarStyle = lipgloss.NewStyle().
-			Foreground(SearchMatchColor).
-			MarginLeft(2)
+	// Search bar: the "/" prompt, the query, and the block cursor while
+	// typing.
+	SearchPromptStyle = lipgloss.NewStyle().Foreground(PrimaryColor).Bold(true)
+	SearchQueryStyle  = lipgloss.NewStyle().Foreground(SearchMatchColor)
+	SearchCursorStyle = lipgloss.NewStyle().Reverse(true)
 
-	// Footer styles (about and history footers under the status bar).
-	FooterSeparatorStyle = lipgloss.NewStyle().
-				Foreground(SubtleColor)
+	// Help bar keys and descriptions.
+	HelpKeyStyle  = lipgloss.NewStyle().Foreground(MutedTextColor)
+	HelpDescStyle = lipgloss.NewStyle().Foreground(SubtleColor)
+	HelpSepStyle  = lipgloss.NewStyle().Foreground(BorderColor)
 
-	FooterBodyStyle = lipgloss.NewStyle().
-			Foreground(SubtleColor).
-			Padding(0, 0, 0, 2)
+	// Pagination dots under the list.
+	ActiveDotStyle   = lipgloss.NewStyle().Foreground(PrimaryColor)
+	InactiveDotStyle = lipgloss.NewStyle().Foreground(BorderColor)
 
-	// List row styles. The delegate sets the width per render (the list can
-	// resize), so these carry everything but Width.
-	listenerNormalStyle   = lipgloss.NewStyle().Foreground(SubtleColor).Align(lipgloss.Right)
-	listenerSelectedStyle = lipgloss.NewStyle().Foreground(MutedTextColor).Align(lipgloss.Right)
-	listenerPlayingStyle  = lipgloss.NewStyle().Foreground(PlayingColor).Align(lipgloss.Right)
-	listenerMatchStyle    = lipgloss.NewStyle().Foreground(SearchMatchColor).Align(lipgloss.Right)
-	playingTitleStyle     = lipgloss.NewStyle().Foreground(PlayingColor).Padding(0, 0, 0, 2)
-	matchTitleStyle       = lipgloss.NewStyle().Foreground(SearchMatchColor).Padding(0, 0, 0, 2)
-	unselectedDescStyle   = lipgloss.NewStyle().Foreground(SubtleColor).Padding(0, 0, 0, 2)
+	// List row styles: title, genre, description and listener count per
+	// row state (normal, selected, playing), and the marks and tuning
+	// label drawn beside them.
+	normalTitleStyle   = lipgloss.NewStyle().Foreground(TextColor)
+	selectedTitleStyle = lipgloss.NewStyle().Foreground(PrimaryColor).Bold(true)
+	playingTitleStyle  = lipgloss.NewStyle().Foreground(PlayingColor).Bold(true)
+	matchStyle         = lipgloss.NewStyle().Foreground(SearchMatchColor).Bold(true).Underline(true)
+	genreStyle         = lipgloss.NewStyle().Foreground(SubtleColor)
+	normalDescStyle    = lipgloss.NewStyle().Foreground(SubtleColor)
+	selectedDescStyle  = lipgloss.NewStyle().Foreground(MutedTextColor)
+	selectBarStyle     = lipgloss.NewStyle().Foreground(PrimaryColor)
+	FavoriteStyle      = lipgloss.NewStyle().Foreground(TitleColor)
+	playingMarkStyle   = lipgloss.NewStyle().Foreground(PlayingColor)
+	countNormalStyle   = lipgloss.NewStyle().Foreground(SubtleColor)
+	countSelectedStyle = lipgloss.NewStyle().Foreground(MutedTextColor)
+	countPlayingStyle  = lipgloss.NewStyle().Foreground(PlayingColor)
+	tuningStyle        = lipgloss.NewStyle().Foreground(PrimaryColor)
 )

@@ -257,7 +257,7 @@ The daemon keeps running until `soma daemon stop` or the tray's *Quit* item. Set
 
 After an upgrade, the running daemon is restarted onto the new version the next time you change channel, pause or stop, never mid-song. If the upgrade changed the wire protocol, the old daemon cannot serve the new client at all: until then the other commands and the TUI fail with an error saying so (the music keeps playing), and `soma daemon stop` stops the old daemon right away.
 
-`soma stop --in 45m` arms a sleep timer instead of stopping right away; the daemon owns it, so it fires even if you close the TUI or the terminal, and a new `--in` replaces it. `soma stop --cancel` drops a pending timer without stopping. `soma status` and the TUI status line show “sleep in Nm” while one is pending.
+`soma stop --in 45m` arms a sleep timer instead of stopping right away; the daemon owns it, so it fires even if you close the TUI or the terminal, and a new `--in` replaces it. `soma stop --cancel` drops a pending timer without stopping. `soma status` and the TUI's now-playing card show “sleep in Nm” while one is pending.
 
 The server picks each channel's best stream quality by default; set `--quality` (or `server.quality`) to `highest`, `high`, or `low` to prefer a lower one, e.g. to save bandwidth — a channel lacking that exact quality falls back to the nearest one it has. SomaFM offers the lower qualities (`high`, about 64 kbps, and `low`, about 32 kbps) only as HE-AAC, which only the macOS build decodes; on Linux, which plays MP3, every channel stays at its highest quality.
 

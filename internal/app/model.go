@@ -10,7 +10,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 // AboutInfo holds version and metadata for the about screen.
@@ -41,6 +40,11 @@ type Model struct {
 	// pendingPlayID is a channel to play once the server has been restarted for
 	// a version upgrade and the reconnect has delivered a fresh backend.
 	pendingPlayID string
+	// requestedID is a channel the user just asked to play, marked as tuning
+	// in the list from the key press on, before the server answers. It is
+	// not playback state: the next snapshot (or a failed request) clears it,
+	// and from then on the snapshot says what is connecting.
+	requestedID string
 	// sleepTickStopAt is the sleep-timer deadline (Snapshot.StopAt) the
 	// countdown tick chain was started for, and sleepTickGen that chain's
 	// number; ticks from older chains are dropped. See syncSleepTick.
@@ -82,25 +86,37 @@ type Model struct {
 	// either allItems or a filtered subset of it (search and/or
 	// FavoritesOnly); see refreshVisibleItems in search.go.
 	allItems []list.Item
+	// matches holds, by channel ID, where the search query matched each
+	// visible channel, for the delegate to highlight; nil without a query.
+	matches map[string]textMatch
+
+	// frame counts animation ticks; the playing indicator and the spinners
+	// are drawn for it. animating is true while a tick chain is running;
+	// see syncAnim.
+	frame     int
+	animating bool
 }
 
-// Init requests the initial catalog and playback state from the server.
+// Init requests the initial catalog and playback state from the server,
+// and starts the loading spinner.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchChannels(), m.fetchStatus(), tea.EnterAltScreen)
+	return tea.Batch(m.fetchChannels(), m.fetchStatus(), tea.EnterAltScreen, m.syncAnim())
 }
 
 // NewList returns the channel list component for m, empty and unsized:
-// the styled delegate, and a help bar showing our keymap. The list's own
-// title and filter give way to RenderHeader and search, and its own quit
+// the styled delegate, dot pagination, and a help keymap showing ours. The
+// list's own title, status bar and help give way to RenderHeader,
+// RenderSearchBar and RenderHelp, its filter to search, and its own quit
 // keys (q, esc, ctrl+c) are disabled so every quit goes through quitCmd
 // and honors ShutdownOnExit. Set ShutdownOnExit first; the help reflects it.
 func (m *Model) NewList() list.Model {
-	delegate := ui.NewStyledDelegate(&m.PlayingID, m.IsMatch, m.IsFavorite)
+	delegate := ui.NewStyledDelegate(m.rowInfo, &m.frame)
 	l := list.New([]list.Item{}, delegate, 0, 0)
-	l.SetShowTitle(false)        // We render our own header with column titles
+	l.SetShowTitle(false)        // We render our own header
+	l.SetShowStatusBar(false)    // The header carries the channel count
+	l.SetShowHelp(false)         // RenderHelp draws it below the now-playing card
 	l.SetFilteringEnabled(false) // Disable filtering, we use search instead
 	l.DisableQuitKeybindings()
-	l.SetStatusBarItemName("channel", "channels")
 	// The bubbles default binds "h" to previous page; "h" is used for the
 	// history overlay instead (see the keymap in update.go), so drop it here
 	// rather than silently shadowing it with no help text to match.
@@ -108,8 +124,16 @@ func (m *Model) NewList() list.Model {
 		key.WithKeys("left", "pgup", "b", "u"),
 		key.WithHelp("←/pgup", "prev page"),
 	)
-	l.Styles.PaginationStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor)
-	l.Styles.HelpStyle = lipgloss.NewStyle().Foreground(ui.SubtleColor).Padding(0, 0, 0, 2)
+	l.Paginator.ActiveDot = ui.ActiveDotStyle.Render("● ")
+	l.Paginator.InactiveDot = ui.InactiveDotStyle.Render("● ")
+	l.Paginator.ArabicFormat = "page %d of %d"
+	l.Styles.PaginationStyle = ui.SubtleStyle.PaddingLeft(paginationIndent)
+	l.Styles.ArabicPagination = ui.SubtleStyle
+	// RenderHelp draws the short help itself (ui.ShortHelp); the full help
+	// is the list's.
+	l.Help.Styles.FullKey = ui.HelpKeyStyle
+	l.Help.Styles.FullDesc = ui.HelpDescStyle
+	l.Help.Styles.FullSeparator = ui.HelpSepStyle
 
 	fullHelp, shortHelp := NewHelpKeys(m.ShutdownOnExit)
 	l.AdditionalFullHelpKeys = func() []key.Binding {
@@ -119,6 +143,43 @@ func (m *Model) NewList() list.Model {
 		return shortHelp
 	}
 	return l
+}
+
+// rowInfo tells the delegate what the row for item shows beyond the
+// channel: the playing and favorite marks, whether it is tuning in, and
+// the search match.
+func (m *Model) rowInfo(_ int, item ui.Item) ui.RowInfo {
+	id := item.Channel.ID
+	match := m.matches[id]
+	info := ui.RowInfo{
+		Playing:      id != "" && id == m.PlayingID,
+		Favorite:     m.isFavoriteID(id),
+		TitleMatches: match.title,
+		DescMatches:  match.desc,
+	}
+	if id != "" && id == m.tuningID() {
+		info.Tuning = "tuning in…"
+		if m.Snapshot.Status == protocol.StatusReconnecting && id == m.Snapshot.ChannelID {
+			info.Tuning = "reconnecting…"
+		}
+	}
+	return info
+}
+
+// tuningID is the channel on its way to playing: one waiting for a
+// version-upgrade restart, one just asked for, or the one the server is
+// connecting or reconnecting to. The list marks it so a channel change
+// shows at once, while the old stream still plays and fades out.
+func (m *Model) tuningID() string {
+	switch {
+	case m.pendingPlayID != "":
+		return m.pendingPlayID
+	case m.requestedID != "":
+		return m.requestedID
+	case m.Snapshot.Status == protocol.StatusConnecting, m.Snapshot.Status == protocol.StatusReconnecting:
+		return m.Snapshot.ChannelID
+	}
+	return ""
 }
 
 // skewed reports whether the connected server runs a different version than the
@@ -140,6 +201,7 @@ func (m *Model) playingOrConnecting(id string) bool {
 func (m *Model) applySnapshot(st protocol.PlaybackState) {
 	m.Snapshot = st
 	m.RequestErr = ""
+	m.requestedID = ""
 	if st.Status == protocol.StatusPlaying {
 		m.PlayingID = st.ChannelID
 	} else {

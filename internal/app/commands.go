@@ -101,6 +101,9 @@ type sleepTickMsg struct {
 	gen int
 }
 
+// animTickMsg advances the spinners. See syncAnim.
+type animTickMsg struct{}
+
 // opLoadChannels marks catalog fetches so Update can escalate a failure
 // during the initial load to the full error screen.
 const opLoadChannels = "loading channels"
@@ -236,6 +239,44 @@ func (m *Model) sleepTick() tea.Cmd {
 	}
 	gen := m.sleepTickGen
 	return tea.Tick(delay, func(time.Time) tea.Msg { return sleepTickMsg{gen: gen} })
+}
+
+// animInterval is the time between animation frames.
+const animInterval = 120 * time.Millisecond
+
+// animates reports whether a spinner is on screen: loading, the server
+// connecting or reconnecting a stream, or the TUI reconnecting to the
+// server (which a version-upgrade restart also goes through). Playing and
+// stopped are still, so the tick chain does not run then.
+func (m *Model) animates() bool {
+	if m.Err != nil {
+		return false // the error screen replaces everything
+	}
+	if m.Loading || m.ServerLost {
+		return true
+	}
+	switch m.Snapshot.Status {
+	case protocol.StatusConnecting, protocol.StatusReconnecting:
+		return true
+	}
+	return false
+}
+
+// syncAnim starts the animation tick chain when something on screen
+// animates and no chain is running; call it wherever that can start. The
+// chain ends by itself at the first tick with nothing left to animate (see
+// Update), so an idle TUI never wakes up, and at most one chain runs.
+func (m *Model) syncAnim() tea.Cmd {
+	if m.animating || !m.animates() {
+		return nil
+	}
+	m.animating = true
+	return animTick()
+}
+
+// animTick schedules the next animation frame.
+func animTick() tea.Cmd {
+	return tea.Tick(animInterval, func(time.Time) tea.Msg { return animTickMsg{} })
 }
 
 // historyOverlayLimit is how many entries the history overlay asks for and

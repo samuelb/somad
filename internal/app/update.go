@@ -52,7 +52,15 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 	case ServerStateMsg:
 		m.applySnapshot(msg.State)
-		return m.syncSleepTick()
+		return tea.Batch(m.syncSleepTick(), m.syncAnim())
+
+	case animTickMsg:
+		m.frame++
+		if !m.animates() {
+			m.animating = false // the chain ends; syncAnim starts the next
+			return nil
+		}
+		return animTick()
 
 	case sleepTickMsg:
 		if msg.gen != m.sleepTickGen {
@@ -62,7 +70,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 	case ServerChannelsMsg:
 		m.applyChannels(msg.Payload)
-		return nil
+		// A catalog clears the error screen, behind which the playing
+		// indicator may have stopped.
+		return m.syncAnim()
 
 	case FavoritesMsg:
 		m.applyFavorites(msg.Favorites)
@@ -88,6 +98,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		m.RequestErr = fmt.Sprintf("%s failed: %v", msg.Op, msg.Err)
+		m.requestedID = "" // it may be the play that failed; snapshots say what tunes in
 		return nil
 
 	case RestartFailedMsg:
@@ -99,7 +110,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 	case ServerLostMsg:
 		m.ServerLost = true
-		return nil
+		return m.syncAnim()
 
 	case ServerReconnectedMsg:
 		return m.applyReconnect(msg)
@@ -168,6 +179,9 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if m.skewed() && !m.playingOrConnecting(id) {
 			m.pendingPlayID = id
 			return m.restartCmd(), true
+		}
+		if !m.playingOrConnecting(id) {
+			m.requestedID = id // mark it tuning until the server answers
 		}
 		return m.playCmd(id), true
 	case key.Matches(msg, keys.Stop):

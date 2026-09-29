@@ -19,7 +19,7 @@ func TestCommands_FailedRequestSurfacesInStatusBar(t *testing.T) {
 
 	m.Update(msg)
 	assert.Contains(t, m.RequestErr, "play failed")
-	assert.Contains(t, m.RenderStatusBar(), "play failed")
+	assert.Contains(t, m.RenderNowPlaying(), "play failed")
 
 	// The next successful snapshot clears the notice.
 	backend(m).callErr = nil

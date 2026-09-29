@@ -81,7 +81,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   commit. Rejected ideas get a record too. Which records cover what:
   - daemon lifecycle and spawning: 0001, 0004, 0005, 0006
   - wire protocol: 0002, 0018
-  - TUI: 0003, 0020, 0026
+  - TUI: 0003, 0020, 0026, 0033
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
   - config and persisted state: 0011, 0012
   - audio pipeline and formats: 0013–0017, 0028
@@ -230,7 +230,11 @@ signalled.
 (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no
 playback state; it renders the latest server snapshot and sends commands
 through its `Backend` interface (`commands.go`). `internal/ui` has the list
-delegate and lipgloss styles.
+delegate, the lipgloss styles, and the widgets the view is built from
+(`widgets.go`: `Card`, the spinner, the volume gauge, `ShortHelp`). One
+tick chain (`syncAnim` in `commands.go`) drives the spinners, and only
+while one is on screen; a channel asked to play is marked tuning in the
+list at once (`tuningID` in `model.go`) (ADR-0033).
 
 **Supporting packages**:
 - `internal/audio` — stream playback via oto: MP3 through go-mp3

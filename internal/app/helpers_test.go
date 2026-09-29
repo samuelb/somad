@@ -229,6 +229,31 @@ func backend(m *Model) *fakeBackend {
 	return m.Backend.(*fakeBackend)
 }
 
+// msgOf executes cmd synchronously, and every command of a batch it
+// returns, and returns the first message of type T; it fails the test when
+// there is none. Ticks block for their duration.
+func msgOf[T tea.Msg](t *testing.T, cmd tea.Cmd) T {
+	t.Helper()
+	var found []T
+	var run func(tea.Cmd)
+	run = func(c tea.Cmd) {
+		switch msg := runCmd(c).(type) {
+		case tea.BatchMsg:
+			for _, c := range msg {
+				run(c)
+			}
+		case T:
+			found = append(found, msg)
+		}
+	}
+	run(cmd)
+	if len(found) == 0 {
+		var zero T
+		t.Fatalf("no %T among the command's messages", zero)
+	}
+	return found[0]
+}
+
 // runCmd executes a tea.Cmd synchronously, returning its message.
 func runCmd(cmd tea.Cmd) tea.Msg {
 	if cmd == nil {

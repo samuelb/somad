@@ -745,15 +745,15 @@ func TestUpdate_SleepTimerCountdownTicks(t *testing.T) {
 	// label changes, and the first tick fires, within a second.
 	_, cmd := m.Update(sleepTimerState(2 * time.Second))
 	require.NotNil(t, cmd, "a pending timer starts a countdown tick")
-	tick := runCmd(cmd)
+	tick := msgOf[sleepTickMsg](t, cmd)
 	require.Equal(t, sleepTickMsg{gen: m.sleepTickGen}, tick)
 
 	// The tick lands just after the label changed, to 1s or 0s.
 	_, cmd = m.Update(tick)
-	if strings.Contains(m.RenderStatusBar(), "sleep in 0s") {
+	if strings.Contains(m.RenderNowPlaying(), "sleep in 0s") {
 		assert.Nil(t, cmd, "the chain ends once the label reads 0s")
 	} else {
-		assert.Contains(t, m.RenderStatusBar(), "sleep in 1s")
+		assert.Contains(t, m.RenderNowPlaying(), "sleep in 1s")
 		assert.NotNil(t, cmd, "the chain re-arms until the label reads 0s")
 	}
 }
@@ -917,4 +917,171 @@ func TestInit_FetchesChannelsAndStatus(t *testing.T) {
 
 	cmd := m.Init()
 	require.NotNil(t, cmd)
+}
+
+func TestUpdate_AnimationRunsOnlyWhileSomethingAnimates(t *testing.T) {
+	m := newTestModel(t)
+	connecting := ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusConnecting, ChannelID: "groovesalad", Volume: 1}}
+	playing := ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1}}
+	stopped := ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1}}
+
+	_, cmd := m.Update(stopped)
+	assert.Nil(t, cmd, "nothing animates while stopped")
+	_, cmd = m.Update(playing)
+	assert.Nil(t, cmd, "nor while playing")
+
+	_, cmd = m.Update(connecting)
+	require.NotNil(t, cmd, "connecting starts the spinner")
+	assert.True(t, m.animating)
+	_, cmd = m.Update(connecting)
+	assert.Nil(t, cmd, "one chain at a time")
+
+	frame := m.frame
+	_, cmd = m.Update(animTickMsg{})
+	assert.Equal(t, frame+1, m.frame, "a tick advances the frame")
+	assert.NotNil(t, cmd, "the chain re-arms while connecting")
+
+	m.Update(playing)
+	_, cmd = m.Update(animTickMsg{})
+	assert.Nil(t, cmd, "the chain ends once nothing animates")
+	assert.False(t, m.animating)
+
+	_, cmd = m.Update(connecting)
+	assert.NotNil(t, cmd, "and a new one starts with the next connect")
+}
+
+func TestUpdate_AnimationSpinsWhileConnectingAndLost(t *testing.T) {
+	for name, msg := range map[string]tea.Msg{
+		"connecting":   ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusConnecting, Volume: 1}},
+		"reconnecting": ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusReconnecting, Volume: 1}},
+		"server lost":  ServerLostMsg{},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newTestModel(t)
+
+			_, cmd := m.Update(msg)
+
+			assert.NotNil(t, cmd)
+			assert.True(t, m.animating)
+		})
+	}
+}
+
+func TestUpdate_AnimationStopsOnTheErrorScreen(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusConnecting, ChannelID: "groovesalad", Volume: 1}})
+
+	m.Update(ServerGoneMsg{Err: errors.New("gave up")})
+	_, cmd := m.Update(animTickMsg{})
+
+	assert.Nil(t, cmd, "the error screen has nothing to animate")
+}
+
+func TestUpdate_AnimationResumesWhenACatalogClearsTheErrorScreen(t *testing.T) {
+	m := newTestModel(t)
+	m.Loading = true
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusConnecting, ChannelID: "groovesalad", Volume: 1}})
+	m.Update(RequestErrorMsg{Op: opLoadChannels, Err: errors.New("timeout")})
+	m.Update(animTickMsg{}) // the error screen ends the chain
+	require.False(t, m.animating)
+
+	_, cmd := m.Update(ServerChannelsMsg{Payload: protocol.ChannelsPayload{Channels: testChannels()}})
+
+	assert.NotNil(t, cmd, "the spinner behind the error screen starts again")
+	assert.True(t, m.animating)
+}
+
+func TestInit_StartsTheLoadingSpinner(t *testing.T) {
+	m := newTestModel(t)
+	m.Loading = true
+
+	m.Init()
+
+	assert.True(t, m.animating)
+}
+
+func TestRowInfo(t *testing.T) {
+	m := newTestModel(t)
+	m.Favorites = []string{"dronezone"}
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "secretagent", Volume: 1})
+
+	assert.Equal(t, ui.RowInfo{}, m.rowInfo(0, item(t, m, "groovesalad")))
+	assert.Equal(t, ui.RowInfo{Favorite: true}, m.rowInfo(0, item(t, m, "dronezone")))
+	assert.Equal(t, ui.RowInfo{Playing: true}, m.rowInfo(0, item(t, m, "secretagent")))
+
+	m.SearchQuery = "groove"
+	m.UpdateSearchMatches()
+	assert.Equal(t, []int{0, 1, 2, 3, 4, 5}, m.rowInfo(0, item(t, m, "groovesalad")).TitleMatches,
+		"search matches are highlighted")
+
+	m.ClearSearch()
+	assert.Nil(t, m.rowInfo(0, item(t, m, "groovesalad")).TitleMatches, "and cleared with the search")
+}
+
+// item returns the model's catalog item for channel id.
+func item(t *testing.T, m *Model, id string) ui.Item {
+	t.Helper()
+	for _, it := range m.allItems {
+		if it.(ui.Item).Channel.ID == id {
+			return it.(ui.Item)
+		}
+	}
+	t.Fatalf("no channel %q", id)
+	return ui.Item{}
+}
+
+func TestUpdate_PlayMarksTheChannelTuningAtOnce(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1})
+	sendKey(m, 'j') // Drone Zone
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	assert.Equal(t, "tuning in…", m.rowInfo(0, item(t, m, "dronezone")).Tuning,
+		"marked on the key press, before the server answers")
+	assert.True(t, m.rowInfo(0, item(t, m, "groovesalad")).Playing, "the old channel plays on meanwhile")
+
+	// The server answers that it is connecting; the mark stays, now from
+	// the snapshot.
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusConnecting, ChannelID: "dronezone", Volume: 1}})
+	assert.Empty(t, m.requestedID)
+	assert.Equal(t, "tuning in…", m.rowInfo(0, item(t, m, "dronezone")).Tuning)
+	assert.False(t, m.rowInfo(0, item(t, m, "groovesalad")).Playing)
+
+	m.Update(runCmd(cmd)) // the fake backend is playing it now
+	info := m.rowInfo(0, item(t, m, "dronezone"))
+	assert.Empty(t, info.Tuning, "playing ends the tuning")
+	assert.True(t, info.Playing)
+}
+
+func TestUpdate_FailedPlayClearsTheTuningMark(t *testing.T) {
+	m := newTestModel(t)
+	backend(m).callErr = errors.New("boom")
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotEmpty(t, m.rowInfo(0, item(t, m, "groovesalad")).Tuning)
+	m.Update(runCmd(cmd))
+
+	assert.Empty(t, m.rowInfo(0, item(t, m, "groovesalad")).Tuning)
+	assert.Contains(t, m.RequestErr, "play failed")
+}
+
+func TestUpdate_PlayingTheCurrentChannelIsNotMarkedTuning(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1})
+
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // Groove Salad is selected
+
+	assert.Empty(t, m.rowInfo(0, item(t, m, "groovesalad")).Tuning, "the server keeps it playing")
+}
+
+func TestRowInfo_TuningDuringUpgradeRestartAndReconnect(t *testing.T) {
+	m := newTestModel(t)
+
+	m.pendingPlayID = "dronezone"
+	assert.Equal(t, "tuning in…", m.rowInfo(0, item(t, m, "dronezone")).Tuning, "queued behind a restart")
+
+	m.pendingPlayID = ""
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusReconnecting, ChannelID: "dronezone", Volume: 1})
+	assert.Equal(t, "reconnecting…", m.rowInfo(0, item(t, m, "dronezone")).Tuning)
 }

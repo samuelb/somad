@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"somad/internal/channels"
 
@@ -30,134 +31,169 @@ func (i Item) FilterValue() string { return i.Channel.Title }
 // Listeners returns the listener count for display.
 func (i Item) Listeners() string { return i.Channel.Listeners }
 
-// StyledDelegate is a custom delegate for styling list items.
+// RowInfo is what a row shows beyond its channel's own data.
+type RowInfo struct {
+	// Playing marks the channel the server is playing.
+	Playing bool
+	// Tuning, when set, is shown with a spinner after the title in place
+	// of the genre: the channel was just asked to play, or is connecting
+	// or reconnecting, and is not playing yet.
+	Tuning string
+	// Favorite marks a favorite channel.
+	Favorite bool
+	// TitleMatches and DescMatches are the rune indexes of the active
+	// search query's match in the title or description; nil when the row
+	// is not a match there. Title matches are highlighted, description
+	// matches only when they are one run of adjacent characters: a fuzzy
+	// match scattered across a sentence highlights noise.
+	TitleMatches, DescMatches []int
+}
+
+// StyledDelegate renders a channel as two rows: the title with its genre,
+// playing and favorite marks and the listener count, then the description.
 type StyledDelegate struct {
 	list.DefaultDelegate
-	PlayingID       *string
-	MatchChecker    func(int) bool // Function to check if index is a search match
-	FavoriteChecker func(int) bool // Function to check if index is a favorite
+	// Info reports what the row at index (into the list's items) shows
+	// beyond the channel itself; nil shows nothing extra.
+	Info func(index int, item Item) RowInfo
+	// Frame points at the animation frame the tuning spinner is drawn
+	// for; nil draws a still one.
+	Frame *int
 }
 
-// NewStyledDelegate creates a styled delegate for the list.
-func NewStyledDelegate(playingID *string, matchChecker func(int) bool, favoriteChecker func(int) bool) StyledDelegate {
+// NewStyledDelegate creates the channel list's delegate.
+func NewStyledDelegate(info func(int, Item) RowInfo, frame *int) StyledDelegate {
 	d := list.NewDefaultDelegate()
-
-	// Normal item styles
-	d.Styles.NormalTitle = lipgloss.NewStyle().
-		Foreground(TextColor).
-		Padding(0, 0, 0, 2)
-
-	d.Styles.NormalDesc = lipgloss.NewStyle().
-		Foreground(SubtleColor).
-		Padding(0, 0, 0, 2)
-
-	// Selected item styles
-	d.Styles.SelectedTitle = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(PrimaryColor).
-		Foreground(PrimaryColor).
-		Bold(true).
-		Padding(0, 0, 0, 1)
-
-	d.Styles.SelectedDesc = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(PrimaryColor).
-		Foreground(MutedTextColor).
-		Padding(0, 0, 0, 1)
-
-	return StyledDelegate{DefaultDelegate: d, PlayingID: playingID, MatchChecker: matchChecker, FavoriteChecker: favoriteChecker}
+	d.ShowDescription = true // two lines per row, with one line between rows
+	return StyledDelegate{DefaultDelegate: d, Info: info, Frame: frame}
 }
 
-// Render renders a list item with custom styling, including a playing indicator.
+// rowIndent is the space before a row's text: a margin column, the
+// selection bar, and the gap after it.
+const rowIndent = 3
+
+// Render renders a list item: selection bar, marks, title (search matches
+// highlighted), genre or tuning label, and listener count, then the
+// description below.
 func (d StyledDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
 	i, ok := listItem.(Item)
 	if !ok {
 		return
 	}
-
-	// Check if this item is currently playing
-	isPlaying := d.PlayingID != nil && *d.PlayingID == i.Channel.ID
+	var info RowInfo
+	if d.Info != nil {
+		info = d.Info(index, i)
+	}
 	isSelected := index == m.Index()
-	isMatch := d.MatchChecker != nil && d.MatchChecker(index)
-	isFavorite := d.FavoriteChecker != nil && d.FavoriteChecker(index)
 
-	// Build title with playing/favorite indicator
-	title := i.Title()
-	if isFavorite {
-		title = "♥ " + title
-	}
-	if isPlaying {
-		title = "▶ " + title
-	}
-
-	leftColWidth, listenerColWidth := CalculateColumnWidths(m.Width())
-	listeners := i.Listeners() + " ♪"
-	// Truncate description to prevent wrapping (content area is leftColWidth - 2 for padding)
-	desc := ansi.Truncate(i.Description(), leftColWidth-2, "…")
-
-	// Pick the (title, description, listener count) styles for the row's state.
-	var titleStyle, descStyle, listenerStyle lipgloss.Style
+	titleStyle, descStyle, countStyle := normalTitleStyle, normalDescStyle, countNormalStyle
 	switch {
 	case isSelected:
-		// Subtract 1 from width to account for left border character
-		titleStyle = d.Styles.SelectedTitle.Width(leftColWidth - 1)
-		descStyle = d.Styles.SelectedDesc.Width(leftColWidth - 1)
-		listenerStyle = listenerSelectedStyle
-	case isPlaying:
-		// Playing but not selected - show green indicator
-		titleStyle = playingTitleStyle.Width(leftColWidth)
-		descStyle = unselectedDescStyle.Width(leftColWidth)
-		listenerStyle = listenerPlayingStyle
-	case isMatch:
-		// Search match - highlight with match color
-		titleStyle = matchTitleStyle.Width(leftColWidth)
-		descStyle = unselectedDescStyle.Width(leftColWidth)
-		listenerStyle = listenerMatchStyle
-	default:
-		titleStyle = d.Styles.NormalTitle.Width(leftColWidth)
-		descStyle = d.Styles.NormalDesc.Width(leftColWidth)
-		listenerStyle = listenerNormalStyle
+		titleStyle, descStyle, countStyle = selectedTitleStyle, selectedDescStyle, countSelectedStyle
+	case info.Playing:
+		titleStyle, countStyle = playingTitleStyle, countPlayingStyle
 	}
-	titleStr := titleStyle.Render(title)
-	descStr := descStyle.Render(desc)
-	listenerStr := listenerStyle.Width(listenerColWidth).Render(listeners)
 
-	// Build two-column layout
-	// Title row with listener count
-	titleRow := lipgloss.JoinHorizontal(lipgloss.Top, titleStr, listenerStr)
-	// Description row (no listener count, just padding to align)
-	descRow := descStr
+	leftCol, listenerCol := CalculateColumnWidths(m.Width())
+	textWidth := leftCol - rowIndent
 
-	_, _ = fmt.Fprintf(w, "%s\n%s", titleRow, descRow)
+	// Marks go ahead of the title: the heart, then the playing mark.
+	var marks string
+	if info.Favorite {
+		marks += FavoriteStyle.Render("♥") + " "
+	}
+	if info.Playing {
+		marks += playingMarkStyle.Render("▶") + " "
+	}
+
+	// The title gets what the marks leave; the tuning label, or else the
+	// genre, whatever the title leaves, if that is enough to be worth
+	// showing.
+	room := textWidth - lipgloss.Width(marks)
+	title := ansi.Truncate(i.Channel.Title, max(room, 0), "…")
+	line := marks + highlight(title, info.TitleMatches, titleStyle)
+	rest := room - lipgloss.Width(title) - 2
+	switch genre := FormatGenre(i.Channel.Genre); {
+	case info.Tuning != "" && rest >= 3:
+		frame := 0
+		if d.Frame != nil {
+			frame = *d.Frame
+		}
+		line += "  " + ansi.Truncate(SpinnerStyle.Render(Spinner(frame))+" "+tuningStyle.Render(info.Tuning), max(rest, 0), "…")
+	case genre != "" && rest >= 6:
+		line += "  " + genreStyle.Render(ansi.Truncate(genre, rest, "…"))
+	}
+
+	count := i.Listeners()
+	listeners := strings.Repeat(" ", max(listenerCol-lipgloss.Width(count), 0)) + countStyle.Render(count)
+
+	// The description has the whole line, listener column included.
+	desc := ansi.Truncate(lineBreaks.Replace(i.Description()), textWidth+listenerCol, "…")
+
+	bar := " "
+	if isSelected {
+		bar = selectBarStyle.Render("┃")
+	}
+	prefix := " " + bar + " "
+	_, _ = fmt.Fprintf(w, "%s%s%s\n%s%s",
+		prefix, pad(line, textWidth), listeners,
+		prefix, highlight(desc, contiguous(info.DescMatches), descStyle))
 }
+
+// contiguous returns matches when they are one run of adjacent indexes,
+// else nil.
+func contiguous(matches []int) []int {
+	for i := 1; i < len(matches); i++ {
+		if matches[i] != matches[i-1]+1 {
+			return nil
+		}
+	}
+	return matches
+}
+
+// highlight renders s in style, the runes at the indexes in matches in the
+// search match style instead.
+func highlight(s string, matches []int, style lipgloss.Style) string {
+	if len(matches) == 0 {
+		return style.Render(s)
+	}
+	return lipgloss.StyleRunes(s, matches, matchStyle.Inherit(style), style)
+}
+
+// lineBreaks flattens line breaks to spaces, rune for rune, so search
+// match indexes into the raw text still line up.
+var lineBreaks = strings.NewReplacer("\n", " ", "\r", " ")
 
 const (
-	listenerColumnWidth = 12
+	listenerColumnWidth = 11
 	minLeftColumnWidth  = 20
+	// rightMargin is the blank column kept at the right edge.
+	rightMargin = 1
 )
 
-// RenderHeader renders the list header with column titles, aligned to the
-// same columns the delegate renders rows in.
-func RenderHeader(width int, favoritesOnly bool) string {
-	leftColWidth, listenerColWidth := CalculateColumnWidths(width)
-	titleText := "SomaFM Stations"
+// RenderHeader renders the title line above the list: the SomaFM badge,
+// the view's name and how many channels it holds, and the listener column
+// heading, aligned to the same columns the delegate renders rows in.
+func RenderHeader(width int, favoritesOnly bool, count int) string {
+	leftCol, listenerCol := CalculateColumnWidths(width)
+	section := SectionStyle.Render("Stations")
 	if favoritesOnly {
-		titleText += " · Favorites"
+		section += SubtleStyle.Render(" · ") + FavoritesSectionStyle.Render("Favorites")
 	}
-	// Width excludes margins, so TitleStyle's left margin comes out of the
-	// column here; otherwise the header sits that many cells right of the
-	// rows below it.
-	title := TitleStyle.Width(leftColWidth - TitleStyle.GetHorizontalMargins()).Render(titleText)
-	listenerHeader := listenerNormalStyle.Width(listenerColWidth).Render("Listeners")
-	return lipgloss.JoinHorizontal(lipgloss.Bottom, title, listenerHeader)
+	// The badge's padding puts its text in the same column as the row
+	// titles below it.
+	left := "  " + PillStyle.Render("SomaFM") + " " + section +
+		SubtleStyle.Render(fmt.Sprintf(" · %d", count))
+	heading := SubtleStyle.Render("Listeners")
+	return pad(ansi.Truncate(left, leftCol, "…"), leftCol) +
+		strings.Repeat(" ", max(listenerCol-lipgloss.Width(heading), 0)) + heading
 }
 
-// CalculateColumnWidths returns the left and listener column widths for a given total width.
+// CalculateColumnWidths returns the left and listener column widths for a
+// given total width. The left column includes the row indent; the two
+// together leave rightMargin blank at the right edge.
 func CalculateColumnWidths(totalWidth int) (leftCol, listenerCol int) {
 	listenerCol = listenerColumnWidth
-	leftCol = totalWidth - listenerCol - 4
-	if leftCol < minLeftColumnWidth {
-		leftCol = minLeftColumnWidth
-	}
+	leftCol = max(totalWidth-listenerCol-rightMargin, minLeftColumnWidth)
 	return
 }

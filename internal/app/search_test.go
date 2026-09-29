@@ -202,28 +202,6 @@ func TestClearSearch(t *testing.T) {
 	assert.Zero(t, m.matchCount())
 }
 
-func TestIsMatch(t *testing.T) {
-	m := newTestModel(t)
-	m.SearchQuery = "ambient"
-	m.UpdateSearchMatches()
-	n := m.matchCount()
-	require.GreaterOrEqual(t, n, 2, "test setup: need at least two matches")
-
-	// While a query is active the list holds only matches, so every visible
-	// row is one; out-of-range indices are not.
-	assert.True(t, m.IsMatch(0))
-	assert.True(t, m.IsMatch(n-1))
-	assert.False(t, m.IsMatch(n))
-	assert.False(t, m.IsMatch(-1))
-}
-
-func TestIsMatch_NoQuery(t *testing.T) {
-	m := newTestModel(t)
-
-	assert.False(t, m.IsMatch(0))
-	assert.False(t, m.IsMatch(1))
-}
-
 func TestFuzzyMatchItems_TitleRankedBeforeDescription(t *testing.T) {
 	items := []list.Item{
 		ui.Item{Channel: channels.Channel{ID: "a", Title: "Something Else", Description: "nothing relevant"}},
@@ -231,7 +209,7 @@ func TestFuzzyMatchItems_TitleRankedBeforeDescription(t *testing.T) {
 		ui.Item{Channel: channels.Channel{ID: "c", Title: "Unrelated Too", Description: "a zebra wanders by"}},
 	}
 
-	result := fuzzyMatchItems(items, "zebra")
+	result, where := fuzzyMatchItems(items, "zebra")
 
 	require.Len(t, result, 2)
 	first, ok := result[0].(ui.Item)
@@ -240,6 +218,23 @@ func TestFuzzyMatchItems_TitleRankedBeforeDescription(t *testing.T) {
 	second, ok := result[1].(ui.Item)
 	require.True(t, ok)
 	assert.Equal(t, "c", second.Channel.ID)
+
+	// Each is highlighted where it was ranked by: the title, else the
+	// description.
+	assert.Equal(t, textMatch{title: []int{0, 1, 2, 3, 4}}, where["b"])
+	assert.Equal(t, textMatch{desc: []int{2, 3, 4, 5, 6}}, where["c"])
+}
+
+func TestFuzzyMatchItems_MatchIndexesCountRunesNotBytes(t *testing.T) {
+	items := []list.Item{
+		ui.Item{Channel: channels.Channel{ID: "a", Title: "Café Zébra"}},
+	}
+
+	_, where := fuzzyMatchItems(items, "zbra")
+
+	// "é" is two bytes: the byte offsets fuzzy reports are 6, 9, 10, 11,
+	// but the runes are at 5, 7, 8, 9.
+	assert.Equal(t, []int{5, 7, 8, 9}, where["a"].title)
 }
 
 func TestFuzzyMatchItems_CaseInsensitive(t *testing.T) {
@@ -247,7 +242,7 @@ func TestFuzzyMatchItems_CaseInsensitive(t *testing.T) {
 		ui.Item{Channel: channels.Channel{ID: "a", Title: "Groove Salad"}},
 	}
 
-	result := fuzzyMatchItems(items, "GROOVE")
+	result, _ := fuzzyMatchItems(items, "GROOVE")
 
 	assert.Len(t, result, 1)
 }
@@ -257,5 +252,8 @@ func TestFuzzyMatchItems_NoMatch(t *testing.T) {
 		ui.Item{Channel: channels.Channel{ID: "a", Title: "Groove Salad"}},
 	}
 
-	assert.Empty(t, fuzzyMatchItems(items, "xyzzy"))
+	result, where := fuzzyMatchItems(items, "xyzzy")
+
+	assert.Empty(t, result)
+	assert.Empty(t, where)
 }

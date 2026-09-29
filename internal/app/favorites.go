@@ -9,18 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// IsFavorite returns true if the item at the given index is a favorite.
-func (m *Model) IsFavorite(idx int) bool {
-	items := m.List.Items()
-	if idx < 0 || idx >= len(items) {
-		return false
-	}
-	if i, ok := items[idx].(ui.Item); ok {
-		return m.isFavoriteID(i.Channel.ID)
-	}
-	return false
-}
-
 func (m *Model) isFavoriteID(id string) bool {
 	return slices.Contains(m.Favorites, id)
 }

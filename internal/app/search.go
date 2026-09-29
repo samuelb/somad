@@ -38,8 +38,9 @@ func (m *Model) refreshVisibleItems(keepID string) {
 		})
 	}
 
+	m.matches = nil
 	if m.SearchQuery != "" {
-		items = fuzzyMatchItems(items, m.SearchQuery)
+		items, m.matches = fuzzyMatchItems(items, m.SearchQuery)
 	}
 	m.List.SetItems(items)
 	// Keep the cursor on the channel that was selected before this refresh
@@ -79,27 +80,66 @@ func (s itemFieldSource) String(i int) string {
 
 func (s itemFieldSource) Len() int { return len(s.items) }
 
+// textMatch is where a search query matched a channel, as rune indexes
+// into its title or description, for the delegate to highlight. Only the
+// field the channel was ranked by is set: the title when it matched there,
+// else the description.
+type textMatch struct {
+	title, desc []int
+}
+
 // fuzzyMatchItems returns the items whose title or description fuzzy-match
 // query, ordered by match quality: all title matches first (best score
-// first), then any description-only matches (best score first). Matching is
-// case-insensitive; github.com/sahilm/fuzzy folds case internally.
-func fuzzyMatchItems(items []list.Item, query string) []list.Item {
+// first), then any description-only matches (best score first), and where
+// each matched by channel ID. Matching is case-insensitive;
+// github.com/sahilm/fuzzy folds case internally.
+func fuzzyMatchItems(items []list.Item, query string) ([]list.Item, map[string]textMatch) {
 	titleMatches := fuzzy.FindFrom(query, itemFieldSource{items, func(c channels.Channel) string { return c.Title }})
 	descMatches := fuzzy.FindFrom(query, itemFieldSource{items, func(c channels.Channel) string { return c.Description }})
 
 	seen := make(map[int]bool, len(titleMatches)+len(descMatches))
 	out := make([]list.Item, 0, len(titleMatches)+len(descMatches))
-	for _, mtc := range titleMatches {
-		if !seen[mtc.Index] {
-			seen[mtc.Index] = true
-			out = append(out, items[mtc.Index])
+	where := make(map[string]textMatch, len(titleMatches)+len(descMatches))
+	add := func(mtc fuzzy.Match, inTitle bool) {
+		if seen[mtc.Index] {
+			return
+		}
+		seen[mtc.Index] = true
+		out = append(out, items[mtc.Index])
+		it, _ := items[mtc.Index].(ui.Item)
+		runes := runeIndexes(mtc.Str, mtc.MatchedIndexes)
+		if inTitle {
+			where[it.Channel.ID] = textMatch{title: runes}
+		} else {
+			where[it.Channel.ID] = textMatch{desc: runes}
 		}
 	}
+	for _, mtc := range titleMatches {
+		add(mtc, true)
+	}
 	for _, mtc := range descMatches {
-		if !seen[mtc.Index] {
-			seen[mtc.Index] = true
-			out = append(out, items[mtc.Index])
+		add(mtc, false)
+	}
+	return out, where
+}
+
+// runeIndexes converts byte offsets into s, as github.com/sahilm/fuzzy
+// reports matches, to the rune indexes lipgloss.StyleRunes highlights by.
+func runeIndexes(s string, byteOffsets []int) []int {
+	if len(byteOffsets) == 0 {
+		return nil
+	}
+	want := make(map[int]bool, len(byteOffsets))
+	for _, b := range byteOffsets {
+		want[b] = true
+	}
+	out := make([]int, 0, len(byteOffsets))
+	i := 0
+	for b := range s {
+		if want[b] {
+			out = append(out, i)
 		}
+		i++
 	}
 	return out
 }
@@ -133,11 +173,4 @@ func (m *Model) ClearSearch() {
 	m.Searching = false
 	m.SearchQuery = ""
 	m.refreshVisibleItems(selectedID)
-}
-
-// IsMatch reports whether the row at idx (into m.List.Items()) is a search
-// match, for the delegate's highlighting. While a query is active the list
-// holds only matches, so every visible row is one.
-func (m *Model) IsMatch(idx int) bool {
-	return idx >= 0 && idx < m.matchCount()
 }

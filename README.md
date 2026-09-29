@@ -261,7 +261,7 @@ session back up, or use `soma stop` to silence it. `soma stop --in 45m` arms
 a sleep timer instead: the daemon stops playback after that long on its own,
 so it fires even if you close the TUI or the terminal in the meantime;
 `soma stop --in <duration>` again replaces it, and `soma stop --cancel` drops
-it without stopping playback. `soma status` (and the TUI status line) shows
+it without stopping playback. `soma status` (and the TUI's now-playing card) shows
 "sleep in Nm" while one is pending. If you'd rather have
 quitting take everything down, start the TUI with `soma --shutdown-on-exit`
 (or set `tui.shutdown_on_exit: true` in the
