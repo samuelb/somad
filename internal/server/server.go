@@ -159,6 +159,8 @@ type Server struct {
 	saveSeq          uint64 // bumped per state mutation; orders persist writes
 	reconnectTimer   *time.Timer
 	idleTimer        *time.Timer
+	// spectrumRunning is true while spectrumLoop runs; see spectrum.go.
+	spectrumRunning bool
 
 	// connectErr and connectTitle hold what the player reported for the
 	// current generation while the server still said connecting: a session

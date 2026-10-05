@@ -46,6 +46,11 @@ extra:
       text: >-
         Opt in with `soma daemon --notify` for a notification on every track
         change, fired from the daemon so it works with the TUI closed.
+    - title: Spectrum visualizer
+      text: >-
+        Press <kbd>v</kbd> for cava-style bars behind the channel list, drawn
+        from the audio the daemon is actually playing, even over a remote
+        connection.
     - title: Now-playing history
       text: >-
         Browse recent titles for a channel with `soma history` or the TUI's
@@ -243,6 +248,7 @@ Every command works without the TUI, which makes them handy for scripts, keybind
 | <kbd>c</kbd> | Clear the search |
 | <kbd>a</kbd> | About |
 | <kbd>h</kbd> | Show recent now-playing history for the playing channel |
+| <kbd>v</kbd> | Toggle the spectrum visualizer behind the channel list |
 | <kbd>Esc</kbd> | Close the about screen / history overlay, else cancel or clear the search (never quits) |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd> | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
 

@@ -514,3 +514,48 @@ func TestEnsureServer_FallsBackWhenStaleServerWontExit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, protocol.StatusStopped, st.Status)
 }
+
+func TestClient_SpectrumSubscribeAndFrames(t *testing.T) {
+	path := testSocketPath(t)
+	var bands atomic.Int64
+	startFakeServer(t, path, func(req protocol.Request, send func(v any)) {
+		if req.Method != protocol.MethodSpectrum {
+			defaultHandler("dev")(req, send)
+			return
+		}
+		var p protocol.SpectrumParams
+		_ = json.Unmarshal(req.Params, &p)
+		bands.Store(int64(p.Bands))
+		send(protocol.Response{ID: req.ID, Result: json.RawMessage(`{}`)})
+		// A burst of frames: only the newest waits on Spectrum, and none
+		// of them crowds the state snapshot behind it out of Events.
+		for i := range 40 {
+			ev, _ := protocol.NewEvent(protocol.EventSpectrum, protocol.SpectrumEvent{Levels: []byte{byte(i), 7}})
+			send(ev)
+		}
+		st, _ := protocol.NewEvent(protocol.EventState, protocol.PlaybackState{Status: protocol.StatusPlaying})
+		send(st)
+	})
+
+	c, err := Dial(path)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	_, err = c.Hello("dev")
+	require.NoError(t, err)
+
+	require.NoError(t, c.SubscribeSpectrum(6))
+	assert.EqualValues(t, 6, bands.Load())
+
+	select {
+	case ev := <-c.Events():
+		assert.Equal(t, protocol.StatusPlaying, ev.(protocol.PlaybackState).Status)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no state event")
+	}
+	select {
+	case levels := <-c.Spectrum():
+		assert.Equal(t, []byte{39, 7}, levels, "the newest frame")
+	case <-time.After(5 * time.Second):
+		t.Fatal("no spectrum frame")
+	}
+}

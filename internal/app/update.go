@@ -36,7 +36,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
-		return nil
+		return m.syncSpectrum() // a band per bar, and the bars fit the width
 
 	case tea.MouseMsg:
 		// The vendored bubbles/list does not handle mouse events itself, so
@@ -108,8 +108,18 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.RequestErr = fmt.Sprintf("server restart failed: %v", msg.Err)
 		return nil
 
+	case SpectrumMsg:
+		if m.Visualizer {
+			m.viz.Update(msg.Levels)
+		}
+		return nil
+
+	case spectrumSubscribedMsg:
+		return m.applySpectrumSubscribed(msg)
+
 	case ServerLostMsg:
 		m.ServerLost = true
+		m.viz.Reset() // no frames come until the reconnect
 		return m.syncAnim()
 
 	case ServerReconnectedMsg:
@@ -206,6 +216,10 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true
 	case key.Matches(msg, keys.History):
 		return m.toggleHistory(), true
+	case key.Matches(msg, keys.Visualizer):
+		m.Visualizer = !m.Visualizer
+		m.viz.Reset()
+		return m.syncSpectrum(), true
 	case key.Matches(msg, keys.Escape):
 		// Back out one layer: close whichever overlay is open, else clear a
 		// search filter kept after Enter. Esc never quits; that is q's job,
@@ -283,14 +297,16 @@ func (m *Model) applyReconnect(msg ServerReconnectedMsg) tea.Cmd {
 	m.ServerLost = false
 	m.Backend = msg.Backend
 	m.ServerVersion = msg.ServerVersion
+	m.vizBands = 0 // a new connection starts unsubscribed
+	resubscribe := m.syncSpectrum()
 	// A channel change queued before a version-upgrade restart plays now
 	// that a fresh backend is here.
 	if m.pendingPlayID != "" {
 		id := m.pendingPlayID
 		m.pendingPlayID = ""
-		return tea.Batch(m.fetchChannels(), m.playCmd(id))
+		return tea.Batch(m.fetchChannels(), m.playCmd(id), resubscribe)
 	}
-	return tea.Batch(m.fetchChannels(), m.fetchStatus())
+	return tea.Batch(m.fetchChannels(), m.fetchStatus(), resubscribe)
 }
 
 // keyMap is the list-mode keymap: every binding's keys and help text in one
@@ -300,7 +316,7 @@ func (m *Model) applyReconnect(msg ServerReconnectedMsg) tea.Cmd {
 // its own few fixed keys.
 type keyMap struct {
 	Quit, Play, PlayPause, Stop, Favorite, FavoritesOnly, VolumeUp, VolumeDown, Mute,
-	Search, NextMatch, PrevMatch, ClearSearch, About, History, Escape key.Binding
+	Search, NextMatch, PrevMatch, ClearSearch, About, History, Visualizer, Escape key.Binding
 }
 
 var keys = keyMap{
@@ -319,6 +335,7 @@ var keys = keyMap{
 	ClearSearch:   key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear search")),
 	About:         key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 	History:       key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
+	Visualizer:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "visualizer")),
 	Escape:        key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close about/history / cancel search")),
 }
 
@@ -341,7 +358,7 @@ func NewHelpKeys(shutdownOnExit bool) ([]key.Binding, []key.Binding) {
 	fullHelp := []key.Binding{
 		keys.Play, keys.PlayPause, keys.Stop, keys.Favorite, keys.FavoritesOnly,
 		keys.VolumeUp, keys.Mute, keys.Search, keys.NextMatch, keys.ClearSearch,
-		keys.About, keys.History, keys.Escape, quit,
+		keys.About, keys.History, keys.Visualizer, keys.Escape, quit,
 	}
 	shortHelp := []key.Binding{
 		withHelp(keys.Play, "enter", "play"), keys.PlayPause, keys.Stop, keys.Favorite,

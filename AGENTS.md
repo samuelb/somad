@@ -81,7 +81,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   commit. Rejected ideas get a record too. Which records cover what:
   - daemon lifecycle and spawning: 0001, 0004, 0005, 0006
   - wire protocol: 0002, 0018
-  - TUI: 0003, 0020, 0026, 0033
+  - TUI: 0003, 0020, 0026, 0033, 0034 (spectrum visualizer, also audio and wire)
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
   - config and persisted state: 0011, 0012
   - audio pipeline and formats: 0013–0017, 0028
@@ -159,7 +159,8 @@ per-user temp dir on macOS.
 **RPC methods** (`internal/protocol/protocol.go`): `authChallenge`, `auth`,
 `hello`, `status`, `channels`, `play`, `playPause`, `playRelative`, `stop`,
 `setVolume`, `toggleMute`, `toggleFavorite`, `history`, `reloadLastfm`,
-`shutdown`. Events: `state`, `channels`. `protocol.Version` (currently 2)
+`spectrum`, `shutdown`. Events: `state`, `channels`, and `spectrum`, sent
+only to connections subscribed with the `spectrum` method. `protocol.Version` (currently 2)
 must match exactly between client and server; bump it on any incompatible
 wire change.
 
@@ -210,7 +211,11 @@ submissions run off `mu` on a goroutine with one bounded retry, never
 blocking playback. The `reloadLastfm` RPC re-reads the session key (and,
 with no scrobbler yet, builds one via `Config.LoadScrobbler`, which re-reads
 the config file) so `soma lastfm login` takes effect without a daemon
-restart; the CLI sends it to a local daemon only.
+restart; the CLI sends it to a local daemon only. `spectrum.go` runs the
+visualizer's frame loop (ADR-0034): while any connection is subscribed
+(the `spectrum` RPC), it sends each one, 25 times a second while audio
+plays, the bands of `audio.AudioPlayer.Spectrum`, through its own
+latest-wins slot.
 
 **Client** (`internal/client`): protocol client shared by TUI and CLI. An
 `Endpoint` (Unix socket, or TCP with optional `tls.Config` and PSK) is
@@ -234,7 +239,12 @@ delegate, the lipgloss styles, and the widgets the view is built from
 (`widgets.go`: `Card`, the spinner, the volume gauge, `ShortHelp`). One
 tick chain (`syncAnim` in `commands.go`) drives the spinners, and only
 while one is on screen; a channel asked to play is marked tuning in the
-list at once (`tuningID` in `model.go`) (ADR-0033).
+list at once (`tuningID` in `model.go`) (ADR-0033). `v` toggles the
+spectrum visualizer (ADR-0034): `syncSpectrum` keeps the subscription at a
+band per bar, frames arrive as `SpectrumMsg` from the bridge in
+`cmd/soma/tui.go`, and `ui.Visualizer.Underlay` draws the bars behind the
+rendered view above the cards: glyphs in blank cells, a darker background
+behind text.
 
 **Supporting packages**:
 - `internal/audio` — stream playback via oto: MP3 through go-mp3
@@ -242,7 +252,8 @@ list at once (`tuningID` in `model.go`) (ADR-0033).
   `aac_other.go`; AAC-LC, HE-AAC and HE-AAC v2, told apart by the system
   ADTS parser since only the payload signals SBR and parametric stereo),
   format preference in `PreferredFormats`, ICY metadata, jitter buffer,
-  stall watchdog, reconnection
+  stall watchdog, reconnection; `spectrum.go` taps the decoded PCM and
+  runs the visualizer's FFT
 - `internal/channels` — SomaFM catalog fetch/cache, selection by ID or name
 - `internal/state` — persisted user state; atomic writes, corrupt-file
   quarantine; `lastfm.go` persists the Last.fm session key the same way, in

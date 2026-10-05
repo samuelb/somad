@@ -26,6 +26,7 @@ const (
 	MethodToggleFavorite = "toggleFavorite"
 	MethodHistory        = "history"
 	MethodReloadLastfm   = "reloadLastfm"
+	MethodSpectrum       = "spectrum"
 	MethodShutdown       = "shutdown"
 )
 
@@ -33,6 +34,9 @@ const (
 const (
 	EventState    = "state"
 	EventChannels = "channels"
+	// EventSpectrum is sent only to connections subscribed with
+	// MethodSpectrum, about 25 times a second while audio plays.
+	EventSpectrum = "spectrum"
 )
 
 // Request is a client-to-server call.

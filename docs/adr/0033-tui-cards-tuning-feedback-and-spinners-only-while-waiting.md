@@ -44,6 +44,8 @@ the list only marked a channel once it was playing.
   chain runs. Spinners tick every 120 ms, the
   equalizer alone every 250 ms; the two are never on screen together,
   and the equalizer lies flat while the snapshot is stale (server lost).
+  The opt-in spectrum visualizer (ADR-0034) moves on the daemon's frames,
+  not on this chain.
 - **Short windows** lose the blank spacing lines first, then the short
   help (never the full help, which was asked for), before the list is
   squeezed below its minimum and the header is pushed off the top.

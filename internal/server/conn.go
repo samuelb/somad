@@ -62,6 +62,10 @@ type conn struct {
 
 	stateCh    chan protocol.Event
 	channelsCh chan protocol.Event
+	spectrumCh chan protocol.Event
+	// spectrumBands is the band count of the connection's spectrum
+	// subscription, 0 without one. Guarded by s.mu; see spectrum.go.
+	spectrumBands int
 
 	closeOnce sync.Once
 	done      chan struct{}
@@ -86,6 +90,7 @@ func (s *Server) serveConn(nc net.Conn) {
 		sem:        make(chan struct{}, maxConcurrentRequests),
 		stateCh:    make(chan protocol.Event, 1),
 		channelsCh: make(chan protocol.Event, 1),
+		spectrumCh: make(chan protocol.Event, 1),
 		done:       make(chan struct{}),
 	}
 	if c.remote {
@@ -353,6 +358,11 @@ func (c *conn) handleRequest(req protocol.Request) {
 	case protocol.MethodReloadLastfm:
 		reply(struct{}{}, c.s.ReloadLastfm())
 
+	case protocol.MethodSpectrum:
+		if params, ok := decodeParams[protocol.SpectrumParams](c, req); ok {
+			reply(struct{}{}, c.s.SubscribeSpectrum(c, params.Bands))
+		}
+
 	case protocol.MethodShutdown:
 		c.respond(req.ID, struct{}{})
 		c.s.Shutdown()
@@ -424,8 +434,11 @@ func (c *conn) respondError(id int64, err error) {
 // same type so the newest snapshot wins. Never blocks.
 func (c *conn) sendEvent(ev protocol.Event) {
 	ch := c.stateCh
-	if ev.Event == protocol.EventChannels {
+	switch ev.Event {
+	case protocol.EventChannels:
 		ch = c.channelsCh
+	case protocol.EventSpectrum:
+		ch = c.spectrumCh
 	}
 	select {
 	case <-ch:
@@ -446,6 +459,8 @@ func (c *conn) writeLoop() {
 		case ev := <-c.stateCh:
 			c.write(ev)
 		case ev := <-c.channelsCh:
+			c.write(ev)
+		case ev := <-c.spectrumCh:
 			c.write(ev)
 		}
 	}

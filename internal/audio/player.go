@@ -101,6 +101,9 @@ type Player interface {
 	TrackUpdates() <-chan TrackInfo
 	SetVolume(v float64)
 	Volume() float64
+	// Spectrum analyzes the audio playing now, for the TUI's visualizer;
+	// false while nothing plays.
+	Spectrum() (Spectrum, bool)
 }
 
 // StreamError is an asynchronous failure of a committed session, carrying
@@ -122,6 +125,9 @@ type outputPlayer interface {
 	Pause()
 	SetVolume(float64)
 	Volume() float64
+	// BufferedSize is how many bytes the player has read from its stream
+	// but not yet handed to the device.
+	BufferedSize() int
 }
 
 type audioContext interface {
@@ -144,6 +150,7 @@ func (c *otoContext) NewPlayer(r io.Reader) outputPlayer {
 // touches the oto player, which keeps volume changes free of data races.
 type session struct {
 	player   outputPlayer
+	tap      *pcmTap // the decoded PCM the player pulls, for Spectrum
 	stream   io.Closer
 	cancel   context.CancelFunc // aborts the HTTP fetch goroutine
 	stop     chan struct{}      // closed to request fade-out and teardown
@@ -373,7 +380,7 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 		return discard(deviceError{err})
 	}
 
-	s, old, err := p.commitSession(gen, attempt, decodedStream, pr)
+	s, old, err := p.commitSession(gen, attempt, newPCMTap(decodedStream), pr)
 	if err != nil {
 		return discard(err)
 	}
@@ -451,7 +458,7 @@ func (p *AudioPlayer) buildPipeline(ctx context.Context, gen uint64, format stri
 // or Stop cannot slip between the generation check and the install. If a
 // newer Play/Stop arrived while this one was connecting, it backs out with
 // ErrSuperseded instead.
-func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, stream io.Reader, pr io.Closer) (s, old *session, err error) {
+func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, tap *pcmTap, pr io.Closer) (s, old *session, err error) {
 	p.deviceMu.Lock()
 	defer p.deviceMu.Unlock()
 	p.mu.Lock()
@@ -467,12 +474,13 @@ func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, stream io.
 		p.deviceSuspended = false
 	}
 
-	player := p.ctx.NewPlayer(stream)
+	player := p.ctx.NewPlayer(tap)
 	player.SetVolume(0)
 	player.Play()
 
 	s = &session{
 		player:   player,
+		tap:      tap,
 		stream:   pr,
 		cancel:   attempt.cancel,
 		stop:     make(chan struct{}),

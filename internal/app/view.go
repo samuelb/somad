@@ -376,7 +376,19 @@ func (m *Model) View() string {
 	}
 	above, below := m.chrome()
 	components := append(append(above, body), below...)
-	return lipgloss.JoinVertical(lipgloss.Left, components...)
+	view := lipgloss.JoinVertical(lipgloss.Left, components...)
+	if m.Visualizer && m.Width > 0 {
+		// The bars rise from the top of the cards, which stay opaque.
+		field := chromeHeight(above, nil) + lipgloss.Height(body)
+		for _, c := range below {
+			if c != "" {
+				break
+			}
+			field++ // a spacing line
+		}
+		view = m.viz.Underlay(view, m.Width, field)
+	}
+	return view
 }
 
 // place centers s in the window, or returns it as is before the window

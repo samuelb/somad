@@ -91,6 +91,8 @@ func runBridge(p *tea.Program, c *client.Client, done <-chan struct{}, shutdownO
 				case protocol.ChannelsPayload:
 					p.Send(app.ServerChannelsMsg{Payload: v})
 				}
+			case levels := <-c.Spectrum():
+				p.Send(app.SpectrumMsg{Levels: levels})
 			}
 		}
 

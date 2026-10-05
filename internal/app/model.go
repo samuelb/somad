@@ -90,6 +90,15 @@ type Model struct {
 	// visible channel, for the delegate to highlight; nil without a query.
 	matches map[string]textMatch
 
+	// Visualizer shows the spectrum of the playing audio behind the view
+	// (v); viz holds its bars. vizBands is the band count of the server's
+	// spectrum subscription, 0 for none, and vizSubscribing is true while
+	// a request to change it is in flight; see syncSpectrum.
+	Visualizer     bool
+	viz            ui.Visualizer
+	vizBands       int
+	vizSubscribing bool
+
 	// frame counts animation ticks; the playing indicator and the spinners
 	// are drawn for it. animating is true while a tick chain is running;
 	// see syncAnim.

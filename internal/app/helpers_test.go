@@ -32,6 +32,10 @@ type fakeBackend struct {
 	// Shutdown specifically.
 	callErr     error
 	shutdownErr error
+	// spectrumBands records the band count of every SubscribeSpectrum
+	// call; spectrumErr fails it specifically.
+	spectrumBands []int
+	spectrumErr   error
 }
 
 // historyCall records one call to fakeBackend.History.
@@ -150,6 +154,16 @@ func (b *fakeBackend) History(channelID string, limit int) ([]protocol.HistoryEn
 		return nil, b.callErr
 	}
 	return b.history, nil
+}
+
+func (b *fakeBackend) SubscribeSpectrum(bands int) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.spectrumBands = append(b.spectrumBands, bands)
+	if b.spectrumErr != nil {
+		return b.spectrumErr
+	}
+	return b.callErr
 }
 
 func (b *fakeBackend) Shutdown() error {

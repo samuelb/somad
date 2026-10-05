@@ -47,3 +47,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0031](0031-lastfm-scrobbling-lives-in-the-daemon.md) | Last.fm scrobbling lives in the daemon, opt-in, with the session key kept out of the config file | Accepted (amended) |
 | [0032](0032-website-is-a-single-page-zola-site.md) | The website is a single-page Zola site: copy in Markdown and front matter, layout in Tera templates, pinned Zola in CI | Accepted |
 | [0033](0033-tui-cards-tuning-feedback-and-spinners-only-while-waiting.md) | The TUI frames the list with cards, marks a channel tuning in at once, and animates only while waiting | Accepted (amended) |
+| [0034](0034-spectrum-visualizer-analyzed-in-the-daemon.md) | The TUI's spectrum visualizer is analyzed in the daemon and drawn into the view's blank cells | Accepted |

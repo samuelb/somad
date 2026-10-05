@@ -68,6 +68,8 @@ func (p *fakeOutputPlayer) SetVolume(v float64) {
 	p.mu.Unlock()
 }
 
+func (p *fakeOutputPlayer) BufferedSize() int { return 0 }
+
 func (p *fakeOutputPlayer) Volume() float64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()

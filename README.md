@@ -37,6 +37,8 @@ Linux and macOS — other platforms are not supported and may not work.
   AAC stream fails), MP3 on Linux; on macOS a lower stream quality
   (`high`/`low`, to save bandwidth) can be picked with `soma daemon --quality`
 - View real-time track information (artist/title) from ICY metadata
+- A cava-style spectrum visualizer behind the channel list (toggle with
+  <kbd>v</kbd>), drawn from the audio the daemon is actually playing
 - Optional desktop notification on track change (opt in with `soma daemon --notify`)
 - Browse recent now-playing history for a channel (`soma history`, or the
   <kbd>h</kbd> overlay in the TUI), backfilled from SomaFM when the
@@ -442,6 +444,7 @@ speak the same protocol version.
 | <kbd>c</kbd>                        | Clear the search                |
 | <kbd>a</kbd>                        | About                           |
 | <kbd>h</kbd>                        | Show recent now-playing history for the playing channel |
+| <kbd>v</kbd>                        | Toggle the spectrum visualizer behind the channel list |
 | <kbd>Esc</kbd>                      | Close the about screen / history overlay, else cancel or clear the search (never quits) |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
 

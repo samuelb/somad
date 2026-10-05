@@ -13,6 +13,7 @@ require (
 	github.com/ebitengine/oto/v3 v3.5.1
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/hajimehoshi/go-mp3 v0.3.4
+	github.com/muesli/termenv v0.16.0
 	github.com/sahilm/fuzzy v0.1.3
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sys v0.48.0
@@ -36,7 +37,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.28 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect

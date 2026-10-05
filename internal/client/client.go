@@ -52,6 +52,9 @@ type Client struct {
 	// events carries decoded protocol.PlaybackState and
 	// protocol.ChannelsPayload values; closed on disconnect.
 	events chan any
+	// spectrum carries the levels of the newest spectrum event. Apart from
+	// events, so 25 frames a second cannot crowd snapshots out of it.
+	spectrum chan []byte
 }
 
 // Endpoint describes where and how to reach a soma daemon: the local Unix
@@ -115,9 +118,10 @@ func DialEndpoint(ep Endpoint) (*Client, error) {
 		nc = tc
 	}
 	c := &Client{
-		nc:      nc,
-		pending: make(map[int64]chan protocol.Response),
-		events:  make(chan any, 32),
+		nc:       nc,
+		pending:  make(map[int64]chan protocol.Response),
+		events:   make(chan any, 32),
+		spectrum: make(chan []byte, 1),
 	}
 	go c.readLoop()
 	// A configured PSK always authenticates, regardless of transport: the
@@ -156,6 +160,13 @@ func (c *Client) authenticate(psk string) error {
 // closed when the connection is lost.
 func (c *Client) Events() <-chan any {
 	return c.events
+}
+
+// Spectrum returns the stream of spectrum levels, after SubscribeSpectrum.
+// Only the newest frame waits in it; it is not closed on disconnect, when
+// Events is.
+func (c *Client) Spectrum() <-chan []byte {
+	return c.spectrum
 }
 
 // Close tears down the connection; the events channel closes as a result.
@@ -219,6 +230,17 @@ func (c *Client) dispatchEvent(msg protocol.ServerMessage) {
 			return
 		}
 		ev = payload
+	case protocol.EventSpectrum:
+		var frame protocol.SpectrumEvent
+		if err := json.Unmarshal(msg.Data, &frame); err != nil {
+			return
+		}
+		select {
+		case <-c.spectrum:
+		default:
+		}
+		c.spectrum <- frame.Levels // readLoop is the only sender
+		return
 	default:
 		return
 	}
@@ -398,6 +420,12 @@ func (c *Client) History(channelID string, limit int) ([]protocol.HistoryEntry, 
 // without restarting the daemon.
 func (c *Client) ReloadLastfm() error {
 	return c.call(protocol.MethodReloadLastfm, nil, nil)
+}
+
+// SubscribeSpectrum asks for spectrum events with bands bands each, on
+// Spectrum, or stops them with 0.
+func (c *Client) SubscribeSpectrum(bands int) error {
+	return c.call(protocol.MethodSpectrum, protocol.SpectrumParams{Bands: bands}, nil)
 }
 
 // Shutdown asks the server to stop playback and exit.

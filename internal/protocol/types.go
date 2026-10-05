@@ -115,3 +115,23 @@ type HistoryEntry struct {
 type HistoryResult struct {
 	Entries []HistoryEntry `json:"entries"`
 }
+
+// SpectrumParams subscribes the connection to spectrum events for the
+// TUI's visualizer, with Bands bands each, or unsubscribes it with 0. A
+// later request replaces the earlier one; the subscription ends with the
+// connection.
+type SpectrumParams struct {
+	Bands int `json:"bands"`
+}
+
+// MaxSpectrumBands bounds SpectrumParams.Bands.
+const MaxSpectrumBands = 512
+
+// SpectrumEvent is one frame of the spectrum of the audio playing now.
+// Levels holds one byte per subscribed band, lowest frequency first, 0
+// silent to 255 loud (base64 on the wire, as JSON encodes bytes). After
+// playback stops, a second of zero frames lets the bars settle, then the
+// events pause until something plays again.
+type SpectrumEvent struct {
+	Levels []byte `json:"levels"`
+}

@@ -131,6 +131,12 @@ func (p *mockPlayer) Volume() float64 {
 	return p.volume
 }
 
+func (p *mockPlayer) Spectrum() (audio.Spectrum, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return audio.Spectrum{}, p.playing
+}
+
 func (p *mockPlayer) setPlayErr(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -2,10 +2,12 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"somad/internal/client"
 	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -28,6 +30,9 @@ type Backend interface {
 	// History returns recent now-playing titles, newest first, for the
 	// history overlay.
 	History(channelID string, limit int) ([]protocol.HistoryEntry, error)
+	// SubscribeSpectrum asks for spectrum frames of bands bands for the
+	// visualizer, delivered as SpectrumMsg, or stops them with 0.
+	SubscribeSpectrum(bands int) error
 	// Shutdown stops the server so the reconnect loop respawns a fresh one; the
 	// TUI uses it to upgrade an out-of-date server when the user changes,
 	// pauses or stops the stream.
@@ -44,6 +49,19 @@ type ServerStateMsg struct {
 // last-played channel.
 type ServerChannelsMsg struct {
 	Payload protocol.ChannelsPayload
+}
+
+// SpectrumMsg carries a frame of spectrum levels for the visualizer.
+type SpectrumMsg struct {
+	Levels []byte
+}
+
+// spectrumSubscribedMsg reports how a spectrum subscription request on
+// backend went; see syncSpectrum.
+type spectrumSubscribedMsg struct {
+	backend Backend
+	bands   int
+	err     error
 }
 
 // ServerLostMsg reports that the server connection dropped; a reconnect is
@@ -305,6 +323,56 @@ func (m *Model) frameInterval() time.Duration {
 // animTick schedules the next animation frame.
 func (m *Model) animTick() tea.Cmd {
 	return tea.Tick(m.frameInterval(), func(time.Time) tea.Msg { return animTickMsg{} })
+}
+
+// syncSpectrum brings the server's spectrum subscription in line with the
+// visualizer: a band per bar across the screen while it shows, none
+// otherwise. One request is in flight at a time, and its reply syncs
+// again, so a quick toggle or a resize storm cannot reach the server out
+// of order (it handles a connection's requests concurrently).
+func (m *Model) syncSpectrum() tea.Cmd {
+	if m.vizSubscribing {
+		return nil
+	}
+	want := 0
+	if m.Visualizer {
+		// Past the limit, neighboring bars share a band.
+		want = min(max(ui.VisualizerBars(m.screenWidth()), 1), protocol.MaxSpectrumBands)
+	}
+	if want == m.vizBands {
+		return nil
+	}
+	m.vizSubscribing = true
+	b := m.Backend
+	return func() tea.Msg {
+		return spectrumSubscribedMsg{backend: b, bands: want, err: b.SubscribeSpectrum(want)}
+	}
+}
+
+// applySpectrumSubscribed records the outcome of a syncSpectrum request
+// and returns the next one, if the wanted subscription moved on meanwhile.
+func (m *Model) applySpectrumSubscribed(msg spectrumSubscribedMsg) tea.Cmd {
+	m.vizSubscribing = false
+	if msg.backend != m.Backend {
+		return m.syncSpectrum() // the connection it went to is gone
+	}
+	if msg.err != nil {
+		if errors.Is(msg.err, client.ErrDisconnected) {
+			return nil // the reconnect subscribes afresh
+		}
+		if !m.Visualizer {
+			return m.syncSpectrum() // turned off meanwhile: nothing to report
+		}
+		m.Visualizer = false
+		m.viz.Reset()
+		m.RequestErr = fmt.Sprintf("visualizer failed: %v", msg.err)
+		if m.skewed() {
+			m.RequestErr += " (the server is out of date; it restarts onto this version at the next channel change, pause or stop)"
+		}
+		return nil
+	}
+	m.vizBands = msg.bands
+	return m.syncSpectrum()
 }
 
 // historyOverlayLimit is how many entries the history overlay asks for and
