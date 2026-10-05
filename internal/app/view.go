@@ -125,7 +125,11 @@ func (m *Model) RenderNowPlaying() string {
 
 	second := ui.SubtleStyle.Render(hint)
 	if st.TrackTitle != "" {
-		second = ui.StatusPlayingStyle.Render("♫ ") + trackLine(st.TrackTitle, ui.BoldStyle)
+		eq := ui.EqualizerRest
+		if m.eqPlays() {
+			eq = ui.Equalizer(m.frame)
+		}
+		second = ui.StatusPlayingStyle.Render(eq+" ") + trackLine(st.TrackTitle, ui.BoldStyle)
 	}
 	lines = append(lines, ansi.Truncate(second, width, "…"))
 

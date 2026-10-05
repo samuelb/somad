@@ -928,7 +928,7 @@ func TestUpdate_AnimationRunsOnlyWhileSomethingAnimates(t *testing.T) {
 	_, cmd := m.Update(stopped)
 	assert.Nil(t, cmd, "nothing animates while stopped")
 	_, cmd = m.Update(playing)
-	assert.Nil(t, cmd, "nor while playing")
+	assert.Nil(t, cmd, "nor while playing with no track title to put the equalizer ahead of")
 
 	_, cmd = m.Update(connecting)
 	require.NotNil(t, cmd, "connecting starts the spinner")
@@ -948,6 +948,40 @@ func TestUpdate_AnimationRunsOnlyWhileSomethingAnimates(t *testing.T) {
 
 	_, cmd = m.Update(connecting)
 	assert.NotNil(t, cmd, "and a new one starts with the next connect")
+}
+
+func TestUpdate_EqualizerAnimatesWhileATrackPlays(t *testing.T) {
+	m := newTestModel(t)
+	playing := ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", TrackTitle: "Artist - Song", Volume: 1}}
+
+	_, cmd := m.Update(playing)
+	require.NotNil(t, cmd, "a playing track starts the equalizer")
+	assert.Equal(t, eqInterval, m.frameInterval())
+	first := m.RenderNowPlaying()
+	m.Update(animTickMsg{})
+	assert.NotEqual(t, first, m.RenderNowPlaying(), "a tick moves the equalizer")
+
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusConnecting, ChannelID: "dronezone", Volume: 1}})
+	assert.Equal(t, animInterval, m.frameInterval(), "a spinner keeps its own pace")
+
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1}})
+	_, cmd = m.Update(animTickMsg{})
+	assert.Nil(t, cmd, "the chain ends once stopped")
+	assert.False(t, m.animating)
+}
+
+func TestRenderNowPlaying_EqualizerRestsWhileTheServerIsLost(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", TrackTitle: "Artist - Song", Volume: 1}})
+	m.Update(ServerLostMsg{})
+
+	first := m.RenderNowPlaying()
+	m.Update(animTickMsg{})
+	second := m.RenderNowPlaying()
+
+	assert.Contains(t, first, ui.EqualizerRest+" ")
+	assert.NotEqual(t, first, second, "the spinner turns")
+	assert.Contains(t, second, ui.EqualizerRest+" ", "the stale track's equalizer does not")
 }
 
 func TestUpdate_AnimationSpinsWhileConnectingAndLost(t *testing.T) {

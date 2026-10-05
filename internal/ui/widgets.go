@@ -89,6 +89,20 @@ func SpaceBetween(width int, left, right string) string {
 	return left + strings.Repeat(" ", gap) + right
 }
 
+// equalizerFrames are the frames of the level meter ahead of a playing
+// track: three bars that each move at most a few levels per frame.
+var equalizerFrames = [...]string{"▃▆▂", "▅▂▇", "▂▇▄", "▆▃▅", "▄▅▂", "▇▃▆", "▃▆▄", "▅▄▇"}
+
+// EqualizerRest is the level meter held still, for a track whose snapshot
+// is stale.
+const EqualizerRest = "▁▁▁"
+
+// Equalizer returns the frame of the level meter ahead of a playing track,
+// for animation frame f.
+func Equalizer(frame int) string {
+	return equalizerFrames[frame%len(equalizerFrames)]
+}
+
 // Spinner returns the frame of the busy spinner shown while connecting or
 // loading, for animation frame f.
 func Spinner(frame int) string {

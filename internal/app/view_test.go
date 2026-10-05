@@ -135,7 +135,7 @@ func TestRenderNowPlaying_WithTrackInfo(t *testing.T) {
 	result := m.RenderNowPlaying()
 
 	assert.Contains(t, result, "Artist — Song", "artist and title split like MPRIS and Last.fm do")
-	assert.Contains(t, result, "♫")
+	assert.Contains(t, result, ui.Equalizer(0))
 }
 
 func TestRenderNowPlaying_WithStreamError(t *testing.T) {
@@ -533,7 +533,7 @@ func TestRenderNowPlaying_TitleWithoutArtist(t *testing.T) {
 		TrackTitle: "Station ID", Volume: 1,
 	})
 
-	assert.Contains(t, m.RenderNowPlaying(), "♫ Station ID")
+	assert.Contains(t, m.RenderNowPlaying(), ui.Equalizer(0)+" Station ID")
 }
 
 func TestRenderNowPlaying_Muted(t *testing.T) {

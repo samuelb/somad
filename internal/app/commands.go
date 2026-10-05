@@ -101,7 +101,7 @@ type sleepTickMsg struct {
 	gen int
 }
 
-// animTickMsg advances the spinners. See syncAnim.
+// animTickMsg advances the spinners and the equalizer. See syncAnim.
 type animTickMsg struct{}
 
 // opLoadChannels marks catalog fetches so Update can escalate a failure
@@ -241,14 +241,19 @@ func (m *Model) sleepTick() tea.Cmd {
 	return tea.Tick(delay, func(time.Time) tea.Msg { return sleepTickMsg{gen: gen} })
 }
 
-// animInterval is the time between animation frames.
-const animInterval = 120 * time.Millisecond
+// animInterval is the time between spinner frames, eqInterval the time
+// between frames of the equalizer ahead of a playing track. The equalizer
+// ticks slower so a playing TUI wakes only four times a second; the two
+// never animate at once.
+const (
+	animInterval = 120 * time.Millisecond
+	eqInterval   = 250 * time.Millisecond
+)
 
-// animates reports whether a spinner is on screen: loading, the server
+// spins reports whether a spinner is on screen: loading, the server
 // connecting or reconnecting a stream, or the TUI reconnecting to the
-// server (which a version-upgrade restart also goes through). Playing and
-// stopped are still, so the tick chain does not run then.
-func (m *Model) animates() bool {
+// server (which a version-upgrade restart also goes through).
+func (m *Model) spins() bool {
 	if m.Err != nil {
 		return false // the error screen replaces everything
 	}
@@ -262,6 +267,20 @@ func (m *Model) animates() bool {
 	return false
 }
 
+// eqPlays reports whether the equalizer ahead of the track title in the
+// now-playing card animates: while a track plays and the snapshot is
+// current. A spinner is never on screen then.
+func (m *Model) eqPlays() bool {
+	return m.Err == nil && !m.Loading && !m.ServerLost &&
+		m.Snapshot.Status == protocol.StatusPlaying && m.Snapshot.TrackTitle != ""
+}
+
+// animates reports whether anything on screen animates. Stopped is still,
+// so the tick chain does not run then.
+func (m *Model) animates() bool {
+	return m.spins() || m.eqPlays()
+}
+
 // syncAnim starts the animation tick chain when something on screen
 // animates and no chain is running; call it wherever that can start. The
 // chain ends by itself at the first tick with nothing left to animate (see
@@ -271,12 +290,21 @@ func (m *Model) syncAnim() tea.Cmd {
 		return nil
 	}
 	m.animating = true
-	return animTick()
+	return m.animTick()
+}
+
+// frameInterval is the time until the next animation frame: a spinner's
+// pace while one is on screen, the equalizer's otherwise.
+func (m *Model) frameInterval() time.Duration {
+	if m.spins() {
+		return animInterval
+	}
+	return eqInterval
 }
 
 // animTick schedules the next animation frame.
-func animTick() tea.Cmd {
-	return tea.Tick(animInterval, func(time.Time) tea.Msg { return animTickMsg{} })
+func (m *Model) animTick() tea.Cmd {
+	return tea.Tick(m.frameInterval(), func(time.Time) tea.Msg { return animTickMsg{} })
 }
 
 // historyOverlayLimit is how many entries the history overlay asks for and

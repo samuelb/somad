@@ -60,7 +60,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.animating = false // the chain ends; syncAnim starts the next
 			return nil
 		}
-		return animTick()
+		return m.animTick()
 
 	case sleepTickMsg:
 		if msg.gen != m.sleepTickGen {

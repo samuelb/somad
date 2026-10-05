@@ -1,6 +1,7 @@
 # ADR-0033: The TUI frames the list with cards, marks a channel tuning in at once, and animates only while waiting
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-06: an equalizer ahead of the
+  playing track in the now-playing card)
 - **Date:** 2026-09-29
 - **Sources:** `internal/ui/widgets.go`, `internal/ui/delegate.go`, `internal/app/view.go`, `internal/app/model.go` (`tuningID`), `internal/app/commands.go` (`syncAnim`)
 
@@ -35,11 +36,14 @@ the list only marked a channel once it was playing.
   a failed request clears (like `pendingPlayID` for upgrade restarts), so
   the model still keeps no playback state (ADR-0003); after that, from the
   snapshot's connecting or reconnecting channel.
-- **Animation** is only spinners: loading, connecting, reconnecting, and
-  the TUI's own reconnect to the server. One tick chain drives them
-  (`syncAnim`): it starts when a spinner is on screen and ends at the
-  first tick with none, so a playing or stopped TUI never wakes up, and at
-  most one chain runs.
+- **Animation** is the spinners (loading, connecting, reconnecting, and
+  the TUI's own reconnect to the server) and a three-bar equalizer ahead
+  of the playing track in the now-playing card. One tick chain drives
+  them (`syncAnim`): it starts when one is on screen and ends at the
+  first tick with none, so a stopped TUI never wakes up, and at most one
+  chain runs. Spinners tick every 120 ms, the
+  equalizer alone every 250 ms; the two are never on screen together,
+  and the equalizer lies flat while the snapshot is stale (server lost).
 - **Short windows** lose the blank spacing lines first, then the short
   help (never the full help, which was asked for), before the list is
   squeezed below its minimum and the header is pushed off the top.
@@ -51,8 +55,11 @@ the list only marked a channel once it was playing.
 
 ## Consequences
 
-- New visual states need an entry in `animates` if they show a spinner,
+- New visual states need an entry in `spins` if they show a spinner,
   or the chain will not run (or will not stop).
+- A playing TUI wakes four times a second to redraw the equalizer
+  (amended 2026-10-06, at the user's request: the playing state should
+  be seen to move; a ♫/♪ swap was tried first and did not convince).
 - Every color stays an adaptive pair (ADR-0020); the palette gained
   `BorderColor` and `DimColor` for chrome.
 - The cards cost vertical space: the now-playing card is four lines
@@ -61,10 +68,10 @@ the list only marked a channel once it was playing.
 
 ## Rejected alternatives
 
-- **An animated equalizer** for the playing channel, ahead of its title
-  in the list and the card (2026-09-29, tried and dropped on review): a
-  decorative animation that never stops while playing; a static ▶ marks
-  the channel instead.
+- **An animated equalizer in the list** ahead of the playing channel's
+  title (2026-09-29, tried and dropped on review, together with the
+  card's): a static ▶ marks the channel there. Since 2026-10-06 the card
+  has one again, the only animation shown while playing.
 - **A listener meter** (signal bars on a logarithmic scale) beside the
   count (2026-09-29, tried and dropped on review): the number says it.
 - **Modal overlays** for about and history (2026-09-29). Keys keep acting
