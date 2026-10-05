@@ -27,8 +27,8 @@ const (
 // streamStallTimeout is how long the stream may deliver no data before the
 // watchdog aborts it: a connection that dies without a FIN (lost link, NAT
 // timeout) blocks reads forever and would otherwise never trigger
-// reconnection. A variable so tests can shrink it.
-var streamStallTimeout = 30 * time.Second
+// reconnection. The default for AudioPlayer.stallTimeout.
+const streamStallTimeout = 30 * time.Second
 
 // streamConnectTimeout bounds the connect phase of a Play: from the request
 // until the first frame decodes, not merely until the first byte arrives —
@@ -38,8 +38,8 @@ var streamStallTimeout = 30 * time.Second
 // watchdog, which is tuned for an established stream: a server that does
 // not deliver audio should fail fast so the next candidate (or the
 // reconnect backoff) gets its turn and the client's play call does not
-// time out first. A variable so tests can shrink it.
-var streamConnectTimeout = 10 * time.Second
+// time out first. The default for AudioPlayer.connectTimeout.
+const streamConnectTimeout = 10 * time.Second
 
 // Stream buffering (see streamBuffer): at SomaFM's usual 128 kbps the
 // capacity holds about half a minute of audio and the prefill about two
@@ -51,9 +51,9 @@ const (
 	streamBufferPrefill = 32 << 10
 )
 
-// streamBufferPrefillWait is the prefill deadline. A variable so tests can
-// shrink it.
-var streamBufferPrefillWait = time.Second
+// streamBufferPrefillWait is the prefill deadline. The default for
+// AudioPlayer.prefillWait.
+const streamBufferPrefillWait = time.Second
 
 // ErrSuperseded is returned by Play when a newer Play or Stop request arrived
 // while this one was still connecting; the newer request owns the audio state.
@@ -228,12 +228,21 @@ type AudioPlayer struct {
 	sessions   int          // committed sessions still fading or playing, guarded by mu
 	playGen    uint64       // newest generation seen from Play/Stop; stale ones never commit
 	volume     float64      // target volume in [0, 1], guarded by mu
+
+	// Timeouts, set by NewPlayer and never changed afterwards. Per player
+	// rather than package variables so a test can shrink them without
+	// racing stream goroutines that an earlier test left winding down.
+	stallTimeout   time.Duration // streamStallTimeout
+	connectTimeout time.Duration // streamConnectTimeout
+	prefillWait    time.Duration // streamBufferPrefillWait
+	readyTimeout   time.Duration // audioReadyTimeout
 }
 
 // audioReadyTimeout bounds how long the first Play waits for the audio device.
 // Without it, a hung audio backend (a stuck ALSA daemon, a broken device)
-// would block playback forever instead of failing with a message.
-var audioReadyTimeout = 15 * time.Second
+// would block playback forever instead of failing with a message. The default
+// for AudioPlayer.readyTimeout.
+const audioReadyTimeout = 15 * time.Second
 
 // NewPlayer initializes an audio player without opening the audio device. The
 // process-global oto context is created lazily by the first Play call.
@@ -243,6 +252,11 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 		errChan:   make(chan error, 2),
 		trackChan: make(chan TrackInfo, 1),
 		volume:    1,
+
+		stallTimeout:   streamStallTimeout,
+		connectTimeout: streamConnectTimeout,
+		prefillWait:    streamBufferPrefillWait,
+		readyTimeout:   audioReadyTimeout,
 		newContext: func() (audioContext, <-chan struct{}, error) {
 			op := &oto.NewContextOptions{
 				SampleRate:   sampleRate,
@@ -279,7 +293,7 @@ func (p *AudioPlayer) ensureContext() error {
 
 	select {
 	case <-p.contextReady:
-	case <-time.After(audioReadyTimeout):
+	case <-time.After(p.readyTimeout):
 		// NewContext has no cancellation or Close operation. If it becomes
 		// ready later, stop its render loop unless another Play committed first.
 		p.lateSuspendOnce.Do(func() {
@@ -292,7 +306,7 @@ func (p *AudioPlayer) ensureContext() error {
 				p.deviceMu.Unlock()
 			}()
 		})
-		return fmt.Errorf("audio device not ready after %s", audioReadyTimeout)
+		return fmt.Errorf("audio device not ready after %s", p.readyTimeout)
 	}
 	if err := p.ctx.Err(); err != nil {
 		return fmt.Errorf("failed to initialize audio device: %w", err)
@@ -302,7 +316,7 @@ func (p *AudioPlayer) ensureContext() error {
 
 // Play starts streaming and playing audio from the given URL, decoded as
 // format. It blocks until the stream is decoding and playback has begun, or
-// until streamConnectTimeout passes without a decoded frame; the previous
+// until p.connectTimeout passes without a decoded frame; the previous
 // session (if any) fades out and tears down asynchronously. Play is safe to
 // call concurrently: a Play or Stop with a newer generation that arrives
 // while this one is still connecting aborts it, and this one returns
@@ -340,8 +354,8 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 		return attempt.err
 	}
 
-	timedOut := fmt.Errorf("stream connect timed out: no audio decoded within %s", streamConnectTimeout)
-	deadline := time.AfterFunc(streamConnectTimeout, func() { attempt.abort(timedOut) })
+	timedOut := fmt.Errorf("stream connect timed out: no audio decoded within %s", p.connectTimeout)
+	deadline := time.AfterFunc(p.connectTimeout, func() { attempt.abort(timedOut) })
 
 	go p.fetchStream(ctx, gen, url, pw, &attempt.committed)
 
@@ -492,7 +506,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 	// deadline, which ends the attempt through ctx, normally fires first.)
 	reqCtx, cancelReq := context.WithCancel(ctx)
 	defer cancelReq()
-	timers := newStreamTimers(cancelReq)
+	timers := newStreamTimers(p.stallTimeout, cancelReq)
 	defer timers.stop()
 
 	req, err := security.NewRequest(reqCtx, url, p.userAgent)
@@ -521,7 +535,7 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 	// returns, the deferred cancelReq unblocks the fill goroutine's network
 	// read; Close alone could not.
 	raw := &watchdogReader{r: resp.Body, timers: timers}
-	buf := newStreamBuffer(raw, streamBufferSize, streamBufferPrefill, streamBufferPrefillWait)
+	buf := newStreamBuffer(raw, streamBufferSize, streamBufferPrefill, p.prefillWait)
 	defer buf.Close()
 
 	// If the server honored the metadata request, demux titles out of the
@@ -576,20 +590,21 @@ func (e *errorReportingReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-// streamTimers hold the stall watchdog (streamStallTimeout) a stream fetch
+// streamTimers hold the stall watchdog (AudioPlayer.stallTimeout) a stream fetch
 // runs under: re-armed by every read that delivers data, it fires when the
 // stream goes silent entirely and cancels the request; wrap then names the
 // timeout in the resulting error, since the cancelled request only reports a
 // generic context error. The connect deadline is Play's, not the fetch's:
 // it has to hold until the first frame decodes, which the fetch cannot see.
 type streamTimers struct {
+	timeout time.Duration
 	stall   *time.Timer
 	stalled atomic.Bool
 }
 
-func newStreamTimers(cancel context.CancelFunc) *streamTimers {
-	t := &streamTimers{}
-	t.stall = time.AfterFunc(streamStallTimeout, func() {
+func newStreamTimers(timeout time.Duration, cancel context.CancelFunc) *streamTimers {
+	t := &streamTimers{timeout: timeout}
+	t.stall = time.AfterFunc(timeout, func() {
 		t.stalled.Store(true)
 		cancel()
 	})
@@ -598,7 +613,7 @@ func newStreamTimers(cancel context.CancelFunc) *streamTimers {
 
 // dataReceived re-arms the stall watchdog.
 func (t *streamTimers) dataReceived() {
-	t.stall.Reset(streamStallTimeout)
+	t.stall.Reset(t.timeout)
 }
 
 func (t *streamTimers) stop() {
@@ -609,7 +624,7 @@ func (t *streamTimers) stop() {
 // that names the timeout; any other error passes through.
 func (t *streamTimers) wrap(err error) error {
 	if t.stalled.Load() {
-		return fmt.Errorf("stream stalled: no data received for %s", streamStallTimeout)
+		return fmt.Errorf("stream stalled: no data received for %s", t.timeout)
 	}
 	return err
 }

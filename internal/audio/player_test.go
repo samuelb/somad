@@ -38,9 +38,13 @@ func stopNext(p *AudioPlayer) {
 // enough for tests that exercise methods which never touch the audio device.
 func newTestPlayer() *AudioPlayer {
 	return &AudioPlayer{
-		userAgent: "soma/test",
-		errChan:   make(chan error, 2),
-		trackChan: make(chan TrackInfo, 1),
+		userAgent:      "soma/test",
+		errChan:        make(chan error, 2),
+		trackChan:      make(chan TrackInfo, 1),
+		stallTimeout:   streamStallTimeout,
+		connectTimeout: streamConnectTimeout,
+		prefillWait:    streamBufferPrefillWait,
+		readyTimeout:   audioReadyTimeout,
 	}
 }
 
@@ -126,11 +130,9 @@ func newLifecycleTestPlayer(t *testing.T) (*AudioPlayer, *fakeAudioContext, *ato
 	// The streaming test server sends less than the prefill and then holds
 	// the connection, so without this every Play would wait out the full
 	// prefill deadline.
-	origWait := streamBufferPrefillWait
-	streamBufferPrefillWait = 10 * time.Millisecond
-	t.Cleanup(func() { streamBufferPrefillWait = origWait })
 	p, err := NewPlayer("soma/test")
 	require.NoError(t, err)
+	p.prefillWait = 10 * time.Millisecond
 	ctx := &fakeAudioContext{}
 	created := &atomic.Int32{}
 	ready := make(chan struct{})
@@ -194,9 +196,7 @@ func TestEnsureContext_RecoversAfterReadyTimeout(t *testing.T) {
 	p.newContext = func() (audioContext, <-chan struct{}, error) {
 		return ctx, ready, nil
 	}
-	originalTimeout := audioReadyTimeout
-	audioReadyTimeout = 20 * time.Millisecond
-	t.Cleanup(func() { audioReadyTimeout = originalTimeout })
+	p.readyTimeout = 20 * time.Millisecond
 
 	err = p.ensureContext()
 	require.Error(t, err)
@@ -456,17 +456,8 @@ func TestFetchStream_FailureBeforeCommitGoesThroughThePipe(t *testing.T) {
 	}
 }
 
-// shortStallTimeout shrinks the stall watchdog for the duration of a test.
-func shortStallTimeout(t *testing.T, d time.Duration) {
-	t.Helper()
-	orig := streamStallTimeout
-	streamStallTimeout = d
-	t.Cleanup(func() { streamStallTimeout = orig })
-}
-
 func TestFetchStream_StalledStreamReportsError(t *testing.T) {
 	securitytest.AllowTestHosts(t)
-	shortStallTimeout(t, 150*time.Millisecond)
 
 	// Send some data, then hold the connection open without closing it: the
 	// classic silent stall (lost link, NAT timeout) that never errors.
@@ -482,6 +473,7 @@ func TestFetchStream_StalledStreamReportsError(t *testing.T) {
 	defer close(release) // must run before server.Close, which waits on handlers
 
 	p := newTestPlayer()
+	p.stallTimeout = 150 * time.Millisecond
 	pr, pw := io.Pipe()
 
 	done := make(chan struct{})
@@ -504,7 +496,6 @@ func TestFetchStream_StalledStreamReportsError(t *testing.T) {
 
 func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 	securitytest.AllowTestHosts(t)
-	shortStallTimeout(t, 150*time.Millisecond)
 
 	// The server never even sends response headers.
 	release := make(chan struct{})
@@ -515,6 +506,7 @@ func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 	defer close(release) // must run before server.Close, which waits on handlers
 
 	p := newTestPlayer()
+	p.stallTimeout = 150 * time.Millisecond
 	pr, pw := io.Pipe()
 	go p.fetchStream(context.Background(), 1, server.URL, pw, committedStream())
 
@@ -529,14 +521,6 @@ func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 		t.Fatalf("connect failure must not also be reported async, got: %v", reported)
 	default:
 	}
-}
-
-// shortConnectTimeout shrinks the stream connect deadline for a test.
-func shortConnectTimeout(t *testing.T, d time.Duration) {
-	t.Helper()
-	orig := streamConnectTimeout
-	streamConnectTimeout = d
-	t.Cleanup(func() { streamConnectTimeout = orig })
 }
 
 // newUndecodableStreamServer streams zeros (no MP3 sync word, no ADTS
@@ -593,8 +577,6 @@ func awaitPlay(t *testing.T, done <-chan error, d time.Duration) error {
 
 func TestPlay_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
 	securitytest.AllowTestHosts(t)
-	shortStallTimeout(t, 5*time.Second)
-	shortConnectTimeout(t, 100*time.Millisecond)
 
 	// Headers arrive but no body ever does: the connect deadline, not the
 	// (much longer) stall watchdog, must end the attempt.
@@ -610,6 +592,8 @@ func TestPlay_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
 	defer close(release)
 
 	p := newTestPlayer()
+	p.stallTimeout = 5 * time.Second
+	p.connectTimeout = 100 * time.Millisecond
 	start := time.Now()
 	err := awaitPlay(t, playAsync(p, server.URL, FormatMP3, testGen.Add(1)), 3*time.Second)
 
@@ -626,9 +610,9 @@ func TestPlay_ConnectDeadlineFiresBeforeStallWatchdog(t *testing.T) {
 }
 
 func TestPlay_ConnectDeadlineHoldsUntilAudioDecodes(t *testing.T) {
-	shortConnectTimeout(t, 200*time.Millisecond)
 	server, _ := newUndecodableStreamServer(t)
 	p := newTestPlayer()
+	p.connectTimeout = 200 * time.Millisecond
 
 	// Bytes keep arriving but never decode. A deadline disarmed by the
 	// first byte would leave Play parked in the decoder for as long as the
@@ -648,14 +632,14 @@ func TestPlay_ConnectDeadlineHoldsUntilAudioDecodes(t *testing.T) {
 
 func TestPlay_ConnectDeadlineEndsOnceAudioDecodes(t *testing.T) {
 	p, ctx, _ := newLifecycleTestPlayer(t)
-	shortConnectTimeout(t, 300*time.Millisecond)
+	p.connectTimeout = 300 * time.Millisecond
 	server := newStreamingTestServer(t)
 	t.Cleanup(func() { stopNext(p) })
 
 	// The server sends its burst and then goes quiet for longer than the
 	// connect deadline: once audio decodes, only the stall watchdog applies.
 	require.NoError(t, playNext(p, server.URL, FormatMP3))
-	time.Sleep(2 * streamConnectTimeout)
+	time.Sleep(2 * p.connectTimeout)
 
 	select {
 	case err := <-p.Errors():
@@ -717,10 +701,8 @@ func TestPlay_NewerPlayCancelsConnectInFlight(t *testing.T) {
 }
 
 func TestWatchdogReader_RearmsOnData(t *testing.T) {
-	shortStallTimeout(t, 100*time.Millisecond)
-
 	var fired atomic.Bool
-	timers := newStreamTimers(func() { fired.Store(true) })
+	timers := newStreamTimers(100*time.Millisecond, func() { fired.Store(true) })
 	defer timers.stop()
 
 	pr, pw := io.Pipe()
