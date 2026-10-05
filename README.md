@@ -606,11 +606,12 @@ The next version is derived from the conventional commits since the last release
 (a breaking change bumps major, `feat:` bumps minor, anything else patch); the
 `bump` input can force a specific major/minor/patch bump instead.
 
-To test the full release pipeline without publishing anything, leave `dry_run`
-set to `true`. The dry run builds all release binaries, `.deb`/`.rpm` packages
-and the pinned `PKGBUILD`, generates checksums, renders the Homebrew formula,
-and uploads the generated release assets as workflow artifacts. It does not push
-a version bump, create a Git tag or GitHub Release, or update the Homebrew tap.
+To test the full release pipeline without publishing anything, tick `dry_run`
+(it is off by default). The dry run builds all release binaries, `.deb`/`.rpm`
+packages and the pinned `PKGBUILD`, generates checksums, renders the Homebrew
+formula, and uploads the generated release assets as workflow artifacts. It does
+not push a version bump, create a Git tag or GitHub Release, or update the
+Homebrew tap.
 
 ## License
 
