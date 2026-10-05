@@ -171,19 +171,17 @@ const (
 	rightMargin = 1
 )
 
-// RenderHeader renders the title line above the list: the SomaFM badge,
-// the view's name and how many channels it holds, and the listener column
+// RenderHeader renders the title line above the list: the title, the
+// favorites marker when filtered, how many channels the view holds, and the listener column
 // heading, aligned to the same columns the delegate renders rows in.
 func RenderHeader(width int, favoritesOnly bool, count int) string {
 	leftCol, listenerCol := CalculateColumnWidths(width)
-	section := SectionStyle.Render("Stations")
+	title := TitleStyle.Render("SomaFM Stations")
 	if favoritesOnly {
-		section += SubtleStyle.Render(" · ") + FavoritesSectionStyle.Render("Favorites")
+		title += SubtleStyle.Render(" · ") + FavoritesSectionStyle.Render("Favorites")
 	}
-	// The badge's padding puts its text in the same column as the row
-	// titles below it.
-	left := "  " + PillStyle.Render("SomaFM") + " " + section +
-		SubtleStyle.Render(fmt.Sprintf(" · %d", count))
+	// The indent puts the title in the same column as the row titles below.
+	left := "   " + title + SubtleStyle.Render(fmt.Sprintf(" · %d", count))
 	heading := SubtleStyle.Render("Listeners")
 	return pad(ansi.Truncate(left, leftCol, "…"), leftCol) +
 		strings.Repeat(" ", max(listenerCol-lipgloss.Width(heading), 0)) + heading

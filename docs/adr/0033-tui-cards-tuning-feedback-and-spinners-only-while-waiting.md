@@ -15,7 +15,7 @@ the list only marked a channel once it was playing.
 
 ## Decision
 
-- **Layout.** A header line (a red "SomaFM" badge, the view's name, its
+- **Layout.** A header line (the red "SomaFM Stations" title, its
   channel count, the listener column heading), the flat list (ADR-0026),
   then cards: about and history when open, and an always-present
   now-playing card, with the key help at the very bottom. Cards are
@@ -54,7 +54,7 @@ the list only marked a channel once it was playing.
 - New visual states need an entry in `animates` if they show a spinner,
   or the chain will not run (or will not stop).
 - Every color stays an adaptive pair (ADR-0020); the palette gained
-  `BorderColor`, `DimColor` and `OnAccentColor` for chrome.
+  `BorderColor` and `DimColor` for chrome.
 - The cards cost vertical space: the now-playing card is four lines
   where the status bar was two. The list's own status line (the channel
   count, now in the header) is gone in exchange.

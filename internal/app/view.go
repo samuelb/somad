@@ -347,7 +347,7 @@ func (m *Model) View() string {
 	// Display a spinner while channels are still being fetched
 	if m.Loading {
 		return m.place(lipgloss.JoinVertical(lipgloss.Center,
-			ui.PillStyle.Render("SomaFM"),
+			ui.TitleStyle.Render("SomaFM"),
 			"",
 			ui.SpinnerStyle.Render(ui.Spinner(m.frame))+" "+ui.LoadingStyle.Render("Loading channels…"),
 		))

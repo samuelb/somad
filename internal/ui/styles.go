@@ -17,23 +17,16 @@ var (
 	SearchMatchColor = lipgloss.AdaptiveColor{Light: "#7A6800", Dark: "#E6DB74"} // Yellow for search matches
 	TextColor        = lipgloss.AdaptiveColor{Light: "#1A1A1A", Dark: "#FFFFFF"} // Primary text
 	MutedTextColor   = lipgloss.AdaptiveColor{Light: "#3D3D3D", Dark: "#CCCCCC"} // De-emphasized text
-	// Chrome: card borders, the unlit part of the volume gauge, and the
-	// text on the TitleColor badge in the header.
-	BorderColor   = lipgloss.AdaptiveColor{Light: "#B4B4B4", Dark: "#444444"} // Idle card borders
-	DimColor      = lipgloss.AdaptiveColor{Light: "#D2D2D2", Dark: "#333333"} // Unlit gauge cells
-	OnAccentColor = lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#FFFFFF"} // Text on TitleColor
+	// Chrome: card borders and the unlit part of the volume gauge.
+	BorderColor = lipgloss.AdaptiveColor{Light: "#B4B4B4", Dark: "#444444"} // Idle card borders
+	DimColor    = lipgloss.AdaptiveColor{Light: "#D2D2D2", Dark: "#333333"} // Unlit gauge cells
 )
 
 // Styles
 var (
-	// PillStyle is the "SomaFM" badge that opens the header.
-	PillStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(OnAccentColor).
-			Background(TitleColor).
-			Padding(0, 1)
+	// TitleStyle is the "SomaFM Stations" title that opens the header.
+	TitleStyle = lipgloss.NewStyle().Bold(true).Foreground(TitleColor)
 
-	SectionStyle = lipgloss.NewStyle().Bold(true).Foreground(TextColor)
 	// FavoritesSectionStyle names the favorites-only view in the header.
 	FavoritesSectionStyle = lipgloss.NewStyle().Bold(true).Foreground(PrimaryColor)
 
