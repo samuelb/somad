@@ -2,12 +2,13 @@
 title: Somad · SomaFM in your terminal
 description: Play and explore SomaFM radio from your terminal. Daemon-backed playback that outlives the TUI, plus a headless CLI. Linux and macOS.
 
-# Copy for the hero, quick start, feature grid and "How it works" cards.
+# Copy for the hero, quick start, feature list and "How it works" cards
+# (`wire` labels the connection to the next card).
 # The layout lives in templates/index.html; the body below is the Install
 # and Usage prose.
 extra:
   eyebrow: SomaFM radio client · Linux and macOS
-  headline: SomaFM in your&nbsp;terminal.
+  headline: SomaFM in your&nbsp;<em>terminal.</em>
   lede: >-
     Browse every SomaFM channel from a keyboard-driven TUI. Playback runs in a
     background daemon, so closing the terminal never stops the music, and a
@@ -20,6 +21,24 @@ extra:
     - brew tap samuelb/tap
     - brew install somad
     - soma
+  # Station names drifting past the hero's tuning dial (decoration only).
+  dial:
+    - Groove Salad
+    - Drone Zone
+    - Secret Agent
+    - Lush
+    - Deep Space One
+    - DEF CON Radio
+    - Indie Pop Rocks!
+    - Space Station Soma
+    - Left Coast 70s
+    - Sonic Universe
+    - Boot Liquor
+    - Beat Blender
+    - Underground 80s
+    - Fluid
+    - Suburbs of Goa
+    - Vaporwaves
   how_note: >-
     Frontends and daemon talk over a local socket, or over TCP with TLS and a
     pre-shared key when the speakers live on another machine.
@@ -85,10 +104,12 @@ extra:
 
   flow:
     - label: TUI & CLI
+      wire: socket
       text: >-
         `soma` opens the interface; `soma play`, `soma next`, `soma status` and
         friends work without it.
     - label: Daemon
+      wire: stream
       text: >-
         Starts on demand, streams and decodes the audio, tracks titles, shows
         the tray icon, and keeps playing after every client has gone.

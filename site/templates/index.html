@@ -1,22 +1,39 @@
 {% extends "base.html" %}
 {% block main %}
     <!-- Hero ------------------------------------------------------------ -->
-    <section class="hero wrap" id="top">
-      <div class="hero-copy">
-        <p class="eyebrow">{{ section.extra.eyebrow }}</p>
-        <h1>{{ section.extra.headline | safe }}</h1>
-        <p class="lede">{{ section.extra.lede }}</p>
-        <div class="cta">
-          <a class="btn primary" href="#install">Install</a>
-          <a class="btn" href="#usage">Usage</a>
-          <a class="btn ghost" href="{{ config.extra.repo }}">GitHub</a>
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="onair">On air</span> {{ section.extra.eyebrow }}</p>
+          <h1>{{ section.extra.headline | safe }}</h1>
+          <p class="lede">{{ section.extra.lede }}</p>
+          <div class="cta">
+            <a class="btn primary" href="#install">Install</a>
+            <a class="btn" href="#usage">Usage</a>
+            <a class="btn ghost" href="{{ config.extra.repo }}">GitHub&nbsp;↗</a>
+          </div>
+          <p class="version">latest release
+            <a href="{{ config.extra.repo }}/releases/latest"><code id="version">see releases</code></a></p>
         </div>
-        <p class="version">Latest release:
-          <a href="{{ config.extra.repo }}/releases/latest"><code id="version">see releases</code></a></p>
+        <figure class="panel screen">
+          <figcaption class="panel-label">soma</figcaption>
+          <img src="{{ get_url(path="demo.gif") }}" alt="Animated demo of the Somad terminal UI: browsing SomaFM channels, playing one, and showing the current track." width="880" height="618">
+        </figure>
       </div>
-      <figure class="terminal">
-        <img src="{{ get_url(path="demo.gif") }}" alt="Animated demo of the Somad terminal UI: browsing SomaFM channels, playing one, and showing the current track." width="880" height="618">
-      </figure>
+
+      <div class="dial" aria-hidden="true">
+        <div class="dial-track">
+          {%- for pass in [1, 2] %}
+          <ul>
+            {%- for station in section.extra.dial %}
+            <li>{{ station }}</li>
+            {%- endfor %}
+          </ul>
+          {%- endfor %}
+        </div>
+        <span class="needle"></span>
+      </div>
+      <pre class="spectrum" aria-hidden="true"></pre>
     </section>
 
     <!-- Quick start ----------------------------------------------------- -->
@@ -26,22 +43,27 @@
           <h2>Quick start</h2>
           <p>{{ section.extra.quickstart_text | markdown(inline=true) | safe }}</p>
         </div>
-        <pre class="shell"><code>{% for cmd in section.extra.quickstart %}{% if not loop.first %}
+        <div class="panel shell-panel">
+          <span class="panel-label">shell</span>
+          <button class="copy" type="button" hidden>copy</button>
+          <pre class="shell"><code>{% for cmd in section.extra.quickstart %}{% if not loop.first %}
 {% endif %}<span class="p">$</span> {{ cmd }}{% endfor %}</code></pre>
+        </div>
       </div>
     </section>
 
     <!-- Features -------------------------------------------------------- -->
     <section class="wrap features" id="features">
       <h2>What you get</h2>
-      <ul class="feature-grid">
+      <ol class="channels">
         {%- for feature in section.extra.features %}
         <li>
+          <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
           <h3>{{ feature.title }}</h3>
           <p>{{ feature.text | markdown(inline=true) | safe }}</p>
         </li>
         {%- endfor %}
-      </ul>
+      </ol>
     </section>
 
     <!-- How it works ---------------------------------------------------- -->
@@ -49,9 +71,12 @@
       <h2>How it works</h2>
       <ol class="flow">
         {%- for step in section.extra.flow %}
-        <li>
-          <span class="flow-label">{{ step.label }}</span>
+        <li class="panel">
+          <span class="panel-label">{{ step.label }}</span>
           <p>{{ step.text | markdown(inline=true) | safe }}</p>
+          {%- if step.wire %}
+          <span class="wire" aria-hidden="true"><span>{{ step.wire }}</span></span>
+          {%- endif %}
         </li>
         {%- endfor %}
       </ol>

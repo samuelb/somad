@@ -59,8 +59,11 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   and Usage, using the Tera components defined in
   `site/templates/components.html` (`prose`, `cards`, `card`, `cols`).
   Layout lives in `site/templates/base.html` and `index.html`; assets in
-  `site/static/` (`style.css`, `favicon.svg`, and `demo.gif` as a symlink
-  to the repo-root copy). Needs Zola 0.23 or newer: it uses components,
+  `site/static/` (`style.css`, `favicon.svg`, `site.js` for the hero's
+  spectrum and dial, key shortcuts and the copy button, self-hosted
+  `fonts/`, and `demo.gif` as a symlink to the repo-root copy). The look
+  borrows the TUI's palette and cards (ADR 0035); load nothing from
+  third-party hosts and keep the page working without JavaScript. Needs Zola 0.23 or newer: it uses components,
   which replaced shortcodes in 0.23. `make site` builds into `dist/site`;
   the Website workflow (`.github/workflows/website.yml`) does the same with
   a version- and checksum-pinned Zola and deploys to GitHub Pages on every
@@ -89,7 +92,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029
   - Last.fm scrobbling: 0031
-  - website: 0032
+  - website: 0032, 0035
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its
   "Not planned" section only points at ADRs. Remove an item when you finish
   it.

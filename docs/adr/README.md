@@ -48,3 +48,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0032](0032-website-is-a-single-page-zola-site.md) | The website is a single-page Zola site: copy in Markdown and front matter, layout in Tera templates, pinned Zola in CI | Accepted |
 | [0033](0033-tui-cards-tuning-feedback-and-spinners-only-while-waiting.md) | The TUI frames the list with cards, marks a channel tuning in at once, and animates only while waiting | Accepted (amended) |
 | [0034](0034-spectrum-visualizer-analyzed-in-the-daemon.md) | The TUI's spectrum visualizer is analyzed in the daemon and drawn into the view's blank cells | Accepted |
+| [0035](0035-website-looks-like-the-tui-with-self-hosted-fonts.md) | The website looks like the TUI, with self-hosted fonts and decoration-only script | Accepted |
