@@ -335,9 +335,9 @@ func (m *Model) syncSpectrum() tea.Cmd {
 		return nil
 	}
 	want := 0
-	if m.Visualizer {
+	if m.Visualizer != ui.VisualizerOff {
 		// Past the limit, neighboring bars share a band.
-		want = min(max(ui.VisualizerBars(m.screenWidth()), 1), protocol.MaxSpectrumBands)
+		want = min(max(ui.VisualizerBands(m.screenWidth()), 1), protocol.MaxSpectrumBands)
 	}
 	if want == m.vizBands {
 		return nil
@@ -347,6 +347,32 @@ func (m *Model) syncSpectrum() tea.Cmd {
 	return func() tea.Msg {
 		return spectrumSubscribedMsg{backend: b, bands: want, err: b.SubscribeSpectrum(want)}
 	}
+}
+
+// vizNoticeMsg ends the visualizer notice of chain gen; see cycleVisualizer.
+type vizNoticeMsg struct {
+	gen int
+}
+
+// vizNoticeFor is how long the now-playing card names a newly picked
+// visualizer style. A variable so tests need not wait it out.
+var vizNoticeFor = 1500 * time.Millisecond
+
+// cycleVisualizer switches to the next visualizer style, or off after the
+// last, names it in the now-playing card for a moment, and brings the
+// spectrum subscription in line.
+func (m *Model) cycleVisualizer() tea.Cmd {
+	m.Visualizer = m.Visualizer.Next()
+	if m.Visualizer == ui.VisualizerOff {
+		m.viz.Reset()
+	}
+	if m.OnVisualizer != nil {
+		m.OnVisualizer(m.Visualizer)
+	}
+	m.vizNotice = true
+	m.vizNoticeGen++
+	gen := m.vizNoticeGen
+	return tea.Batch(m.syncSpectrum(), tea.Tick(vizNoticeFor, func(time.Time) tea.Msg { return vizNoticeMsg{gen: gen} }))
 }
 
 // applySpectrumSubscribed records the outcome of a syncSpectrum request
@@ -360,10 +386,11 @@ func (m *Model) applySpectrumSubscribed(msg spectrumSubscribedMsg) tea.Cmd {
 		if errors.Is(msg.err, client.ErrDisconnected) {
 			return nil // the reconnect subscribes afresh
 		}
-		if !m.Visualizer {
+		if m.Visualizer == ui.VisualizerOff {
 			return m.syncSpectrum() // turned off meanwhile: nothing to report
 		}
-		m.Visualizer = false
+		m.Visualizer = ui.VisualizerOff
+		m.vizNotice = false
 		m.viz.Reset()
 		m.RequestErr = fmt.Sprintf("visualizer failed: %v", msg.err)
 		if m.skewed() {

@@ -11,11 +11,62 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// Visualizer is the spectrum drawn behind the TUI (ADR-0034): a bar per
-// band of the levels the daemon sends, rising with the music and falling
-// under its own gravity, drawn only into cells the view leaves blank.
+// VisualizerMode is a style of the spectrum drawn behind the TUI
+// (ADR-0034), or none; Next cycles through them in order, off last.
+type VisualizerMode int
+
+// The visualizer's styles.
+const (
+	VisualizerOff        VisualizerMode = iota
+	VisualizerBars                      // bars rising from the bottom, like cava
+	VisualizerMirror                    // bars mirrored about the middle line
+	VisualizerWave                      // a smooth braille hill of the spectrum
+	VisualizerMirrorWave                // the hill mirrored about the middle line
+	VisualizerWaterfall                 // a spectrogram scrolling upwards
+	visualizerModes
+)
+
+// Next returns the style after m, VisualizerOff after the last.
+func (m VisualizerMode) Next() VisualizerMode {
+	return (m + 1) % visualizerModes
+}
+
+// ParseVisualizerMode returns the style String names, reporting false for
+// a name it does not know.
+func ParseVisualizerMode(name string) (VisualizerMode, bool) {
+	for m := range visualizerModes {
+		if m.String() == name {
+			return m, true
+		}
+	}
+	return VisualizerOff, false
+}
+
+func (m VisualizerMode) String() string {
+	switch m {
+	case VisualizerBars:
+		return "bars"
+	case VisualizerMirror:
+		return "mirror"
+	case VisualizerWave:
+		return "wave"
+	case VisualizerMirrorWave:
+		return "mirror wave"
+	case VisualizerWaterfall:
+		return "waterfall"
+	default:
+		return "off"
+	}
+}
+
+// Visualizer holds what the visualizer draws from the levels the daemon
+// sends: per band, a level that rises with the music and falls under its
+// own gravity, and for the waterfall, a history of recent frames.
 type Visualizer struct {
-	levels []float64 // bar heights in [0, 1], lowest band first
+	levels  []float64   // smoothed levels in [0, 1], lowest band first
+	history [][]float64 // waterfall rows, oldest first
+	pending []float64   // the loudest of each band since the last row
+	frames  int         // frames folded into pending
 }
 
 const (
@@ -31,6 +82,17 @@ const (
 	// vizFloor is where a falling bar drops to zero: within the daemon's
 	// tail of silent frames even from full height (0.83^25 < 0.01).
 	vizFloor = 0.01
+	// The waterfall adds a row every vizRowFrames frames (about twelve a
+	// second), so a screen holds a few seconds, and keeps vizHistory rows.
+	vizRowFrames = 2
+	vizHistory   = 256
+	// vizWaveFloor is the level below which the wave leaves a gap rather
+	// than lie along the bottom.
+	vizWaveFloor = 0.02
+	// vizWaterfallFloor is the level below which the waterfall leaves a
+	// cell empty: most of the time a band sits above a third, and coloring
+	// all of that would bury the screen.
+	vizWaterfallFloor = 0.35
 )
 
 // vizEighths are the partial blocks for a bar's top cell, one to seven
@@ -38,8 +100,8 @@ const (
 var vizEighths = []rune("▁▂▃▄▅▆▇")
 
 // VisualizerBars is how many bars fit width cells, and so how many bands
-// to ask the daemon for.
-func VisualizerBars(width int) int {
+// to ask the daemon for; the other styles interpolate between them.
+func VisualizerBands(width int) int {
 	return max((width+vizGap)/(vizBarWidth+vizGap), 0)
 }
 
@@ -47,7 +109,9 @@ func VisualizerBars(width int) int {
 func (v *Visualizer) Update(levels []byte) {
 	if len(v.levels) != len(levels) {
 		v.levels = make([]float64, len(levels))
+		v.pending, v.frames, v.history = make([]float64, len(levels)), 0, nil
 	}
+	silent := true
 	for i, b := range levels {
 		target, cur := float64(b)/255, v.levels[i]
 		if target > cur {
@@ -56,68 +120,288 @@ func (v *Visualizer) Update(levels []byte) {
 			cur = 0 // settled: no stub left standing once the frames stop
 		}
 		v.levels[i] = cur
+		v.pending[i] = max(v.pending[i], target)
+		silent = silent && cur == 0
+	}
+	if v.frames++; v.frames == vizRowFrames {
+		v.history = append(v.history, v.pending)
+		if len(v.history) > vizHistory {
+			v.history = v.history[len(v.history)-vizHistory:]
+		}
+		v.pending, v.frames = make([]float64, len(levels)), 0
+	}
+	if silent {
+		// The last frame of the daemon's silent tail: nothing left that
+		// would move the waterfall's older rows off the screen.
+		v.history = nil
 	}
 }
 
-// Reset flattens the bars.
+// Reset flattens the visualizer.
 func (v *Visualizer) Reset() {
-	v.levels = nil
+	*v = Visualizer{}
 }
 
-// Underlay draws the bars beneath view, which fills a screen width cells
-// wide; they rise from the bottom of its first height lines, and the
-// full height stands for the loudest level. A bar shows as its glyphs in
-// blank cells and carries on behind anything drawn as the cells'
-// background, a shade darker so the text stays legible, with a blank
-// cell of that shade on either side so words never run into a bar; cells
-// that have a background of their own keep it.
-func (v *Visualizer) Underlay(view string, width, height int) string {
-	if width <= 0 || height <= 0 || len(v.levels) == 0 {
+// Underlay draws the visualizer in style mode beneath view, which fills a
+// screen width cells wide, in its first height lines. It shows as glyphs
+// in blank cells and carries on behind anything drawn as the cells'
+// background, a shade darker so the text stays legible, with a blank cell
+// of that shade on either side so words never run into it; cells that
+// have a background of their own keep it.
+func (v *Visualizer) Underlay(view string, mode VisualizerMode, width, height int) string {
+	if mode == VisualizerOff || width <= 0 || height <= 0 || len(v.levels) == 0 {
 		return view
+	}
+	grid := v.grid(mode, width, height)
+	var fills [2 * vizShades]string
+	for i := range vizShades {
+		fills[i] = vizFill(i, vizFillShade)
+		fills[vizShades+i] = vizFill(i, vizFaintShade)
 	}
 	lines := strings.Split(view, "\n")
 	for y := range min(len(lines), height) {
-		if row, lit := v.row(y, width, height); lit {
-			step := vizStep(height-1-y, height)
-			lines[y] = underlayLine(lines[y], row, width, vizStyles[step], vizFill(step))
+		if grid[y] != nil {
+			lines[y] = underlayLine(lines[y], grid[y], width, &fills)
 		}
 	}
 	return strings.Join(lines, "\n")
 }
 
-// barOffset is the column the first of VisualizerBars(width) bars starts
+// vizCell is one cell of the visualizer.
+type vizCell struct {
+	g      rune // the glyph shown in a blank cell; ' ' for none
+	step   int  // the gradient step of its color
+	bright bool // whether it takes the gradient at full strength
+	solid  bool // whether it fills enough of the cell to shade text on it
+	faint  bool // whether that shade is fainter, for a sparse glyph
+}
+
+// fill is the index of the cell's shade among Underlay's fills.
+func (c vizCell) fill() int {
+	if c.faint {
+		return vizShades + c.step
+	}
+	return c.step
+}
+
+// vizGrid is the visualizer's cells, a row per line; a nil row is empty.
+type vizGrid [][]vizCell
+
+func (g vizGrid) put(x, y int, c vizCell) {
+	if y < 0 || y >= len(g) || x < 0 {
+		return
+	}
+	if g[y] == nil {
+		g[y] = make([]vizCell, x+1, max(x+1, 80))
+	}
+	for len(g[y]) <= x {
+		g[y] = append(g[y], vizCell{})
+	}
+	g[y][x] = c
+}
+
+// grid draws the visualizer in style mode into a height-line field width
+// cells wide.
+func (v *Visualizer) grid(mode VisualizerMode, width, height int) vizGrid {
+	g := make(vizGrid, height)
+	switch mode {
+	case VisualizerBars:
+		v.drawBars(g, width, height)
+	case VisualizerMirror:
+		v.drawMirror(g, width, height)
+	case VisualizerWave:
+		v.drawWave(g, width, height)
+	case VisualizerMirrorWave:
+		v.drawMirrorWave(g, width, height)
+	case VisualizerWaterfall:
+		v.drawWaterfall(g, width, height)
+	}
+	for _, row := range g {
+		for x := range row {
+			if row[x].g == 0 {
+				row[x].g = ' '
+			}
+		}
+	}
+	return g
+}
+
+// barOffset is the column the first of VisualizerBands(width) bars starts
 // in, centering them.
 func barOffset(width int) int {
-	n := VisualizerBars(width)
+	n := VisualizerBands(width)
 	return (width - (n*(vizBarWidth+vizGap) - vizGap)) / 2
 }
 
-// row returns the glyphs line y of a height-line field shows of the bars,
-// a space where there is none, and whether there is any bar at all.
-func (v *Visualizer) row(y, width, height int) ([]rune, bool) {
-	row := []rune(strings.Repeat(" ", width))
-	n := VisualizerBars(width)
-	offset := barOffset(width)
-	above := (height - 1 - y) * 8 // eighths of a cell below this line
-	lit := false
-	for b := range n {
-		// The band count lags a resize until the daemon has the new one.
-		level := v.levels[b*len(v.levels)/n]
-		k := int(math.Round(level*float64(height*8))) - above
-		if k <= 0 {
-			continue
-		}
-		g := '█'
-		if k < 8 {
-			g = vizEighths[k-1]
-		}
-		lit = true
-		x := offset + b*(vizBarWidth+vizGap)
-		for i := range vizBarWidth {
-			row[x+i] = g
+// barLevel is the level of bar b of VisualizerBands(width). The band count
+// lags a resize until the daemon has the new one.
+func (v *Visualizer) barLevel(b, width int) float64 {
+	return v.levels[b*len(v.levels)/VisualizerBands(width)]
+}
+
+// putBar fills the bar starting at column x on line y.
+func putBar(g vizGrid, x, y int, c vizCell) {
+	for i := range vizBarWidth {
+		g.put(x+i, y, c)
+	}
+}
+
+// drawBars draws a bar per band rising from the bottom, the full height
+// standing for the loudest level; the gradient runs bottom to top.
+func (v *Visualizer) drawBars(g vizGrid, width, height int) {
+	for b := range VisualizerBands(width) {
+		x := barOffset(width) + b*(vizBarWidth+vizGap)
+		total := int(math.Round(v.barLevel(b, width) * float64(height*8)))
+		for up := 0; up < height && up*8 < total; up++ {
+			k := min(total-up*8, 8)
+			glyph := '█'
+			if k < 8 {
+				glyph = vizEighths[k-1]
+			}
+			putBar(g, x, height-1-up, vizCell{g: glyph, step: vizStep(up, height), solid: k >= 4})
 		}
 	}
-	return row, lit
+}
+
+// drawMirror draws the bars twice from the middle line, up and down; the
+// gradient runs from the middle outwards.
+func (v *Visualizer) drawMirror(g vizGrid, width, height int) {
+	upper := height / 2 // lines above the middle; the rest are below it
+	lower := height - upper
+	for b := range VisualizerBands(width) {
+		x := barOffset(width) + b*(vizBarWidth+vizGap)
+		level := v.barLevel(b, width)
+		total := int(math.Round(level * float64(upper*8)))
+		for r := 0; r < upper && r*8 < total; r++ {
+			k := min(total-r*8, 8)
+			glyph := '█'
+			if k < 8 {
+				glyph = vizEighths[k-1]
+			}
+			putBar(g, x, upper-1-r, vizCell{g: glyph, step: vizStep(r, upper), solid: k >= 4})
+		}
+		total = int(math.Round(level * float64(lower*8)))
+		for r := 0; r < lower && r*8 < total; r++ {
+			k := min(total-r*8, 8)
+			glyph := '█'
+			switch {
+			case k < 4:
+				glyph = '▔'
+			case k < 8:
+				glyph = '▀'
+			}
+			putBar(g, x, upper+r, vizCell{g: glyph, step: vizStep(r, lower), solid: k >= 4})
+		}
+	}
+}
+
+// brailleDots are the bits of a braille cell's dots, by column and row.
+var brailleDots = [2][4]rune{{0x01, 0x02, 0x04, 0x40}, {0x08, 0x10, 0x20, 0x80}}
+
+// drawWave draws the spectrum as a smooth hill of braille dots rising
+// from the bottom; the gradient runs bottom to top.
+func (v *Visualizer) drawWave(g vizGrid, width, height int) {
+	rows := 4 * height
+	v.drawHills(g, width, height, hill{base: rows - 1, dir: -1, span: rows})
+}
+
+// drawMirrorWave draws the hill twice from the middle line, up and down;
+// the gradient runs from the middle outwards.
+func (v *Visualizer) drawMirrorWave(g vizGrid, width, height int) {
+	upper := 4 * (height / 2) // dot rows above the middle line
+	v.drawHills(g, width, height,
+		hill{base: upper - 1, dir: -1, span: upper},
+		hill{base: upper, dir: 1, span: 4*height - upper})
+}
+
+// hill is where drawHills grows a hill: from dot row base, a dot at a time
+// in direction dir (-1 up, 1 down), up to span dots for the loudest level.
+type hill struct {
+	base, dir, span int
+}
+
+// drawHills draws the spectrum as smooth hills of braille dots, two across
+// and four down per cell, blended from band to band: dotted fill, and the
+// outline along their tips at full strength. The gradient runs from each
+// hill's base outwards.
+func (v *Visualizer) drawHills(g vizGrid, width, height int, hills ...hill) {
+	dots := make([][]rune, height)
+	edge := make([][]bool, height) // cells an outline passes through
+	steps := make([][]int, height)
+	for i := range dots {
+		dots[i], edge[i], steps[i] = make([]rune, width), make([]bool, width), make([]int, width)
+	}
+	for _, h := range hills {
+		cells := (h.span + 3) / 4
+		prev := -1
+		for xp := range 2 * width {
+			level := interpolate(v.levels, (float64(xp)+0.5)/float64(2*width))
+			n := int(math.Round(level * float64(h.span)))
+			if level < vizWaveFloor || n == 0 {
+				prev = -1
+				continue
+			}
+			for i := range n {
+				y := h.base + h.dir*i
+				dots[y/4][xp/2] |= brailleDots[xp%2][y%4]
+				steps[y/4][xp/2] = vizStep(abs(y/4-h.base/4), cells)
+			}
+			// The outline joins the tip to the last column's, down a
+			// steep side too.
+			tip := h.base + h.dir*(n-1)
+			from, to := tip, tip
+			if prev >= 0 {
+				from, to = min(prev, tip), max(prev, tip)
+			}
+			for y := from; y <= to; y++ {
+				edge[y/4][xp/2] = true
+			}
+			prev = tip
+		}
+	}
+	for y, row := range dots {
+		for x, bits := range row {
+			if bits != 0 {
+				g.put(x, y, vizCell{g: 0x2800 + bits, step: steps[y][x], bright: edge[y][x], solid: true, faint: true})
+			}
+		}
+	}
+}
+
+func abs(n int) int {
+	return max(n, -n)
+}
+
+// drawWaterfall draws the recent frames as rows of blocks colored by
+// loudness, the newest at the bottom, so the music scrolls upwards; the
+// gradient runs from quiet to loud.
+func (v *Visualizer) drawWaterfall(g vizGrid, width, height int) {
+	for up := 0; up < height && up < len(v.history); up++ {
+		frame := v.history[len(v.history)-1-up]
+		for x := range width {
+			level := interpolate(frame, (float64(x)+0.5)/float64(width))
+			if level < vizWaterfallFloor {
+				continue
+			}
+			loudness := (level - vizWaterfallFloor) / (1 - vizWaterfallFloor)
+			step := min(int(loudness*vizShades), vizShades-1)
+			g.put(x, height-1-up, vizCell{g: '█', step: step, solid: true})
+		}
+	}
+}
+
+// interpolate returns the level at t in [0, 1] across levels, which stand
+// at the middles of equal slices of the range, blending neighbors.
+func interpolate(levels []float64, t float64) float64 {
+	n := len(levels)
+	if n == 0 {
+		return 0
+	}
+	pos := t*float64(n) - 0.5
+	i := int(math.Floor(pos))
+	f := pos - float64(i)
+	a, b := levels[min(max(i, 0), n-1)], levels[min(max(i+1, 0), n-1)]
+	return a + (b-a)*f
 }
 
 // The bars shade from teal at the bottom to gold at the top, the
@@ -129,14 +413,26 @@ var (
 )
 
 // vizFillShade is how far the background behind text is blended from the
-// bar's color towards the terminal's, so text on it keeps its contrast.
-const vizFillShade = 0.4
+// bar's color towards the terminal's, so text on it keeps its contrast;
+// vizFaintShade is the same for the wave, whose dotted fill looks lighter
+// than a solid block of its color.
+const (
+	vizFillShade  = 0.4
+	vizFaintShade = 0.7
+)
 
 // vizShades is how many steps the gradient takes.
 const vizShades = 8
 
+// The wave's thin line takes the accents at full strength.
+var (
+	vizBrightBottom = [2]string{"#0E686D", "#1A9096"} // PlayingColor
+	vizBrightTop    = [2]string{"#8F6400", "#D8A24D"} // PrimaryColor
+)
+
 // vizColors are the bar colors of the gradient's steps, bottom first, and
-// vizStyles their glyph styles.
+// vizStyles their glyph styles; vizBrightStyles are the full-strength
+// gradient's.
 var (
 	vizColors = func() (colors [vizShades]lipgloss.AdaptiveColor) {
 		for i := range colors {
@@ -154,10 +450,20 @@ var (
 		}
 		return styles
 	}()
+	vizBrightStyles = func() (styles [vizShades]lipgloss.Style) {
+		for i := range styles {
+			t := float64(i) / (vizShades - 1)
+			styles[i] = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
+				Light: lerpHex(vizBrightBottom[0], vizBrightTop[0], t),
+				Dark:  lerpHex(vizBrightBottom[1], vizBrightTop[1], t),
+			})
+		}
+		return styles
+	}()
 )
 
 // vizStep returns the gradient step of the line that many lines up from
-// the bottom of a height-line field.
+// the base of a height-line field.
 func vizStep(up, height int) int {
 	if height <= 1 {
 		return 0
@@ -167,12 +473,12 @@ func vizStep(up, height int) int {
 
 // vizFill returns the SGR sequence that sets the background behind text
 // on a bar of gradient step, or "" when the terminal shows no color.
-func vizFill(step int) string {
+func vizFill(step int, shade float64) string {
 	c, toward := vizColors[step].Dark, "#000000"
 	if !lipgloss.HasDarkBackground() {
 		c, toward = vizColors[step].Light, "#FFFFFF"
 	}
-	color := lipgloss.ColorProfile().Color(lerpHex(c, toward, vizFillShade))
+	color := lipgloss.ColorProfile().Color(lerpHex(c, toward, shade))
 	if color == nil || color.Sequence(true) == "" {
 		return ""
 	}
@@ -194,35 +500,35 @@ func hexRGB(h string) [3]int {
 	return [3]int{int(n >> 16 & 0xff), int(n >> 8 & 0xff), int(n & 0xff)}
 }
 
-// underlayLine draws bg, a line's worth of bar glyphs, into line, a
-// rendered line that may carry SGR styling and may end short of width:
-// the glyphs into its blank cells, in style, and fill, a background SGR,
-// behind the rest of the cells a bar covers at least half of.
-func underlayLine(line string, bg []rune, width int, style lipgloss.Style, fill string) string {
+// underlayLine draws cells, a line's worth of the visualizer, into line,
+// a rendered line that may carry SGR styling and may end short of width:
+// glyphs into its blank cells, and behind the rest of the cells a solid
+// one covers, its fill (fills, background SGRs indexed by vizCell.fill).
+func underlayLine(line string, cells []vizCell, width int, fills *[2 * vizShades]string) string {
 	var out strings.Builder
 	var active []string // the SGR sequences in effect since the last reset
 	backed := false     // whether they set a background
-	filling := false    // whether fill is in effect on out
+	filling := -1       // the fill in effect on out, -1 for none
 	col := 0
 	run := -1             // where the blanks before col start, -1 for none
 	var held bytes.Buffer // the run as it came, SGR changes included
 
-	bar := func(x int) bool { return x < len(bg) && bg[x] != ' ' }
+	shown := func(x int) bool { return x < len(cells) && cells[x].g != ' ' }
 	behind := func(x int) bool {
-		return fill != "" && !backed && x < len(bg) && (bg[x] == '█' || bg[x] >= '▄' && bg[x] <= '▇')
+		return !backed && x < len(cells) && cells[x].solid && fills[cells[x].fill()] != ""
 	}
 	unfill := func() {
-		if filling {
+		if filling >= 0 {
 			out.WriteString("\x1b[49m")
-			filling = false
+			filling = -1
 		}
 	}
 
-	// flush writes the run of blanks ending at end with the bars' glyphs
-	// in it, but for the cell after what precedes it and before what
-	// follows it unless the line ends there, which take the shade behind
-	// text. The run's SGR changes were held back; the state they leave is
-	// restored after it. A run no bar reaches is written as it came.
+	// flush writes the run of blanks ending at end with the glyphs in it,
+	// but for the cell after what precedes it and before what follows it
+	// unless the line ends there, which take the fill instead. The run's
+	// SGR changes were held back; the state they leave is restored after
+	// it. A run the visualizer does not reach is written as it came.
 	flush := func(end int, lineEnds bool) {
 		if run < 0 {
 			return
@@ -232,7 +538,7 @@ func underlayLine(line string, bg []rune, width int, style lipgloss.Style, fill 
 		margin := func(x int) bool { return x == start && start > 0 || x == end-1 && !lineEnds }
 		reached := false
 		for x := start; x < end && !reached; x++ {
-			reached = bar(x)
+			reached = shown(x)
 		}
 		if !reached {
 			_, _ = held.WriteTo(&out)
@@ -243,17 +549,25 @@ func underlayLine(line string, bg []rune, width int, style lipgloss.Style, fill 
 		for x := start; x < end; {
 			switch {
 			case margin(x) && behind(x):
-				out.WriteString(fill + " " + ansi.ResetStyle)
+				out.WriteString(fills[cells[x].fill()] + " " + ansi.ResetStyle)
 				x++
-			case margin(x) || !bar(x):
+			case margin(x) || !shown(x):
 				out.WriteByte(' ')
 				x++
 			default:
-				from := x
-				for x < end && bar(x) && !margin(x) {
+				from, step, bright := x, cells[x].step, cells[x].bright
+				for x < end && shown(x) && !margin(x) && cells[x].step == step && cells[x].bright == bright {
 					x++
 				}
-				out.WriteString(style.Render(string(bg[from:x])))
+				glyphs := make([]rune, 0, x-from)
+				for _, c := range cells[from:x] {
+					glyphs = append(glyphs, c.g)
+				}
+				style := vizStyles[step]
+				if bright {
+					style = vizBrightStyles[step]
+				}
+				out.WriteString(style.Render(string(glyphs)))
 			}
 		}
 		out.WriteString(strings.Join(active, ""))
@@ -275,11 +589,13 @@ func underlayLine(line string, bg []rune, width int, style lipgloss.Style, fill 
 			} else {
 				out.WriteString(seq)
 				// It may have reset the background; a background of the
-				// text's own wins over the bar's.
-				if filling && !nextBacked {
-					out.WriteString(fill)
+				// text's own wins over the fill.
+				switch {
+				case nextBacked:
+					filling = -1
+				case filling >= 0:
+					out.WriteString(fills[filling])
 				}
-				filling = filling && !nextBacked
 			}
 			active, backed = nextActive, nextBacked
 		case seq == " " && !backed:
@@ -292,10 +608,12 @@ func underlayLine(line string, bg []rune, width int, style lipgloss.Style, fill 
 		default:
 			flush(col, false)
 			if w > 0 {
-				if behind(col) && !filling {
-					out.WriteString(fill)
-					filling = true
-				} else if !behind(col) {
+				if behind(col) {
+					if f := cells[col].fill(); filling != f {
+						out.WriteString(fills[f])
+						filling = f
+					}
+				} else {
 					unfill()
 				}
 			}

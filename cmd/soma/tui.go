@@ -9,6 +9,8 @@ import (
 	"somad/internal/app"
 	"somad/internal/client"
 	"somad/internal/protocol"
+	"somad/internal/state"
+	"somad/internal/ui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -45,11 +47,23 @@ func runTUI(shutdownOnExit bool) {
 
 	m.List = m.NewList()
 
+	// The visualizer style picked last time comes back; see saveVisualizer.
+	prefs, prefsErr := state.LoadTUIPrefs()
+	m.Visualizer, _ = ui.ParseVisualizerMode(prefs.Visualizer)
+
 	// Start the Bubble Tea program with window size handling. Mouse cell
 	// motion reporting lets the mouse wheel scroll the channel list (see
 	// internal/app/update.go's tea.MouseMsg handling: the vendored
 	// bubbles/list does not process mouse events on its own).
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+
+	saver := newVisualizerSaver(saveVisualizer, func(err error) {
+		p.Send(app.RequestErrorMsg{Op: "saving the visualizer style", Err: err})
+	})
+	m.OnVisualizer = saver.Offer
+	if prefsErr != nil {
+		go p.Send(app.RequestErrorMsg{Op: "loading the visualizer style", Err: prefsErr})
+	}
 
 	// Bridge server events into the Bubble Tea program, reconnecting (and
 	// respawning the server) when the connection drops.
@@ -59,7 +73,9 @@ func runTUI(shutdownOnExit bool) {
 		runBridge(p, c, bridgeDone, shutdownOnExit)
 	}()
 
-	if _, err := p.Run(); err != nil {
+	_, err = p.Run()
+	saver.Close() // a style picked just before quitting is still written
+	if err != nil {
 		fmt.Printf("Alas, there's been an error: %v\n", err)
 		os.Exit(1)
 	}
@@ -69,6 +85,17 @@ func runTUI(shutdownOnExit bool) {
 		// server; wait for it so that server is shut down too, not orphaned.
 		<-bridgeExited
 	}
+}
+
+// saveVisualizer remembers the visualizer style in the TUI's preferences
+// (internal/state's tui.json), keeping any other preference there.
+func saveVisualizer(mode ui.VisualizerMode) error {
+	prefs, err := state.LoadTUIPrefs()
+	if err != nil {
+		return err
+	}
+	prefs.Visualizer = mode.String()
+	return state.SaveTUIPrefs(prefs)
 }
 
 // runBridge forwards server events to the program. When the connection is

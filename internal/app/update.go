@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"somad/internal/protocol"
+	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -109,8 +110,14 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case SpectrumMsg:
-		if m.Visualizer {
+		if m.Visualizer != ui.VisualizerOff {
 			m.viz.Update(msg.Levels)
+		}
+		return nil
+
+	case vizNoticeMsg:
+		if msg.gen == m.vizNoticeGen {
+			m.vizNotice = false
 		}
 		return nil
 
@@ -217,9 +224,7 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, keys.History):
 		return m.toggleHistory(), true
 	case key.Matches(msg, keys.Visualizer):
-		m.Visualizer = !m.Visualizer
-		m.viz.Reset()
-		return m.syncSpectrum(), true
+		return m.cycleVisualizer(), true
 	case key.Matches(msg, keys.Escape):
 		// Back out one layer: close whichever overlay is open, else clear a
 		// search filter kept after Enter. Esc never quits; that is q's job,
@@ -335,7 +340,7 @@ var keys = keyMap{
 	ClearSearch:   key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clear search")),
 	About:         key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "about")),
 	History:       key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "history")),
-	Visualizer:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "visualizer")),
+	Visualizer:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle visualizer")),
 	Escape:        key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close about/history / cancel search")),
 }
 

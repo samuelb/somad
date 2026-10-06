@@ -151,8 +151,9 @@ never an error.
 **Directories**: config `~/.config/somad/` (Linux) or
 `~/Library/Application Support/somad/` (macOS); state (favorites, last
 channel, volume, `server.log`, generated `tls-cert.pem`/`tls-key.pem`,
-`lastfm.json` holding the Last.fm session key from `soma lastfm login`, 0600)
-`~/.local/state/somad/` or the same macOS dir; cache `~/.cache/somad/` or
+`lastfm.json` holding the Last.fm session key from `soma lastfm login`, 0600,
+`tui.json` with the TUI's own preferences, written by the TUI: the
+visualizer style) `~/.local/state/somad/` or the same macOS dir; cache `~/.cache/somad/` or
 `~/Library/Caches/somad/`; socket `$XDG_RUNTIME_DIR/somad.sock` or a
 per-user temp dir on macOS.
 
@@ -239,10 +240,11 @@ delegate, the lipgloss styles, and the widgets the view is built from
 (`widgets.go`: `Card`, the spinner, the volume gauge, `ShortHelp`). One
 tick chain (`syncAnim` in `commands.go`) drives the spinners, and only
 while one is on screen; a channel asked to play is marked tuning in the
-list at once (`tuningID` in `model.go`) (ADR-0033). `v` toggles the
-spectrum visualizer (ADR-0034): `syncSpectrum` keeps the subscription at a
+list at once (`tuningID` in `model.go`) (ADR-0033). `v` cycles the
+spectrum visualizer's styles (`ui.VisualizerMode`: bars, mirror, wave,
+mirror wave, waterfall, off; ADR-0034): `syncSpectrum` keeps the subscription at a
 band per bar, frames arrive as `SpectrumMsg` from the bridge in
-`cmd/soma/tui.go`, and `ui.Visualizer.Underlay` draws the bars behind the
+`cmd/soma/tui.go`, and `ui.Visualizer.Underlay` draws the style behind the
 rendered view above the cards: glyphs in blank cells, a darker background
 behind text.
 
@@ -257,7 +259,10 @@ behind text.
 - `internal/channels` — SomaFM catalog fetch/cache, selection by ID or name
 - `internal/state` — persisted user state; atomic writes, corrupt-file
   quarantine; `lastfm.go` persists the Last.fm session key the same way, in
-  its own `lastfm.json` so `soma lastfm login` never touches config.yaml
+  its own `lastfm.json` so `soma lastfm login` never touches config.yaml;
+  `tui.go` keeps the TUI's preferences (the visualizer style) in
+  `tui.json`, written by the TUI through `cmd/soma/prefs.go`'s
+  latest-wins saver
 - `internal/config` — strict YAML config file, supplies flag defaults
 - `internal/security` — all outbound HTTP goes through
   `security.NewRequest`/`NewFormRequest` / `ValidateURL`, which allowlist

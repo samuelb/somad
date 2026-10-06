@@ -90,14 +90,22 @@ type Model struct {
 	// visible channel, for the delegate to highlight; nil without a query.
 	matches map[string]textMatch
 
-	// Visualizer shows the spectrum of the playing audio behind the view
-	// (v); viz holds its bars. vizBands is the band count of the server's
-	// spectrum subscription, 0 for none, and vizSubscribing is true while
-	// a request to change it is in flight; see syncSpectrum.
-	Visualizer     bool
+	// Visualizer is the style the spectrum of the playing audio is drawn
+	// behind the view in, cycled by v, or ui.VisualizerOff; viz holds what
+	// it draws from. vizBands is the band count of the server's spectrum
+	// subscription, 0 for none, and vizSubscribing is true while a request
+	// to change it is in flight; see syncSpectrum. vizNotice names the
+	// style in the now-playing card for a moment after a change, until the
+	// vizNoticeMsg of chain vizNoticeGen.
+	Visualizer     ui.VisualizerMode
 	viz            ui.Visualizer
 	vizBands       int
 	vizSubscribing bool
+	vizNotice      bool
+	vizNoticeGen   int
+	// OnVisualizer, when set, is told every style v picks, so it can be
+	// remembered across restarts; it must not block.
+	OnVisualizer func(ui.VisualizerMode)
 
 	// frame counts animation ticks; the playing indicator and the spinners
 	// are drawn for it. animating is true while a tick chain is running;
@@ -109,7 +117,8 @@ type Model struct {
 // Init requests the initial catalog and playback state from the server,
 // and starts the loading spinner.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchChannels(), m.fetchStatus(), tea.EnterAltScreen, m.syncAnim())
+	// A visualizer style remembered from the last run subscribes at once.
+	return tea.Batch(m.fetchChannels(), m.fetchStatus(), tea.EnterAltScreen, m.syncAnim(), m.syncSpectrum())
 }
 
 // NewList returns the channel list component for m, empty and unsized:

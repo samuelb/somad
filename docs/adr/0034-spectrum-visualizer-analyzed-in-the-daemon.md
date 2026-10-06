@@ -1,6 +1,6 @@
 # ADR-0034: The TUI's spectrum visualizer is analyzed in the daemon and drawn into the view's blank cells
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-06: styles cycled by `v`, remembered across restarts)
 - **Date:** 2026-10-06
 - **Sources:** `internal/audio/spectrum.go`, `internal/server/spectrum.go`, `internal/ui/visualizer.go`, `internal/app/commands.go` (`syncSpectrum`), `internal/app/view.go` (`View`)
 
@@ -43,7 +43,24 @@ speakers (ADR-0007), so the samples exist only in the daemon.
   visualizer off, and says the daemon is out of date when it is (the
   restart onto the new version follows at the next interruption,
   ADR-0006).
-- **The TUI draws.** `v` toggles it, off at start and not persisted. The
+- **Styles.** `v` cycles bars (cava's), mirror (the bars both ways from
+  the middle line), wave (a smooth hill of braille dots blended from band
+  to band, outlined at full strength), mirror wave (the hill both ways
+  from the middle line), and waterfall (a spectrogram: a
+  row every other frame, newest at the bottom, colored by loudness above
+  a third of full scale, cleared once the bars settle), then off; a
+  moment's note in the now-playing card names the style. All draw from
+  the same frames, so a change of style is not a new subscription. The
+  wave's dotted fill looks lighter than a block, so the shade behind
+  text on it is fainter (70 %).
+- **The style is remembered by the client.** The TUI keeps the style it
+  last picked in `tui.json` in its own state directory (ADR-0012's
+  atomic writes and quarantine) and subscribes with it at start. It is a
+  display preference of that terminal, not playback state, so the daemon
+  never sees it (ADR-0003) and a remote TUI keeps its own. A
+  latest-wins saver writes it off the UI loop, and the TUI waits for a
+  pending write before it exits.
+- **The TUI draws.** The
   model asks for a band per bar across the window (at most 512, shared by
   neighboring bars past about 1500 columns), keeps one subscribe
   request in flight and re-syncs on its reply (a connection's requests
@@ -75,6 +92,13 @@ speakers (ADR-0007), so the samples exist only in the daemon.
   opaque; plain spaces between a list row's columns let the bars through.
 
 ## Rejected alternatives
+
+- **A thin wave line** (2026-10-06, tried): rows of text hid most of it,
+  leaving fragments, and shading text along it left blocky patches. The
+  wave is a filled hill instead.
+- **Shade glyphs (░▒▓█) for the waterfall** (2026-10-06, tried): on real
+  music they read as noise; blocks colored by loudness read as a
+  spectrogram.
 
 - **Bars only through blank cells** (2026-10-06, the first version): with
   a blank margin around text and no half bars, every row of text cut the

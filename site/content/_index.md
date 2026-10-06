@@ -48,9 +48,10 @@ extra:
         change, fired from the daemon so it works with the TUI closed.
     - title: Spectrum visualizer
       text: >-
-        Press <kbd>v</kbd> for cava-style bars behind the channel list, drawn
-        from the audio the daemon is actually playing, even over a remote
-        connection.
+        Press <kbd>v</kbd> for a cava-style spectrum behind the channel list,
+        drawn from the audio the daemon is actually playing, even over a
+        remote connection. Press it again for mirrored bars, a wave, a
+        mirrored wave, or a scrolling waterfall; the choice is remembered.
     - title: Now-playing history
       text: >-
         Browse recent titles for a channel with `soma history` or the TUI's
@@ -248,7 +249,7 @@ Every command works without the TUI, which makes them handy for scripts, keybind
 | <kbd>c</kbd> | Clear the search |
 | <kbd>a</kbd> | About |
 | <kbd>h</kbd> | Show recent now-playing history for the playing channel |
-| <kbd>v</kbd> | Toggle the spectrum visualizer behind the channel list |
+| <kbd>v</kbd> | Cycle the spectrum visualizer behind the channel list: bars, mirror, wave, mirror wave, waterfall, off (remembered) |
 | <kbd>Esc</kbd> | Close the about screen / history overlay, else cancel or clear the search (never quits) |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd> | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
 
@@ -345,7 +346,7 @@ On the first daemon start the file is created as a template with every setting p
 ### Where Somad keeps its files {#files}
 
 - **Config**: `~/.config/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS)
-- **State**: `~/.local/state/somad/` (Linux) or the same macOS directory. Also holds `server.log`, the generated TLS certificate, and `lastfm.json` (the Last.fm session from `soma lastfm login`, mode `0600`).
+- **State**: `~/.local/state/somad/` (Linux) or the same macOS directory. Also holds `server.log`, the generated TLS certificate, `lastfm.json` (the Last.fm session from `soma lastfm login`, mode `0600`), and `tui.json` (the TUI's own preferences, such as the visualizer style).
 - **Cache**: `~/.cache/somad/` (Linux) or `~/Library/Caches/somad/` (macOS)
 - **Socket**: `$XDG_RUNTIME_DIR/somad.sock` (Linux) or a per-user temp directory (macOS); override with `$SOMAD_SOCKET`
 

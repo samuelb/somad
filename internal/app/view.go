@@ -147,11 +147,16 @@ func (m *Model) RenderNowPlaying() string {
 		lines = append(lines, wrapErr.Render("✕ server connection lost — reconnecting…"))
 	}
 
-	// A pending sleep timer (soma stop --in) sits in the top border.
-	var info string
-	if label := sleepTimerLabel(st.StopAt); label != "" {
-		info = ui.AccentStyle.Render("☾ " + label)
+	// A pending sleep timer (soma stop --in) sits in the top border, and
+	// for a moment, the visualizer style just picked with v.
+	var notes []string
+	if m.vizNotice {
+		notes = append(notes, ui.MutedStyle.Render("visualizer: "+m.Visualizer.String()))
 	}
+	if label := sleepTimerLabel(st.StopAt); label != "" {
+		notes = append(notes, ui.AccentStyle.Render("☾ "+label))
+	}
+	info := strings.Join(notes, ui.SubtleStyle.Render(" · "))
 	return m.card(border, title, info, lines)
 }
 
@@ -377,7 +382,7 @@ func (m *Model) View() string {
 	above, below := m.chrome()
 	components := append(append(above, body), below...)
 	view := lipgloss.JoinVertical(lipgloss.Left, components...)
-	if m.Visualizer && m.Width > 0 {
+	if m.Visualizer != ui.VisualizerOff && m.Width > 0 {
 		// The bars rise from the top of the cards, which stay opaque.
 		field := chromeHeight(above, nil) + lipgloss.Height(body)
 		for _, c := range below {
@@ -386,7 +391,7 @@ func (m *Model) View() string {
 			}
 			field++ // a spacing line
 		}
-		view = m.viz.Underlay(view, m.Width, field)
+		view = m.viz.Underlay(view, m.Visualizer, m.Width, field)
 	}
 	return view
 }
