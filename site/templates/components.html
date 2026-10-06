@@ -6,6 +6,7 @@
     navigation links to. -#}
 {% component prose(id: string, title: string) %}
 <section class="wrap prose" id="{{ id }}">
+<p class="prompt" aria-hidden="true"><span class="cwd">~/somad</span> <span class="ps">$</span> cd {{ id }}</p>
 <h2>{{ title }}</h2>
 
 {{ body }}

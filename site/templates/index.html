@@ -4,8 +4,8 @@
     <section class="hero" id="top">
       <div class="wrap hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="onair">On air</span> {{ section.extra.eyebrow }}</p>
-          <h1>{{ section.extra.headline | safe }}</h1>
+          <p class="eyebrow">{{ section.extra.eyebrow }}</p>
+          <h1>{{ section.extra.headline | safe }}&#8288;<span class="cursor" aria-hidden="true"></span></h1>
           <p class="lede">{{ section.extra.lede }}</p>
           <div class="cta">
             <a class="btn primary" href="#install">Install</a>
@@ -20,26 +20,13 @@
           <img src="{{ get_url(path="demo.gif") }}" alt="Animated demo of the Somad terminal UI: browsing SomaFM channels, playing one, and showing the current track." width="880" height="618">
         </figure>
       </div>
-
-      <div class="dial" aria-hidden="true">
-        <div class="dial-track">
-          {%- for pass in [1, 2] %}
-          <ul>
-            {%- for station in section.extra.dial %}
-            <li>{{ station }}</li>
-            {%- endfor %}
-          </ul>
-          {%- endfor %}
-        </div>
-        <span class="needle"></span>
-      </div>
-      <pre class="spectrum" aria-hidden="true"></pre>
     </section>
 
     <!-- Quick start ----------------------------------------------------- -->
     <section class="wrap quickstart" id="quick-start">
       <div class="quickstart-grid">
         <div>
+          <p class="prompt" aria-hidden="true"><span class="cwd">~/somad</span> <span class="ps">$</span> cd quick-start</p>
           <h2>Quick start</h2>
           <p>{{ section.extra.quickstart_text | markdown(inline=true) | safe }}</p>
         </div>
@@ -54,6 +41,7 @@
 
     <!-- Features -------------------------------------------------------- -->
     <section class="wrap features" id="features">
+      <p class="prompt" aria-hidden="true"><span class="cwd">~/somad</span> <span class="ps">$</span> cd features</p>
       <h2>What you get</h2>
       <ol class="channels">
         {%- for feature in section.extra.features %}
@@ -68,6 +56,7 @@
 
     <!-- How it works ---------------------------------------------------- -->
     <section class="wrap how" id="how-it-works">
+      <p class="prompt" aria-hidden="true"><span class="cwd">~/somad</span> <span class="ps">$</span> cd how-it-works</p>
       <h2>How it works</h2>
       <ol class="flow">
         {%- for step in section.extra.flow %}

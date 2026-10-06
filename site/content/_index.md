@@ -21,24 +21,6 @@ extra:
     - brew tap samuelb/tap
     - brew install somad
     - soma
-  # Station names drifting past the hero's tuning dial (decoration only).
-  dial:
-    - Groove Salad
-    - Drone Zone
-    - Secret Agent
-    - Lush
-    - Deep Space One
-    - DEF CON Radio
-    - Indie Pop Rocks!
-    - Space Station Soma
-    - Left Coast 70s
-    - Sonic Universe
-    - Boot Liquor
-    - Beat Blender
-    - Underground 80s
-    - Fluid
-    - Suburbs of Goa
-    - Vaporwaves
   how_note: >-
     Frontends and daemon talk over a local socket, or over TCP with TLS and a
     pre-shared key when the speakers live on another machine.
