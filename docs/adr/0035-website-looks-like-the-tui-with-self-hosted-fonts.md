@@ -22,8 +22,7 @@ spectrum visualizer.
   equalizer on hover.
 - A light terminal theme on top: the navigation is a tmux status line (a
   session block, one window per section named by its shortcut key and
-  flagged `*` while on screen), each section opens with a
-  `~/somad $ cd <section>` prompt, block cursors blink after the headline
+  flagged `*` while on screen), block cursors blink after the headline
   and at the footer's idle prompt, the quick start's commands type
   themselves out, and faint scanlines cover the hero. None of it shows
   commands or flags soma does not have.
@@ -81,3 +80,5 @@ spectrum visualizer.
 - Section headings numbered as channels ("CH 01", "CH 02", ...) by a CSS
   counter, removed 2026-10-11: the badge read as unexplained jargon rather
   than as a radio dial.
+- A `~/somad $ cd <section>` prompt above each section heading, removed
+  2026-10-11 with the channel numbers: clutter above every title.

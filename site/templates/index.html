@@ -26,7 +26,6 @@
     <section class="wrap quickstart" id="quick-start">
       <div class="quickstart-grid">
         <div>
-          <p class="prompt" aria-hidden="true"><span class="cwd">~/somad</span> <span class="ps">$</span> cd quick-start</p>
           <h2>Quick start</h2>
           <p>{{ section.extra.quickstart_text | markdown(inline=true) | safe }}</p>
         </div>
@@ -41,7 +40,6 @@
 
     <!-- Features -------------------------------------------------------- -->
     <section class="wrap features" id="features">
-      <p class="prompt" aria-hidden="true"><span class="cwd">~/somad</span> <span class="ps">$</span> cd features</p>
       <h2>What you get</h2>
       <ol class="channels">
         {%- for feature in section.extra.features %}
@@ -56,7 +54,6 @@
 
     <!-- How it works ---------------------------------------------------- -->
     <section class="wrap how" id="how-it-works">
-      <p class="prompt" aria-hidden="true"><span class="cwd">~/somad</span> <span class="ps">$</span> cd how-it-works</p>
       <h2>How it works</h2>
       <ol class="flow">
         {%- for step in section.extra.flow %}
