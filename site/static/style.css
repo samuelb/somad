@@ -353,7 +353,7 @@ pre.shell { background: none; border: 0; padding: 0; font-size: 1rem; line-heigh
   position: absolute; left: 1rem; top: 1.25rem;
   color: var(--dim); font: .75rem var(--mono);
 }
-.channels h3 { margin: 0 0 .25rem; font-size: 1.02rem; font-weight: 650; letter-spacing: -.005em; transition: color .15s; }
+.channels h3 { margin: 0 0 .25rem; font: 800 1.12rem/1.3 var(--display); letter-spacing: 0; transition: color .15s; }
 .channels p { margin: 0; color: var(--muted); font-size: .95rem; }
 .channels li:hover { border-left-color: var(--gold); background: linear-gradient(90deg, color-mix(in srgb, var(--gold) 7%, transparent), transparent 60%); }
 .channels li:hover h3 { color: var(--gold); }
