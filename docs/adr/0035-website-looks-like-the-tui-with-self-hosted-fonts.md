@@ -19,8 +19,7 @@ spectrum visualizer.
   `internal/ui/styles.go` (SomaFM red, gold, teal) on warm black, or warm
   paper in light mode; panels with their title set into the top border;
   features laid out like the channel list, with a gold selection bar and an
-  equalizer on hover; section headings numbered as channels by a CSS
-  counter.
+  equalizer on hover.
 - A light terminal theme on top: the navigation is a tmux status line (a
   session block, one window per section named by its shortcut key and
   flagged `*` while on screen), each section opens with a
@@ -79,3 +78,6 @@ spectrum visualizer.
   Mono are too wide for the hero's two-line headline, VT323's pixels read
   as a gimmick at that size, and JetBrains Mono would blur titles into the
   interface text.
+- Section headings numbered as channels ("CH 01", "CH 02", ...) by a CSS
+  counter, removed 2026-10-11: the badge read as unexplained jargon rather
+  than as a radio dial.
