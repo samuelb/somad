@@ -8,6 +8,11 @@
   <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#0e0c0a" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f4efe6" media="(prefers-color-scheme: light)">
+  <script>
+    // Apply a theme picked with the status line's switch (site.js) before
+    // the first paint; without one the page follows the browser.
+    try { var t = localStorage.getItem("theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
   <link rel="canonical" href="{{ config.base_url }}/">
   <link rel="icon" href="{{ get_url(path="favicon.svg") }}" type="image/svg+xml">
   <meta property="og:type" content="website">
@@ -36,7 +41,8 @@
         <li><a href="#usage" data-key="u" aria-keyshortcuts="u" title="Press u"><span class="idx" aria-hidden="true">u:</span>usage<span class="flag" aria-hidden="true"></span></a></li>
       </ul>
       <p class="status-right">
-        <a href="{{ config.extra.repo }}" rel="noopener">github&nbsp;↗</a>
+        <button class="theme" type="button" data-key="t" aria-keyshortcuts="t" title="Switch between the browser's theme, dark, and light (press t)" hidden><span class="idx" aria-hidden="true">t:</span><span class="theme-key">theme</span><span class="swatch" aria-hidden="true"></span><span class="theme-value">auto</span></button>
+        <a class="repo" href="{{ config.extra.repo }}" rel="noopener">github&nbsp;↗</a>
       </p>
     </nav>
   </header>

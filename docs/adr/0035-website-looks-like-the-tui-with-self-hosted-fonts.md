@@ -40,6 +40,14 @@ spectrum visualizer.
   mirroring the TUI
   (`f`, `i`, `u`, declared on links as `data-key`), and the quick start's
   copy button. The page reads and works fully without it.
+- A theme switch at the right of the status line (2026-10-11) cycles
+  auto, dark, and light; from auto the first press always flips the look.
+  It sets `data-theme` on the root element, which the light tokens in
+  `style.css` key on alongside `prefers-color-scheme`, and keeps the
+  choice in `localStorage` (no cookie). An inline script in the `<head>`
+  applies a saved choice before the first paint. Without JavaScript the
+  switch stays hidden and the page follows the browser. On phones a
+  swatch (ink, paper, or half of each) replaces its words.
 - Motion stays small: blinking cursors, the typing, the hover equalizer,
   and the wires between the "How it works" panels. All of it stops under
   `prefers-reduced-motion`.

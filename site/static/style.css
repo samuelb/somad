@@ -2,9 +2,9 @@
    and teal (the palette in internal/ui/styles.go), rounded lipgloss-style
    panels with their titles set into the border, a tmux status line and
    shell prompts. Dark by default, warm paper when the visitor
-   prefers light. Titles are set in Iosevka, a terminal font, and the
-   interface in JetBrains Mono; both are self-hosted Latin subsets
-   (fonts/, SIL OFL). */
+   prefers light or picks it with the status line's theme switch. Titles
+   are set in Iosevka, a terminal font, and the interface in JetBrains
+   Mono; both are self-hosted Latin subsets (fonts/, SIL OFL). */
 
 @font-face {
   font-family: "Iosevka";
@@ -46,8 +46,32 @@
   color-scheme: dark;
 }
 
+/* Light: picked with the theme switch (data-theme, set by site.js and
+   the inline script in base.html), or preferred by the browser when
+   nothing was picked. Keep the two blocks identical. */
+:root[data-theme="light"] {
+  --bg: #f4efe6;
+  --bg-deep: #ebe4d7;
+  --raised: #fbf8f2;
+  --line: #dcd2c3;
+  --line-strong: #b7aa97;
+  --text: #1d1915;
+  --muted: #5b5248;
+  --dim: #8a7f71;
+  --gold: #8f6400;
+  --gold-ink: #fffaf0;
+  --teal: #0e686d;
+  --teal-deep: #0e686d;
+  --red: #c40608;
+  --glow: rgba(216, 162, 77, .22);
+  --grain-opacity: .08;
+  --scanline: rgba(80, 60, 30, .05);
+  --shadow: 0 30px 60px -36px rgba(60, 40, 10, .35);
+  color-scheme: light;
+}
+
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     --bg: #f4efe6;
     --bg-deep: #ebe4d7;
     --raised: #fbf8f2;
@@ -187,6 +211,25 @@ kbd {
 .status-right { display: flex; align-items: center; gap: 1rem; margin: 0; color: var(--dim); }
 .status-right a { color: var(--muted); }
 .status-right a:hover { color: var(--gold); text-decoration: none; }
+.theme {
+  display: inline-flex; align-items: center;
+  padding: .15rem .5rem; border: 0; border-radius: 3px;
+  background: none; color: var(--muted); font: inherit; cursor: pointer;
+}
+.theme[hidden] { display: none; }
+.theme:hover { color: var(--text); }
+.theme .idx { color: var(--dim); }
+.theme-key { margin-right: 1ch; }
+.theme-value { color: var(--teal); }
+/* The theme as a swatch: paper, ink, or half of each for the browser's
+   choice. It stands in for the words on narrow screens. */
+.swatch {
+  width: .8em; height: .8em; margin-right: .45em; border-radius: 50%;
+  border: 1px solid var(--dim);
+  background: linear-gradient(90deg, #0e0c0a 50%, #f4efe6 50%);
+}
+:root[data-theme="dark"] .swatch { background: #0e0c0a; }
+:root[data-theme="light"] .swatch { background: #f4efe6; }
 
 /* Hero --------------------------------------------------------------- */
 
@@ -419,9 +462,13 @@ pre.config { font-size: .82rem; }
 }
 @keyframes signal-down { to { background-position: 0 24px; } }
 @media (max-width: 40rem) {
-  .tmux { gap: .5rem; }
-  .menu a { padding: .15rem .3rem; }
-  .menu .idx, .logo, .status-right { display: none; }
+  .tmux { gap: .4rem; }
+  .menu { gap: 0; }
+  .menu a { padding: .15rem .25rem; }
+  .menu .idx, .logo, .status-right .repo, .theme .idx { display: none; }
+  .theme { padding: .15rem .25rem; }
+  .theme-key, .theme-value { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .swatch { width: 1rem; height: 1rem; margin: 0; }
   section.wrap h2 { flex-direction: column; gap: .6rem; }
   section.wrap h2::before { transform: none; }
 }

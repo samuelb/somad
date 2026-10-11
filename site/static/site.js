@@ -1,15 +1,16 @@
-// Somad website: keyboard shortcuts, the tmux-style status line, and the
-// quick start's typing and copy button. Everything here is decoration; the
-// page reads the same without it.
+// Somad website: keyboard shortcuts, the tmux-style status line and its
+// theme switch, and the quick start's typing and copy button. Everything
+// here is decoration or convenience; the page reads the same without it.
 (function () {
   "use strict";
 
   var still = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-  // Single-key shortcuts, as in the TUI: links carrying data-key.
+  // Single-key shortcuts, as in the TUI: links and buttons carrying
+  // data-key.
   function shortcuts() {
     var keys = {};
-    document.querySelectorAll("a[data-key]").forEach(function (a) { keys[a.dataset.key] = a; });
+    document.querySelectorAll("[data-key]").forEach(function (a) { keys[a.dataset.key] = a; });
     document.addEventListener("keydown", function (e) {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
       var t = e.target;
@@ -89,6 +90,43 @@
     }
   }
 
+  // The theme switch: auto (the browser's preference), dark, or light,
+  // remembered across visits; the inline script in base.html applies a
+  // saved choice before the first paint. From auto the first press always
+  // flips the look, so the order depends on what the browser prefers.
+  function themeSwitch() {
+    var btn = document.querySelector(".theme");
+    if (!btn) return;
+    var root = document.documentElement;
+    var value = btn.querySelector(".theme-value");
+    var prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+    var metas = document.querySelectorAll("meta[name='theme-color']");
+    var colors = {};
+    metas.forEach(function (m) {
+      m.dataset.auto = m.content;
+      colors[/dark/.test(m.media) ? "dark" : "light"] = m.content;
+    });
+    var theme = root.dataset.theme || "auto";
+    function apply() {
+      if (theme === "auto") delete root.dataset.theme;
+      else root.dataset.theme = theme;
+      metas.forEach(function (m) { m.content = theme === "auto" ? m.dataset.auto : colors[theme]; });
+      value.textContent = theme;
+    }
+    btn.addEventListener("click", function () {
+      var order = prefersDark.matches ? ["auto", "light", "dark"] : ["auto", "dark", "light"];
+      theme = order[(order.indexOf(theme) + 1) % order.length];
+      apply();
+      try {
+        if (theme === "auto") localStorage.removeItem("theme");
+        else localStorage.setItem("theme", theme);
+      } catch (e) { /* storage blocked: the choice lasts until the page closes */ }
+    });
+    apply();
+    btn.hidden = false;
+  }
+
+  themeSwitch();
   shortcuts();
   statusLine();
   copyButtons();
