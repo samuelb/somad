@@ -434,6 +434,8 @@ speak the same protocol version.
 | ----------------------------------- | ------------------------------- |
 | <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up (mouse wheel scrolling works too) |
 | <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down (mouse wheel scrolling works too) |
+| <kbd>←</kbd> / <kbd>→</kbd>         | Previous / next page (<kbd>PgUp</kbd> / <kbd>PgDn</kbd> work too) |
+| <kbd>g</kbd> / <kbd>G</kbd>         | First / last channel (<kbd>Home</kbd> / <kbd>End</kbd> work too) |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel           |
 | <kbd>p</kbd>                        | Play / pause (pause stops the stream; play reconnects live) |
 | <kbd>s</kbd>                        | Stop playback                   |
@@ -447,6 +449,7 @@ speak the same protocol version.
 | <kbd>a</kbd>                        | About                           |
 | <kbd>h</kbd>                        | Show recent now-playing history for the playing channel |
 | <kbd>v</kbd>                        | Cycle the spectrum visualizer behind the channel list: bars, mirror, wave, mirror wave, waterfall, off (remembered) |
+| <kbd>?</kbd>                        | Show every key (press again to hide) |
 | <kbd>Esc</kbd>                      | Close the about screen / history overlay, else cancel or clear the search (never quits) |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
 
