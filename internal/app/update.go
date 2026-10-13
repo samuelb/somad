@@ -18,8 +18,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// bar wrapping onto more lines, history entries arriving, an overlay or
 	// the search bar opening. Bubble Tea cuts a view taller than the
 	// terminal from the top, header first, so re-measure after every
-	// message; SetSize keeps the selection.
-	m.UpdateListSize()
+	// message; SetSize keeps the selection. Spectrum frames are the
+	// exception: they only feed the visualizer behind the view, and at 25 a
+	// second measuring the chrome (which renders most of it) was a good
+	// part of the TUI's CPU time.
+	if _, ok := msg.(SpectrumMsg); !ok {
+		m.UpdateListSize()
+	}
 	return m, cmd
 }
 

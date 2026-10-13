@@ -183,6 +183,21 @@ func TestVisualizer_FramesDrawBarsBehindTheListOnly(t *testing.T) {
 	assert.NotContains(t, m.View(), "█", "a lost server flattens the bars")
 }
 
+func TestVisualizer_FramesSkipTheRelayout(t *testing.T) {
+	m := newVizModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	settle(t, m, pressV(m, 1))
+	height := m.List.Height()
+
+	// Opening the history card grows the chrome; a frame alone must not
+	// pay for measuring it, the next other message does.
+	m.ShowHistory = true
+	m.Update(SpectrumMsg{Levels: []byte{255}})
+	assert.Equal(t, height, m.List.Height(), "a spectrum frame does not re-measure the chrome")
+	m.Update(animTickMsg{})
+	assert.Less(t, m.List.Height(), height, "any other message does")
+}
+
 func TestVisualizer_FailureAfterTurningItOffIsNotReported(t *testing.T) {
 	m := newVizModel(t)
 	backend(m).spectrumErr = errors.New("boom")
