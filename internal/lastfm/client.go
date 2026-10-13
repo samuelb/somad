@@ -95,7 +95,7 @@ func (e apiError) asError() error {
 	if e.Error == 0 {
 		return nil
 	}
-	return fmt.Errorf("last.fm API error %d: %s", e.Error, e.Message)
+	return fmt.Errorf("last.fm API error %d: %s", e.Error, security.SanitizeText(e.Message))
 }
 
 // sign computes the api_sig every Last.fm write call requires: the MD5 hex

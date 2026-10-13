@@ -321,7 +321,7 @@ func (s *Server) failConnect(gen uint64, err error, retry bool) (protocol.Playba
 // snapshot. Caller holds s.mu.
 func (s *Server) failStreamLocked(gen uint64, err error, retry bool) protocol.PlaybackState {
 	s.player.Stop(gen)
-	s.streamErr = err.Error()
+	s.streamErr = security.SanitizeText(err.Error()) // it may quote a URL a stream redirected to
 	s.trackTitle = ""
 	s.scheduleReconnectOrStopLocked(retry)
 	return s.broadcastStateLocked()

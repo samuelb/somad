@@ -199,6 +199,17 @@ func TestClient_DecodesAPIError(t *testing.T) {
 	assert.Contains(t, err.Error(), "9")
 }
 
+func TestClient_APIErrorMessageIsSanitized(t *testing.T) {
+	testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"error":9,"message":"\u001b]0;x\u0007Invalid session key"}`))
+	})
+
+	c := New("testkey", "testsecret", "sess-key", "soma-test")
+	err := c.UpdateNowPlaying("A", "T")
+	require.Error(t, err)
+	assert.Equal(t, "last.fm API error 9: ]0;xInvalid session key", err.Error(), "soma lastfm login prints it")
+}
+
 func TestClient_UnexpectedStatusCodeWithoutAPIError(t *testing.T) {
 	testServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)

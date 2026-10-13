@@ -1300,6 +1300,22 @@ func TestPlay_FailureAfterAStopIsSuperseded(t *testing.T) {
 	assert.Empty(t, s.Snapshot().StreamError, "the stopped state carries no stale error")
 }
 
+func TestPlay_ErrorTextIsSanitized(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+
+	// Errors can quote network input, such as the host a stream redirected to.
+	resolveStreamURLs = func(string, string) ([]string, error) {
+		return nil, errors.New("redirect to disallowed host \u009b2Jevil")
+	}
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"})
+
+	assert.Contains(t, resp.Error, "disallowed host 2Jevil")
+	assert.NotContains(t, s.Snapshot().StreamError, "\u009b")
+	assert.Contains(t, s.Snapshot().StreamError, "2Jevil")
+}
+
 func TestPlay_FailedSwitchStopsThePreviousSession(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	c := connect(t, s)

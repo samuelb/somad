@@ -13,6 +13,7 @@ import (
 
 	"somad/internal/audio"
 	"somad/internal/protocol"
+	"somad/internal/security"
 )
 
 // maxConcurrentRequests caps how many of one connection's requests are
@@ -431,7 +432,9 @@ func (c *conn) respondError(id int64, err error) {
 	if errors.Is(err, audio.ErrSuperseded) {
 		err = protocol.ErrSuperseded // the exact text clients recognize
 	}
-	c.write(protocol.Response{ID: id, Error: err.Error()})
+	// Clients print errors as they come, and some quote network input (a
+	// URL a stream redirected to, say).
+	c.write(protocol.Response{ID: id, Error: security.SanitizeText(err.Error())})
 }
 
 // sendEvent queues an event for delivery, replacing any pending event of the

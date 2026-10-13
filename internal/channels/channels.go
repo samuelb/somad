@@ -39,17 +39,21 @@ type Channel struct {
 	Playlists   []Playlist `json:"playlists"`
 }
 
-// sanitize strips control characters from the fields clients print (see
-// security.SanitizeText).
-func (c *Channel) sanitize() {
-	for _, s := range []*string{&c.ID, &c.Title, &c.Description, &c.Genre, &c.Listeners, &c.LastPlaying} {
-		*s = security.SanitizeText(*s)
-	}
-}
-
 // Channels is a wrapper for the list of SomaFM channels.
 type Channels struct {
 	Channels []Channel `json:"channels"`
+}
+
+// sanitize strips control characters from the fields clients print (see
+// security.SanitizeText). Every catalog this package returns has been
+// through it, whether fetched or read from a cache an older version wrote.
+func (c *Channels) sanitize() {
+	for i := range c.Channels {
+		ch := &c.Channels[i]
+		for _, s := range []*string{&ch.ID, &ch.Title, &ch.Description, &ch.Genre, &ch.Listeners, &ch.LastPlaying} {
+			*s = security.SanitizeText(*s)
+		}
+	}
 }
 
 const (
@@ -99,6 +103,7 @@ func PeekChannelsFromCache() (*Channels, error) {
 	if err := atomicfile.ReadJSON(cachePath, &channels); err != nil {
 		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
+	channels.sanitize()
 	return &channels, nil
 }
 
@@ -118,6 +123,7 @@ func ReadChannelsFromCache() (*Channels, error) {
 		}
 		return nil, fmt.Errorf("failed to read cache file: %w", err)
 	}
+	channels.sanitize()
 	return &channels, nil
 }
 
@@ -167,11 +173,7 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 	if len(fetchedChannels.Channels) == 0 {
 		return nil, errors.New("network response contained no channels")
 	}
-	// Cleaned before caching, so shell completion, which reads the cache
-	// directly, never sees anything else.
-	for i := range fetchedChannels.Channels {
-		fetchedChannels.Channels[i].sanitize()
-	}
+	fetchedChannels.sanitize()
 
 	// Write to cache for future use
 	if err := WriteChannelsToCache(&fetchedChannels); err != nil {

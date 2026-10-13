@@ -103,6 +103,24 @@ func TestPeekChannelsFromCache(t *testing.T) {
 	assert.Equal(t, "groovesalad", loaded.Channels[0].ID)
 }
 
+// TestCacheReadsAreSanitized covers a cache written before fetches were
+// sanitized: the daemon serves it until a refresh succeeds, and shell
+// completion prints it.
+func TestCacheReadsAreSanitized(t *testing.T) {
+	SetCacheDir(t)
+	require.NoError(t, WriteChannelsToCache(&Channels{Channels: []Channel{{ID: "gs\x1b[2J", Title: "Groove\x07 Salad"}}}))
+
+	for name, read := range map[string]func() (*Channels, error){
+		"peek": PeekChannelsFromCache,
+		"read": ReadChannelsFromCache,
+	} {
+		loaded, err := read()
+		require.NoError(t, err, name)
+		assert.Equal(t, "gs[2J", loaded.Channels[0].ID, name)
+		assert.Equal(t, "Groove Salad", loaded.Channels[0].Title, name)
+	}
+}
+
 // TestPeekChannelsFromCache_NoSideEffects pins the read-only contract shell
 // completion relies on: a Tab press must not create the cache directory or
 // move a corrupt cache aside.

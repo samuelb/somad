@@ -17,6 +17,7 @@ import (
 	"somad/internal/platform/notify"
 	"somad/internal/platform/tray"
 	"somad/internal/protocol"
+	"somad/internal/security"
 	"somad/internal/state"
 )
 
@@ -399,7 +400,7 @@ func (s *Server) refreshCatalog() {
 		log.Printf("channel refresh failed: %v", err)
 		s.mu.Lock()
 		if len(s.catalog) == 0 {
-			s.catalogErr = err.Error()
+			s.catalogErr = security.SanitizeText(err.Error())
 			s.broadcastChannelsLocked()
 		}
 		s.mu.Unlock()

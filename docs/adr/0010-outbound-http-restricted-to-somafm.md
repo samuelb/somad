@@ -36,7 +36,10 @@ review flagged SSRF-shaped code paths.
   line breaks become spaces, other control characters and invalid UTF-8
   are dropped. Clients print what the daemon sends verbatim, so an escape
   sequence injected into a plain-http stream would otherwise reach the
-  user's terminal. New sources of displayed text sanitize the same way.
+  user's terminal. Error text sent to clients (RPC errors, the stream and
+  catalog errors in snapshots) and Last.fm's error messages are cleaned
+  too, since errors quote network input such as a redirect target. New
+  sources of displayed text sanitize the same way.
 
 ## Consequences
 
