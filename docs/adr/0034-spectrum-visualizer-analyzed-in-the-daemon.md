@@ -90,6 +90,16 @@ speakers (ADR-0007), so the samples exist only in the daemon.
   subscribed, playing or not (it then only checks for a session).
 - A remote TUI receives about 3 KB/s of frames while it shows the
   visualizer; without it, nothing.
+- What the terminal receives is far more, and the waterfall is the
+  heaviest by an order of magnitude (2026-10-13, measured at 160×36 in
+  truecolor): about 11 KB a frame for the bars, 18 KB for the waves, and
+  136 KB, 3.5 MB/s, for the waterfall. Its interpolated shades give
+  nearly every cell colors of its own, and scrolling every frame changes
+  every line, so neither the per-cell color reuse in `underlayLine` nor
+  Bubble Tea's line diff saves anything. Locally that is free; a TUI run
+  over a slow SSH link is better off with another style. Coarser color
+  steps or a slower scroll would cut it, but they are what the waterfall
+  rejected below for looking blocky and choppy.
 - The `outputPlayer` boundary gains `BufferedSize`, the one call made off
   the session goroutine that otherwise owns the oto player; oto locks it.
 - Anything drawn into the view with spaces under a background color stays
