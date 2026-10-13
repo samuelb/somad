@@ -2,6 +2,7 @@ package playlist
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -12,9 +13,10 @@ import (
 	"somad/internal/security"
 )
 
-// maxPlaylistBytes caps how much of a playlist response is read. Playlists
-// are a few hundred bytes; the URL can be attacker-influenced via redirects,
-// so an unbounded read would be a memory hazard.
+// maxPlaylistBytes caps a playlist response. Playlists are a few hundred
+// bytes; the URL can be attacker-influenced via redirects, so an unbounded
+// read would be a memory hazard. A larger response is refused rather than
+// cut short, which could leave its last stream URL truncated.
 const maxPlaylistBytes = 1 << 20 // 1 MiB
 
 // GetStreamURLsFromPlaylist fetches a playlist file from a URL, parses it,
@@ -43,9 +45,16 @@ func GetStreamURLsFromPlaylist(playlistURL, userAgent string) ([]string, error) 
 		return nil, fmt.Errorf("unexpected status code %d for playlist %s", resp.StatusCode, playlistURL)
 	}
 
-	urls, err := parseStreamURLs(io.LimitReader(resp.Body, maxPlaylistBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPlaylistBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("error reading playlist body from %s: %w", playlistURL, err)
+	}
+	if len(body) > maxPlaylistBytes {
+		return nil, fmt.Errorf("playlist %s is larger than %d bytes", playlistURL, maxPlaylistBytes)
+	}
+	urls, err := parseStreamURLs(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("error parsing playlist %s: %w", playlistURL, err)
 	}
 	if len(urls) == 0 {
 		return nil, fmt.Errorf("no stream URL found in playlist %s", playlistURL)
@@ -65,6 +74,9 @@ func parseStreamURLs(r io.Reader) ([]string, error) {
 	var https, other []string
 	seen := make(map[string]bool)
 	scanner := bufio.NewScanner(r)
+	// A line may be as long as a whole playlist: bufio's default 64 KiB
+	// limit would fail every entry over one long line of junk.
+	scanner.Buffer(nil, maxPlaylistBytes)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		key, value, ok := strings.Cut(line, "=")

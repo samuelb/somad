@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"somad/internal/security/securitytest"
@@ -175,6 +176,33 @@ Version=2`,
 				t.Errorf("GetStreamURLsFromPlaylist() = %v, want %v", got, tt.wantURLs)
 			}
 		})
+	}
+}
+
+func TestGetStreamURLsFromPlaylist_SizeLimits(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	const entry = "\nFile1=https://ice1.somafm.com/groovesalad-128-mp3\n"
+	serve := func(body string) string {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(body))
+		}))
+		t.Cleanup(server.Close)
+		return server.URL
+	}
+
+	// One line longer than bufio's default 64 KiB must not sink the rest.
+	got, err := GetStreamURLsFromPlaylist(serve("[playlist]\n; "+strings.Repeat("x", 100<<10)+entry), "soma/test")
+	if err != nil || !slices.Equal(got, []string{"https://ice1.somafm.com/groovesalad-128-mp3"}) {
+		t.Errorf("long line: got %v, %v", got, err)
+	}
+
+	// Past the cap the playlist is refused, not cut short mid-URL.
+	tooBig := strings.Repeat("x", maxPlaylistBytes-len(entry)+1) + entry
+	if _, err := GetStreamURLsFromPlaylist(serve(tooBig), "soma/test"); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Errorf("oversized playlist: got error %v, want a size error", err)
+	}
+	if _, err := GetStreamURLsFromPlaylist(serve(tooBig[1:]), "soma/test"); err != nil {
+		t.Errorf("playlist at the cap: %v", err)
 	}
 }
 
