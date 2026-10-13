@@ -35,8 +35,11 @@ func TestCommands_DisconnectedErrorLeftToServerLost(t *testing.T) {
 	// Connection loss surfaces via ServerLostMsg from the bridge; the
 	// command itself must stay silent to avoid double-reporting.
 	assert.Nil(t, runCmd(m.stopCmd()))
-	assert.Nil(t, runCmd(m.setVolumeCmd(0.5)))
 	assert.Nil(t, runCmd(m.fetchChannels()))
+	_, cmd := m.Update(runCmd(m.stepVolume(volumeStep)))
+	assert.Nil(t, cmd)
+	assert.Empty(t, m.RequestErr)
+	assert.False(t, m.volumeBusy, "the next press must not wait for a reply that will never come")
 }
 
 func TestCommands_SupersededPlayStaysSilent(t *testing.T) {

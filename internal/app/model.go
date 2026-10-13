@@ -45,6 +45,15 @@ type Model struct {
 	// not playback state: the next snapshot (or a failed request) clears it,
 	// and from then on the snapshot says what is connecting.
 	requestedID string
+	// volumeTarget is where the +/- presses have taken the volume while a
+	// change is in flight (volumeBusy, with volumeSent the value it asked
+	// for). Presses step from it, not from the snapshot, which lags a round
+	// trip behind, so none is lost. One change is in flight at a time,
+	// since the daemon may handle a connection's requests out of order; its
+	// reply sends the newest target if presses moved it meanwhile. Like
+	// requestedID, not playback state: it only lives until the replies end.
+	volumeTarget, volumeSent float64
+	volumeBusy               bool
 	// sleepTickStopAt is the sleep-timer deadline (Snapshot.StopAt) the
 	// countdown tick chain was started for, and sleepTickGen that chain's
 	// number; ticks from older chains are dropped. See syncSleepTick.

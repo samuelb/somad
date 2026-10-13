@@ -220,14 +220,62 @@ func (m *Model) stopCmd() tea.Cmd {
 	return m.stateCmd("stop", Backend.Stop)
 }
 
-// setVolumeCmd applies a volume on the server, which clamps and persists it.
-func (m *Model) setVolumeCmd(v float64) tea.Cmd {
-	return m.stateCmd("volume", func(b Backend) (protocol.PlaybackState, error) { return b.SetVolume(v) })
+// volumeSetMsg is the reply to a volume change sent by sendVolume.
+type volumeSetMsg struct {
+	volume float64 // what it asked for
+	state  protocol.PlaybackState
+	err    error
+}
+
+// stepVolume moves the volume by delta, from where earlier presses still in
+// flight are taking it (see volumeTarget), clamped to [0, 1].
+func (m *Model) stepVolume(delta float64) tea.Cmd {
+	base := m.Snapshot.Volume
+	if m.volumeBusy {
+		base = m.volumeTarget
+	}
+	m.volumeTarget = min(max(base+delta, 0), 1)
+	if m.volumeBusy {
+		return nil // the reply in flight sends it
+	}
+	return m.sendVolume()
+}
+
+// sendVolume asks the server, which persists it, for volumeTarget.
+func (m *Model) sendVolume() tea.Cmd {
+	m.volumeBusy, m.volumeSent = true, m.volumeTarget
+	b, v := m.Backend, m.volumeTarget
+	return func() tea.Msg {
+		st, err := b.SetVolume(v)
+		return volumeSetMsg{volume: v, state: st, err: err}
+	}
+}
+
+// volumeSet takes the reply to a volume change: the snapshot it carries,
+// then the newest target if presses moved it while the change was in
+// flight. A failed change ends the run, and presses step from the
+// snapshot again.
+func (m *Model) volumeSet(msg volumeSetMsg) tea.Cmd {
+	if msg.err != nil {
+		m.volumeBusy = false
+		if em, ok := requestErr("volume", msg.err).(RequestErrorMsg); ok {
+			return m.update(em)
+		}
+		return nil
+	}
+	cmd := m.update(ServerStateMsg{State: msg.state})
+	if m.volumeTarget != msg.volume {
+		return tea.Batch(cmd, m.sendVolume())
+	}
+	m.volumeBusy = false
+	return cmd
 }
 
 // toggleMuteCmd mutes or unmutes on the server, which remembers the
-// pre-mute level and restores it.
+// pre-mute level and restores it. A volume press not sent yet is dropped:
+// sent after the mute, it would undo it.
 func (m *Model) toggleMuteCmd() tea.Cmd {
+	m.volumeTarget = m.volumeSent
 	return m.stateCmd("mute", Backend.ToggleMute)
 }
 

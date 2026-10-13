@@ -60,6 +60,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.applySnapshot(msg.State)
 		return tea.Batch(m.syncSleepTick(), m.syncAnim())
 
+	case volumeSetMsg:
+		return m.volumeSet(msg)
+
 	case animTickMsg:
 		m.frame++
 		if !m.animates() {
@@ -268,9 +271,9 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.refreshVisibleItems(m.selectedChannelID())
 		return nil, true
 	case key.Matches(msg, keys.VolumeUp):
-		return m.setVolumeCmd(m.Snapshot.Volume + volumeStep), true
+		return m.stepVolume(volumeStep), true
 	case key.Matches(msg, keys.VolumeDown):
-		return m.setVolumeCmd(m.Snapshot.Volume - volumeStep), true
+		return m.stepVolume(-volumeStep), true
 	case key.Matches(msg, keys.Mute):
 		return m.toggleMuteCmd(), true
 	case key.Matches(msg, keys.ClearSearch):

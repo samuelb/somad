@@ -1,6 +1,6 @@
 # ADR-0003: The TUI holds no playback state of its own
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-13: requests in flight may leave a note)
 - **Date:** 2026-07-05
 - **Sources:** 95fb723, f9445e6; `internal/app/model.go`, `commands.go`
 
@@ -15,6 +15,13 @@ playing.
 
 - The model renders from the latest server snapshot (ADR-0002) and sends
   commands over a `Backend` interface. It caches nothing about playback.
+  A request in flight may leave a note of what it asked for, never of
+  what plays, gone once the replies are in (amended 2026-10-13):
+  `requestedID` marks a channel tuning in (ADR-0033), and `volumeTarget`
+  lets +/- presses made before a reply step from each other rather than
+  all from the snapshot, which over a slow link lost most of them. The
+  volume goes one change at a time, since the daemon may handle a
+  connection's requests out of order (ADR-0018).
 - All blocking work happens in the daemon. Play and stop are asynchronous
   from the UI's point of view; the last user action wins via generation
   counters (ADR-0014).

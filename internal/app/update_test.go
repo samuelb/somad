@@ -614,6 +614,70 @@ func TestUpdate_VolumeKeys_ClampAtBounds(t *testing.T) {
 	assert.InDelta(t, 0.0, m.Snapshot.Volume, 1e-9)
 }
 
+// TestUpdate_VolumeKeys_PressesInFlightAddUp covers holding + over a slow
+// link: presses made before the reply arrives must step from each other,
+// not all from the stale snapshot, and reach the server one change at a
+// time, the newest last.
+func TestUpdate_VolumeKeys_PressesInFlightAddUp(t *testing.T) {
+	m := newTestModel(t)
+	m.Snapshot.Volume = 0.5
+
+	_, first := sendKey(m, '+')
+	require.NotNil(t, first)
+	_, cmd := sendKey(m, '+')
+	assert.Nil(t, cmd, "a change is in flight; its reply sends the rest")
+	_, cmd = sendKey(m, '+')
+	assert.Nil(t, cmd)
+
+	_, next := m.Update(runCmd(first))
+	assert.InDelta(t, 0.55, m.Snapshot.Volume, 1e-9)
+	reply := msgOrNil[volumeSetMsg](next)
+	require.NotNil(t, reply, "the presses made meanwhile follow")
+	_, cmd = m.Update(*reply)
+	assert.Nil(t, msgOrNil[volumeSetMsg](cmd), "nothing left to send")
+
+	assert.InDelta(t, 0.65, m.Snapshot.Volume, 1e-9)
+	assert.InDeltaSlice(t, []float64{0.55, 0.65}, backend(m).volumes, 1e-9)
+	assert.False(t, m.volumeBusy)
+
+	// With nothing in flight, a press steps from the snapshot again, which
+	// another client may have moved meanwhile.
+	m.Snapshot.Volume = 0.2
+	_, cmd = sendKey(m, '-')
+	m.Update(runCmd(cmd))
+	assert.InDelta(t, 0.15, m.Snapshot.Volume, 1e-9)
+}
+
+func TestUpdate_VolumeKeys_MuteDropsUnsentPresses(t *testing.T) {
+	m := newTestModel(t)
+	m.Snapshot.Volume = 0.5
+	backend(m).status.Volume = 0.5
+
+	_, first := sendKey(m, '+')
+	sendKey(m, '+') // not sent yet
+	_, mute := sendKey(m, 'm')
+
+	_, next := m.Update(runCmd(first))
+	assert.Nil(t, msgOrNil[volumeSetMsg](next), "sent after the mute, it would undo it")
+	m.Update(runCmd(mute))
+	assert.Zero(t, m.Snapshot.Volume)
+	assert.InDeltaSlice(t, []float64{0.55}, backend(m).volumes, 1e-9)
+}
+
+func TestUpdate_VolumeKeys_FailureEndsTheRun(t *testing.T) {
+	m := newTestModel(t)
+	m.Snapshot.Volume = 0.5
+	backend(m).callErr = errors.New("boom")
+
+	_, cmd := sendKey(m, '+')
+	sendKey(m, '+')
+	_, next := m.Update(runCmd(cmd))
+
+	assert.Nil(t, msgOrNil[volumeSetMsg](next), "no retry of a failed change")
+	assert.Contains(t, m.RequestErr, "volume failed")
+	assert.False(t, m.volumeBusy, "presses step from the snapshot again")
+}
+
 func TestUpdate_MuteKey_TogglesMute(t *testing.T) {
 	m := newTestModel(t)
 	m.Snapshot.Volume = 0.6
