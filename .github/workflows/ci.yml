@@ -79,6 +79,7 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # The Makefile's ci target pins the same version (GOVULNCHECK_VERSION).
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.7.0

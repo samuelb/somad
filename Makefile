@@ -211,10 +211,18 @@ vet:
 check: lint test vet
 	@echo "All checks passed!"
 
-# CI target - mirrors .github/workflows/ci.yml: lint, race tests gated at
-# 60% total coverage, and a vulnerability scan.
+# CI target - mirrors .github/workflows/ci.yml: lint, the go.mod/go.sum/
+# vendor sync check, race tests gated at 60% total coverage, and a
+# vulnerability scan with the govulncheck version CI pins (keep the two in
+# step). Unlike CI, a sync failure leaves the tidied files in place to commit.
+GOVULNCHECK_VERSION=v1.7.0
 .PHONY: ci
 ci: lint
+	@echo "Checking go.mod, go.sum and vendor/ are in sync..."
+	$(GOCMD) mod tidy
+	$(GOCMD) mod vendor
+	@drift=$$(git status --porcelain -- go.mod go.sum vendor); \
+	if [ -n "$$drift" ]; then echo "$$drift"; echo "go.mod, go.sum or vendor/ out of sync"; exit 1; fi
 	@echo "Running tests with coverage..."
 	$(GOTEST) -race -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -func=coverage.out
@@ -225,12 +233,7 @@ ci: lint
 	awk -v total="$$total" -v threshold="$$threshold" 'BEGIN { exit (total + 0 < threshold) }' \
 		|| { echo "Coverage dropped below $${threshold}%"; exit 1; }
 	@echo "Running vulnerability scan..."
-	@if command -v govulncheck >/dev/null 2>&1; then \
-		govulncheck ./...; \
-	else \
-		echo "govulncheck not installed. Install with: go install golang.org/x/vuln/cmd/govulncheck@latest"; \
-		exit 1; \
-	fi
+	$(GOCMD) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 	@echo "CI checks complete!"
 
 # Development mode - build and run with file watching (requires entr)
@@ -275,7 +278,7 @@ help:
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
 	@echo "  check             Run lint, test, and vet"
-	@echo "  ci                Mirror CI: lint, coverage-gated race tests, govulncheck"
+	@echo "  ci                Mirror CI: lint, vendor sync, coverage-gated race tests, govulncheck"
 	@echo "  dev               Development mode with file watching"
 	@echo "  help              Show this help message"
 	@echo ""
