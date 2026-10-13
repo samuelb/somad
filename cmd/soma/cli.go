@@ -155,11 +155,22 @@ func waitForCatalog(c *client.Client) protocol.ChannelsPayload {
 	}
 }
 
-// resolveChannel finds a channel by exact ID, or by unique case-insensitive
-// substring of its ID or title.
+// resolveChannel finds a channel by exact ID, then by unique case-insensitive
+// full ID or title, then by unique case-insensitive substring of either.
 func resolveChannel(catalog []channels.Channel, query string) (channels.Channel, error) {
 	if ch, ok := findChannelByID(catalog, query); ok {
 		return ch, nil
+	}
+	// A full title picks its channel even when it is part of another's:
+	// "Groove Salad" is in "Groove Salad Classic" too.
+	var exact []channels.Channel
+	for _, ch := range catalog {
+		if strings.EqualFold(ch.ID, query) || strings.EqualFold(ch.Title, query) {
+			exact = append(exact, ch)
+		}
+	}
+	if len(exact) == 1 {
+		return exact[0], nil
 	}
 	q := strings.ToLower(query)
 	var matches []channels.Channel

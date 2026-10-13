@@ -35,6 +35,10 @@ func TestResolveChannel(t *testing.T) {
 		// "dronezone" is an exact ID and a substring of "dronezonedeep";
 		// the exact match must win instead of erroring as ambiguous.
 		{name: "exact id beats substring", query: "dronezone", wantID: "dronezone"},
+		// "Drone Zone" is also part of "Drone Zone Deep".
+		{name: "full title beats substring", query: "Drone Zone", wantID: "dronezone"},
+		{name: "full title in any case", query: "drone zone", wantID: "dronezone"},
+		{name: "full id in any case", query: "DroneZone", wantID: "dronezone"},
 		{name: "unique id substring", query: "secret", wantID: "secretagent"},
 		{name: "unique title substring", query: "Groove", wantID: "groovesalad"},
 		{name: "case-insensitive title", query: "deep space", wantID: "deepspaceone"},
