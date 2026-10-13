@@ -1,16 +1,22 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
+	"net"
+	"os"
 	"slices"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"somad/internal/audio"
 	"somad/internal/channels"
+	"somad/internal/client"
 	"somad/internal/platform"
 	"somad/internal/protocol"
 	"somad/internal/state"
@@ -1331,4 +1337,106 @@ func TestPlay_FailedSwitchStopsThePreviousSession(t *testing.T) {
 	player.mu.Lock()
 	assert.False(t, player.playing, "the previous session must be stopped")
 	player.mu.Unlock()
+}
+
+// flakyListener fails Accept with err its first failures times (forever
+// when failures is negative), then accepts from the wrapped listener.
+type flakyListener struct {
+	net.Listener
+	err error
+
+	mu       sync.Mutex
+	failures int
+	calls    int
+}
+
+func (l *flakyListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	l.calls++
+	if l.failures != 0 {
+		l.failures--
+		l.mu.Unlock()
+		return nil, l.err
+	}
+	l.mu.Unlock()
+	return l.Listener.Accept()
+}
+
+func (l *flakyListener) acceptCalls() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.calls
+}
+
+// listenFlaky listens on loopback TCP behind a flakyListener that fails
+// like a process out of file descriptors.
+func listenFlaky(t *testing.T, failures int) *flakyListener {
+	t.Helper()
+	raw, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = raw.Close() })
+	emfile := &net.OpError{Op: "accept", Net: "tcp", Err: os.NewSyscallError("accept", syscall.EMFILE)}
+	return &flakyListener{Listener: raw, err: emfile, failures: failures}
+}
+
+// TestAcceptLoop_SurvivesRunningOutOfDescriptors covers EMFILE, which Go
+// hands back from Accept: it used to end the accept loop and with it the
+// whole daemon, music included.
+func TestAcceptLoop_SurvivesRunningOutOfDescriptors(t *testing.T) {
+	logs := captureLog(t)
+	s, _ := newTestServer(t, Config{})
+	ln := listenFlaky(t, 3)
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- s.acceptLoop(ln) }()
+	require.Eventually(t, func() bool { return ln.acceptCalls() == 4 }, 2*time.Second, time.Millisecond,
+		"the loop must go on accepting after three failures")
+
+	c, err := client.DialEndpoint(client.Endpoint{Network: "tcp", Address: ln.Addr().String()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	hr, err := c.Hello("test")
+	require.NoError(t, err, "the connection after the failures must be served")
+	assert.Equal(t, "test", hr.ServerVersion)
+	assert.Equal(t, 1, strings.Count(logs.String(), "too many open files"), "one log line per run of failures")
+
+	s.Shutdown()
+	require.NoError(t, ln.Close())
+	select {
+	case err := <-loopDone:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("accept loop did not end with the shutdown")
+	}
+}
+
+func TestAcceptLoop_ShutdownEndsTheBackoff(t *testing.T) {
+	captureLog(t)
+	s, _ := newTestServer(t, Config{})
+	ln := listenFlaky(t, -1)
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- s.acceptLoop(ln) }()
+	require.Eventually(t, func() bool { return ln.acceptCalls() >= 3 }, 2*time.Second, time.Millisecond)
+
+	s.Shutdown() // the listener itself stays open: only done ends the wait
+	select {
+	case err := <-loopDone:
+		assert.NoError(t, err, "a loop ended by Shutdown reports no error")
+	case <-time.After(acceptRetryMax / 2):
+		t.Fatal("accept loop kept backing off after Shutdown")
+	}
+}
+
+func TestAcceptLoop_ReturnsWhenTheListenerIsClosedUnderIt(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	ln := listenFlaky(t, 0)
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- s.acceptLoop(ln) }()
+
+	require.NoError(t, ln.Close())
+	select {
+	case err := <-loopDone:
+		assert.ErrorIs(t, err, net.ErrClosed)
+	case <-time.After(5 * time.Second):
+		t.Fatal("accept loop kept going on a closed listener")
+	}
 }

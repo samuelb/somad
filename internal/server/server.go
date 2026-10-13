@@ -4,6 +4,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -261,8 +262,9 @@ func (s *Server) Run(lns ...net.Listener) error {
 	var firstErr error
 	for range lns {
 		if err := <-errCh; err != nil && firstErr == nil {
-			// One listener failing takes the server down; Shutdown unblocks
-			// the remaining accept loops.
+			// One listener closed by anything but Shutdown takes the server
+			// down (a failed Accept is retried instead, see acceptLoop);
+			// Shutdown unblocks the remaining accept loops.
 			firstErr = err
 			s.Shutdown()
 		}
@@ -276,20 +278,52 @@ func (s *Server) Run(lns ...net.Listener) error {
 	return firstErr
 }
 
+// acceptRetryMin and acceptRetryMax bound the backoff acceptLoop waits
+// between failed Accepts: 5 ms doubling up to 1 s, as net/http.Server.Serve
+// does.
+const (
+	acceptRetryMin = 5 * time.Millisecond
+	acceptRetryMax = time.Second
+)
+
 // acceptLoop serves one listener until it closes; the error is nil when the
-// close came from Shutdown.
+// close came from Shutdown. Any other Accept failure is waited out, with a
+// backoff, rather than returned: Run shuts the whole daemon down when a
+// listener ends, and an open listener fails only for passing reasons. Go
+// retries ECONNABORTED itself, but hands back running out of descriptors
+// (EMFILE, ENFILE) or kernel memory (ENOBUFS, ENOMEM), and on Linux a
+// network error already pending on the connection being accepted (EPROTO,
+// ENETUNREACH and others, see accept(2)), none of which is worth stopping
+// the music for. The first failure of a run is logged; the rest of it is
+// not, so a descriptor shortage cannot fill the log.
 func (s *Server) acceptLoop(ln net.Listener) error {
+	var delay time.Duration // 0 while Accept is succeeding
 	for {
 		nc, err := ln.Accept()
-		if err != nil {
-			select {
-			case <-s.done:
-				return nil
-			default:
-				return err
-			}
+		if err == nil {
+			delay = 0
+			go s.serveConn(nc)
+			continue
 		}
-		go s.serveConn(nc)
+		select {
+		case <-s.done:
+			return nil
+		default:
+		}
+		if errors.Is(err, net.ErrClosed) {
+			return err
+		}
+		if delay == 0 {
+			log.Printf("accepting a connection on %s failed, will keep retrying: %v", ln.Addr(), err)
+			delay = acceptRetryMin
+		} else {
+			delay = min(2*delay, acceptRetryMax)
+		}
+		select {
+		case <-s.done:
+			return nil
+		case <-time.After(delay):
+		}
 	}
 }
 

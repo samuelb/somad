@@ -204,7 +204,9 @@ auth on TCP only; the Unix socket is guarded by file permissions.
 **Daemon** (`internal/server`): owns audio playback, the channel catalog,
 persisted state, MPRIS, and the tray icon. `spawnlock.go` ensures a single
 instance. It runs until stopped explicitly unless `--idle-timeout` /
-`server.idle_timeout` is set. `Run` accepts multiple listeners; `conn.go`
+`server.idle_timeout` is set. `Run` accepts multiple listeners and waits
+out failed Accepts (EMFILE and the like) with a backoff, since a listener
+that ends takes the daemon down; `conn.go`
 gates non-local connections behind auth when a PSK is configured.
 `history.go` keeps an in-memory ring (default 50) of now-playing titles
 across the daemon's lifetime, appended on every ICY title change
