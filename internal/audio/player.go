@@ -101,9 +101,10 @@ type Player interface {
 	TrackUpdates() <-chan TrackInfo
 	SetVolume(v float64)
 	Volume() float64
-	// Spectrum analyzes the audio playing now, for the TUI's visualizer;
-	// false while nothing plays.
-	Spectrum() (Spectrum, bool)
+	// Spectrum analyzes the audio playing now into dst, reusing its
+	// memory, for the TUI's visualizer; false, with dst silent, while
+	// nothing plays.
+	Spectrum(dst *Spectrum) bool
 }
 
 // StreamError is an asynchronous failure of a committed session, carrying
@@ -235,6 +236,9 @@ type AudioPlayer struct {
 	sessions   int          // committed sessions still fading or playing, guarded by mu
 	playGen    uint64       // newest generation seen from Play/Stop; stale ones never commit
 	volume     float64      // target volume in [0, 1], guarded by mu
+
+	spectrumMu      sync.Mutex
+	spectrumScratch *spectrumScratch // Spectrum's working memory, guarded by spectrumMu
 
 	// Timeouts, set by NewPlayer and never changed afterwards. Per player
 	// rather than package variables so a test can shrink them without

@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
-	"math/cmplx"
+	"math/bits"
 	"sync"
 	"time"
 )
@@ -127,30 +127,58 @@ func (t *pcmTap) window(dst []float32, delay int) bool {
 
 // Spectrum is the power spectrum of the audio playing at one moment: the
 // power in each FFT bin from DC up to the Nyquist frequency, where a full-
-// scale sine is 1. The zero value is silence.
+// scale sine is 1. The zero value is silence. An analysis into a Spectrum
+// reuses its memory, so a caller analyzing frame after frame keeps one
+// value for all of them (and a copy taken earlier changes with it).
 type Spectrum struct {
 	power []float64
 }
 
-// Spectrum analyzes the audio of the current session that is audible now:
-// the tap runs ahead of the speakers by what oto has buffered, so the
-// window ends that far back. It reports false while nothing is playing,
-// the stream stalled included.
-func (p *AudioPlayer) Spectrum() (Spectrum, bool) {
+// silence makes s the silent spectrum, keeping its memory for the next
+// analysis.
+func (s *Spectrum) silence() {
+	s.power = s.power[:0]
+}
+
+// spectrumScratch is an analysis' working memory, 80 KiB that the daemon
+// would otherwise allocate 25 times a second for as long as a visualizer
+// is subscribed: the window of samples and the FFT's buffer.
+type spectrumScratch struct {
+	samples [fftSize]float32
+	x       [fftSize]complex128
+}
+
+// Spectrum analyzes the audio of the current session that is audible now
+// into dst: the tap runs ahead of the speakers by what oto has buffered,
+// so the window ends that far back. It reports false, leaving dst silent,
+// while nothing is playing, the stream stalled included.
+func (p *AudioPlayer) Spectrum(dst *Spectrum) bool {
 	p.mu.Lock()
 	s := p.current
 	p.mu.Unlock()
 	if s == nil || s.tap == nil || s.tap.stalled() {
-		return Spectrum{}, false
+		dst.silence()
+		return false
 	}
 	// BufferedSize only reads oto's buffer under oto's own lock, so it is
 	// safe off the session goroutine that otherwise owns the player.
 	delay := s.player.BufferedSize()/bytesPerFrame + int(deviceLatency*sampleRate/time.Second)
-	samples := make([]float32, fftSize)
-	if !s.tap.window(samples, delay) {
-		return Spectrum{}, false
+
+	// The scratch outlives sessions, so it is allocated once per daemon.
+	// The daemon's frame loop is its only user; the lock keeps another
+	// caller from analyzing into it at the same time.
+	p.spectrumMu.Lock()
+	defer p.spectrumMu.Unlock()
+	if p.spectrumScratch == nil {
+		p.spectrumScratch = new(spectrumScratch)
 	}
-	return analyze(samples), true
+	buf := p.spectrumScratch
+	if !s.tap.window(buf.samples[:], delay) {
+		dst.silence()
+		return false
+	}
+	analyze(dst, buf.samples[:], buf.x[:])
+	return true
 }
 
 // hannWindow tapers the analysis window so a tone's energy stays in its
@@ -163,9 +191,9 @@ var hannWindow = func() []float64 {
 	return w
 }()
 
-// analyze returns the power spectrum of fftSize samples.
-func analyze(samples []float32) Spectrum {
-	x := make([]complex128, len(samples))
+// analyze computes the power spectrum of fftSize samples into dst, with x,
+// as long as samples, as the FFT's working memory.
+func analyze(dst *Spectrum, samples []float32, x []complex128) {
 	for i, v := range samples {
 		x[i] = complex(float64(v)*hannWindow[i], 0)
 	}
@@ -173,36 +201,52 @@ func analyze(samples []float32) Spectrum {
 	// A sine of amplitude A peaks at A·N/4 in its bin under a Hann window
 	// (coherent gain ½, half the energy in the negative frequencies).
 	norm := float64(len(x)) / 4
-	power := make([]float64, len(x)/2+1)
-	for k := range power {
-		m := cmplx.Abs(x[k]) / norm
-		power[k] = m * m
+	scale := 1 / (norm * norm)
+	n := len(x)/2 + 1
+	if cap(dst.power) < n {
+		dst.power = make([]float64, n)
 	}
-	return Spectrum{power: power}
+	dst.power = dst.power[:n]
+	for k := range dst.power {
+		// The power is the squared magnitude: no square root to undo.
+		re, im := real(x[k]), imag(x[k])
+		dst.power[k] = (re*re + im*im) * scale
+	}
 }
 
+// twiddles holds the FFT's rotation factors, e^(-2πik/fftSize) for k below
+// fftSize/2; a stage of a smaller transform takes every so many of them.
+// A table lookup instead of a running product per butterfly saves a
+// complex multiplication each, and the running product's rounding error.
+var twiddles = func() []complex128 {
+	w := make([]complex128, fftSize/2)
+	for k := range w {
+		sin, cos := math.Sincos(-2 * math.Pi * float64(k) / fftSize)
+		w[k] = complex(cos, sin)
+	}
+	return w
+}()
+
 // fft transforms x in place: an iterative radix-2 Cooley–Tukey FFT, so
-// len(x) must be a power of two.
+// len(x) must be a power of two, at most fftSize.
 func fft(x []complex128) {
 	n := len(x)
-	for i, j := 1, 0; i < n; i++ {
-		bit := n >> 1
-		for ; j&bit != 0; bit >>= 1 {
-			j ^= bit
-		}
-		j ^= bit
+	// Put the input in bit-reversed order: the reversal of i's log2(n)
+	// bits is the reversal of all its bits, shifted down.
+	shift := bits.UintSize - bits.TrailingZeros(uint(n))
+	for i := range x {
+		j := int(bits.Reverse(uint(i)) >> shift)
 		if i < j {
 			x[i], x[j] = x[j], x[i]
 		}
 	}
 	for size := 2; size <= n; size <<= 1 {
-		step := cmplx.Exp(complex(0, -2*math.Pi/float64(size)))
+		half, stride := size/2, fftSize/size
 		for start := 0; start < n; start += size {
-			w := complex(1, 0)
-			for k := range size / 2 {
-				a, b := x[start+k], x[start+k+size/2]*w
-				x[start+k], x[start+k+size/2] = a+b, a-b
-				w *= step
+			lo, hi := x[start:start+half], x[start+half:start+size]
+			for k := range lo {
+				a, b := lo[k], hi[k]*twiddles[k*stride]
+				lo[k], hi[k] = a+b, a-b
 			}
 		}
 	}

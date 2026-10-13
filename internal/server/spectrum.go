@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"somad/internal/audio"
 	"somad/internal/protocol"
 )
 
@@ -41,6 +42,9 @@ func (s *Server) spectrumLoop() {
 	t := time.NewTicker(time.Duration(spectrumInterval.Load()))
 	defer t.Stop()
 	silent := spectrumTail // nothing has played yet: no tail to send
+	// One spectrum for every frame, which each analysis overwrites, so
+	// the analysis allocates nothing from frame to frame.
+	var spec audio.Spectrum
 	for {
 		select {
 		case <-s.done:
@@ -50,7 +54,7 @@ func (s *Server) spectrumLoop() {
 		// The player locks itself; the analysis must not hold up mu. A
 		// stop between the two calls lets one last frame of the old
 		// session out, which the silent tail then overwrites.
-		spec, ok := s.player.Spectrum()
+		ok := s.player.Spectrum(&spec)
 		subs := s.spectrumSubscribers()
 		if subs == nil {
 			return

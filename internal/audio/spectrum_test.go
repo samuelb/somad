@@ -43,6 +43,13 @@ func toFloat32(s []float64) []float32 {
 	return out
 }
 
+// analyzed returns the spectrum of samples, analyzed into fresh memory.
+func analyzed(samples []float32) Spectrum {
+	var spec Spectrum
+	analyze(&spec, samples, make([]complex128, len(samples)))
+	return spec
+}
+
 func TestFFT_MatchesDFT(t *testing.T) {
 	const n = 64
 	x := make([]complex128, n)
@@ -66,7 +73,7 @@ func TestAnalyze_FullScaleSinePeaksAtOne(t *testing.T) {
 	// A tone on a bin center: its power lands in that bin, at 1.
 	bin := 93
 	hz := float64(bin) * sampleRate / fftSize
-	spec := analyze(toFloat32(sine(hz, fftSize)))
+	spec := analyzed(toFloat32(sine(hz, fftSize)))
 	peak := slices.Index(spec.power, slices.Max(spec.power))
 	assert.Equal(t, bin, peak)
 	assert.InDelta(t, 1, spec.power[bin], 0.01)
@@ -74,7 +81,7 @@ func TestAnalyze_FullScaleSinePeaksAtOne(t *testing.T) {
 
 func TestBands_ToneLightsItsBand(t *testing.T) {
 	const n = 24
-	levels := analyze(toFloat32(sine(1000, fftSize))).Bands(n)
+	levels := analyzed(toFloat32(sine(1000, fftSize))).Bands(n)
 	require.Len(t, levels, n)
 	octaves := math.Log2(bandHighHz / bandLowHz)
 	want := int(math.Log2(1000/bandLowHz) / octaves * n)
@@ -95,7 +102,7 @@ func TestBands_LevelsDoNotDependOnTheBandCount(t *testing.T) {
 		b2 = 0.57000*b2 + w*1.0526913
 		samples[i] = float32((b0 + b1 + b2 + w*0.1848) * 0.05)
 	}
-	spec := analyze(samples)
+	spec := analyzed(samples)
 	mean := func(b []byte) float64 {
 		var sum float64
 		for _, v := range b {
@@ -107,7 +114,7 @@ func TestBands_LevelsDoNotDependOnTheBandCount(t *testing.T) {
 }
 
 func TestBands_SilenceAndZeroValue(t *testing.T) {
-	assert.Equal(t, make([]byte, 8), analyze(make([]float32, fftSize)).Bands(8))
+	assert.Equal(t, make([]byte, 8), analyzed(make([]float32, fftSize)).Bands(8))
 	assert.Equal(t, make([]byte, 8), Spectrum{}.Bands(8))
 	assert.Empty(t, Spectrum{}.Bands(0))
 }
@@ -183,27 +190,65 @@ func (r *chunkReader) Read(b []byte) (int, error) {
 
 func TestAudioPlayerSpectrum(t *testing.T) {
 	p := newTestPlayer()
-	_, ok := p.Spectrum()
-	assert.False(t, ok, "nothing plays")
+	var spec Spectrum
+	assert.False(t, p.Spectrum(&spec), "nothing plays")
 
 	tap := newPCMTap(nil)
 	p.current = &session{player: &fakeOutputPlayer{}, tap: tap}
-	_, ok = p.Spectrum()
-	assert.False(t, ok, "the tap has not filled yet")
+	assert.False(t, p.Spectrum(&spec), "the tap has not filled yet")
 
 	// A tone, then silence for as long as the device lags: the window
 	// that is audible now holds the tone.
 	lag := int(deviceLatency * sampleRate / time.Second)
 	tap.record(pcm(sine(1000, fftSize)))
 	tap.record(pcm(make([]float64, lag)))
-	spec, ok := p.Spectrum()
-	require.True(t, ok)
+	require.True(t, p.Spectrum(&spec))
 	assert.NotZero(t, slices.Max(spec.Bands(16)))
 
-	// A stream that stalls stops holding the bars up.
+	// A stream that stalls stops holding the bars up, and the spectrum
+	// it leaves behind is silent: the server sends it as the tail that
+	// settles the bars.
 	tap.mu.Lock()
 	tap.lastRead = time.Now().Add(-2 * tapStallAfter)
 	tap.mu.Unlock()
-	_, ok = p.Spectrum()
-	assert.False(t, ok, "stalled")
+	assert.False(t, p.Spectrum(&spec), "stalled")
+	assert.Equal(t, make([]byte, 16), spec.Bands(16))
+}
+
+// playingTestPlayer returns a player whose session's tap holds a second of
+// a 1 kHz tone and never stalls.
+func playingTestPlayer() *AudioPlayer {
+	p := newTestPlayer()
+	tap := newPCMTap(nil)
+	p.current = &session{player: &fakeOutputPlayer{}, tap: tap}
+	tap.record(pcm(sine(1000, sampleRate)))
+	tap.lastRead = time.Now().Add(time.Hour)
+	return p
+}
+
+func TestAudioPlayerSpectrum_AllocatesNothingFrameToFrame(t *testing.T) {
+	// The daemon analyzes 25 times a second while a visualizer is
+	// subscribed: after the first frame, none may allocate.
+	p := playingTestPlayer()
+	var spec Spectrum
+	require.True(t, p.Spectrum(&spec))
+	want := slices.Clone(spec.power)
+	allocs := testing.AllocsPerRun(10, func() {
+		if !p.Spectrum(&spec) {
+			t.Fatal("no spectrum")
+		}
+	})
+	assert.Zero(t, allocs)
+	assert.Equal(t, want, spec.power, "the reused memory holds the same analysis")
+}
+
+func BenchmarkSpectrum(b *testing.B) {
+	p := playingTestPlayer()
+	var spec Spectrum
+	b.ReportAllocs()
+	for b.Loop() {
+		if !p.Spectrum(&spec) {
+			b.Fatal("no spectrum")
+		}
+	}
 }

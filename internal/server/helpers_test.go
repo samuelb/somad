@@ -131,10 +131,11 @@ func (p *mockPlayer) Volume() float64 {
 	return p.volume
 }
 
-func (p *mockPlayer) Spectrum() (audio.Spectrum, bool) {
+// Spectrum leaves dst as it is, the silence of its zero value.
+func (p *mockPlayer) Spectrum(_ *audio.Spectrum) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return audio.Spectrum{}, p.playing
+	return p.playing
 }
 
 func (p *mockPlayer) setPlayErr(err error) {
