@@ -49,9 +49,15 @@ func newTestPlayer() *AudioPlayer {
 }
 
 type fakeOutputPlayer struct {
-	mu     sync.Mutex
-	volume float64
-	paused func()
+	mu             sync.Mutex
+	volume         float64
+	paused         func()
+	stoppedReading func()
+
+	// reading is held for each read of the source, so PauseAndStopReading
+	// waits one out, as oto's does, before it sets outOfMixer.
+	reading    sync.Mutex
+	outOfMixer bool // guarded by reading
 }
 
 func (p *fakeOutputPlayer) Play() {}
@@ -59,6 +65,33 @@ func (p *fakeOutputPlayer) Play() {}
 func (p *fakeOutputPlayer) Pause() {
 	if p.paused != nil {
 		p.paused()
+	}
+}
+
+func (p *fakeOutputPlayer) PauseAndStopReading() {
+	p.reading.Lock()
+	p.outOfMixer = true
+	p.reading.Unlock()
+	if p.stoppedReading != nil {
+		p.stoppedReading()
+	}
+}
+
+// pump consumes r on behalf of the player until the first read error or
+// PauseAndStopReading, like oto's mixer does.
+func (p *fakeOutputPlayer) pump(r io.Reader) {
+	buf := make([]byte, 4096)
+	for {
+		p.reading.Lock()
+		if p.outOfMixer {
+			p.reading.Unlock()
+			return
+		}
+		_, err := r.Read(buf)
+		p.reading.Unlock()
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -77,12 +110,13 @@ func (p *fakeOutputPlayer) Volume() float64 {
 }
 
 type fakeAudioContext struct {
-	suspends atomic.Int32
-	resumes  atomic.Int32
-	players  atomic.Int32
-	pauses   atomic.Int32
+	suspends       atomic.Int32
+	resumes        atomic.Int32
+	players        atomic.Int32
+	pauses         atomic.Int32
+	stoppedReading atomic.Int32 // players taken out of the mixer
 	// pump makes each player consume its reader on a goroutine until the
-	// first read error, like oto's render loop does.
+	// first read error or PauseAndStopReading, like oto's mixer does.
 	pump bool
 
 	mu        sync.Mutex
@@ -91,20 +125,15 @@ type fakeAudioContext struct {
 
 func (c *fakeAudioContext) NewPlayer(r io.Reader) outputPlayer {
 	c.players.Add(1)
+	p := &fakeOutputPlayer{
+		volume:         1,
+		paused:         func() { c.pauses.Add(1) },
+		stoppedReading: func() { c.stoppedReading.Add(1) },
+	}
 	if c.pump {
-		go func() {
-			buf := make([]byte, 4096)
-			for {
-				if _, err := r.Read(buf); err != nil {
-					return
-				}
-			}
-		}()
+		go p.pump(r)
 	}
-	return &fakeOutputPlayer{
-		volume: 1,
-		paused: func() { c.pauses.Add(1) },
-	}
+	return p
 }
 
 func (c *fakeAudioContext) Suspend() error {
@@ -291,6 +320,28 @@ func TestStopDuringCrossfade_WaitsForBothSessionsBeforeSuspend(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return ctx.pauses.Load() == 2 && ctx.suspends.Load() == 1
 	}, time.Second, 10*time.Millisecond)
+}
+
+func TestTeardown_TakesThePlayerOutOfTheMixer(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	// Pumped like oto's mixer does: the test server sends a burst and then
+	// holds the connection, so by the end of the fade-out the pump is
+	// parked in a read the stalled stream will not answer.
+	ctx.pump = true
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	stopNext(p)
+
+	// Paused alone, the player would stay in oto's mixer, its source chain
+	// with it, until a GC cleanup. Taking it out waits out that read, so
+	// it must come after the stream is closed: before, it would hold the
+	// teardown until the stall watchdog fired, 30 s on.
+	require.Eventually(t, func() bool {
+		return ctx.stoppedReading.Load() == 1 && ctx.suspends.Load() == 1
+	}, 2*time.Second, 10*time.Millisecond)
+	assert.EqualValues(t, 1, ctx.pauses.Load())
 }
 
 func TestErrors_ReturnsChannel(t *testing.T) {

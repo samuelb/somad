@@ -124,6 +124,10 @@ func (e *StreamError) Unwrap() error { return e.Err }
 type outputPlayer interface {
 	Play()
 	Pause()
+	// PauseAndStopReading pauses the player and removes it from oto's
+	// mixer, which never reads its source again once this returns; a read
+	// already in flight is waited out.
+	PauseAndStopReading()
 	SetVolume(float64)
 	Volume() float64
 	// BufferedSize is how many bytes the player has read from its stream
@@ -774,7 +778,8 @@ func (p *AudioPlayer) Volume() float64 {
 }
 
 // fadeOutAndClose gradually lowers the session volume to 0, then pauses the
-// player, closes the stream, and cancels the HTTP fetch.
+// player, cancels the HTTP fetch, closes the stream, and takes the player
+// out of oto's mixer.
 func (p *AudioPlayer) fadeOutAndClose(s *session) {
 	step := fadeOutDuration / fadeSteps
 	// Start from the amplitude the player is actually at (a stop can land
@@ -793,6 +798,14 @@ func (p *AudioPlayer) fadeOutAndClose(s *session) {
 	// stuck in a pipe write.
 	s.cancel()
 	_ = s.stream.Close()
+	// A paused player stays registered with oto's mixer, which goes on
+	// polling it, and keeps its source chain (the decoder, on macOS its
+	// AudioToolbox converter, and the tap's ring) reachable until a GC
+	// cleanup closes the player; oto's Close does nothing. This removes
+	// it. It waits out a read the mixer has in flight, which is why it
+	// comes after the close: a read parked on a stalled stream fails now,
+	// instead of holding this goroutine until the stall watchdog fires.
+	s.player.PauseAndStopReading()
 
 	p.deviceMu.Lock()
 	p.mu.Lock()
