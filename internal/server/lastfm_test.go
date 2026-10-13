@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"somad/internal/audio"
+	"somad/internal/lastfm"
 	"somad/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
@@ -28,6 +31,9 @@ type fakeScrobbler struct {
 
 	failNowPlayingTimes int
 	failScrobbleTimes   int
+	// failErr, when set, is what those failing calls return instead of a
+	// generic error, e.g. lastfm.ErrNoSession.
+	failErr error
 
 	// scrobbleDelay, when set, makes Scrobble sleep this long before
 	// returning, to exercise Shutdown's bounded wait for a slow Last.fm.
@@ -46,6 +52,9 @@ func (f *fakeScrobbler) UpdateNowPlaying(artist, title string) error {
 	f.nowPlayingCalls = append(f.nowPlayingCalls, trackCall{artist, title})
 	if f.failNowPlayingTimes > 0 {
 		f.failNowPlayingTimes--
+		if f.failErr != nil {
+			return f.failErr
+		}
 		return errors.New("now-playing failed")
 	}
 	return nil
@@ -63,6 +72,9 @@ func (f *fakeScrobbler) Scrobble(artist, title string, startedAt time.Time) erro
 	f.scrobbleCalls = append(f.scrobbleCalls, scrobbleCall{artist, title, startedAt})
 	if f.failScrobbleTimes > 0 {
 		f.failScrobbleTimes--
+		if f.failErr != nil {
+			return f.failErr
+		}
 		return errors.New("scrobble failed")
 	}
 	return nil
@@ -236,6 +248,67 @@ func TestLastfm_GivesUpAfterOneRetry(t *testing.T) {
 	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 2 }, 2*time.Second, 5*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, 2, scrobbler.nowPlayingCount(), "must not retry a third time")
+}
+
+func TestLastfm_DoesNotRetryWithoutASession(t *testing.T) {
+	shrinkLastfmThresholds(t)
+	scrobbler := &fakeScrobbler{failNowPlayingTimes: 2, failErr: lastfm.ErrNoSession}
+	playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
+
+	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 1 }, 2*time.Second, 5*time.Millisecond)
+	time.Sleep(3 * lastfmRetryDelay)
+	assert.Equal(t, 1, scrobbler.nowPlayingCount(), "a missing session is permanent until a login; no retry")
+}
+
+// lockedBuffer is an io.Writer for log output that tests can read while
+// server goroutines may still be logging.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// captureLog redirects the standard logger into a buffer for the duration
+// of t.
+func captureLog(t *testing.T) *lockedBuffer {
+	t.Helper()
+	buf := &lockedBuffer{}
+	prev := log.Writer()
+	log.SetOutput(buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return buf
+}
+
+// TestReloadLastfm_LogsFailuresAfresh covers a failure after a fresh login:
+// the failures logged once before it were about the old session, so the
+// first one after the reload must be logged again.
+func TestReloadLastfm_LogsFailuresAfresh(t *testing.T) {
+	logs := captureLog(t)
+	s, _ := newTestServer(t, Config{
+		Scrobbler:           &fakeScrobbler{},
+		ReloadLastfmSession: func() (string, error) { return "fresh-key", nil },
+	})
+
+	s.logLastfmFailureOnce("scrobble", errors.New("old session failed"))
+	s.logLastfmFailureOnce("scrobble", errors.New("old session failed again"))
+	require.NoError(t, s.ReloadLastfm())
+	s.logLastfmFailureOnce("scrobble", errors.New("new session failed"))
+
+	out := logs.String()
+	assert.Contains(t, out, "old session failed")
+	assert.NotContains(t, out, "old session failed again", "still logged only once per session")
+	assert.Contains(t, out, "new session failed", "a failure after a reload must be logged")
 }
 
 func TestLastfm_SkipsNowPlayingRetryWhenTrackChanged(t *testing.T) {
@@ -487,6 +560,27 @@ func TestSubmitLastfm_SkipsRetryOnceClosing(t *testing.T) {
 	// cut off by the wait bound.
 	time.Sleep(3 * lastfmRetryDelay)
 	assert.Equal(t, 1, scrobbler.scrobbleCount(), "no retry once the server is shutting down")
+}
+
+// TestShutdown_EndsAPendingLastfmRetry covers a submission that failed just
+// before Shutdown and is waiting out its retry delay: the wait must end with
+// the shutdown rather than hold it for lastfmShutdownWait, while the old
+// daemon still holds the single-instance lock a restart waits on.
+func TestShutdown_EndsAPendingLastfmRetry(t *testing.T) {
+	// The real 10 s retry delay and 3 s shutdown bound, and the real 30 s
+	// minimum play so Shutdown queues no scrobble of its own.
+	scrobbler := &fakeScrobbler{failNowPlayingTimes: 1}
+	s, _, _ := playScrobbled(t, scrobbler, "Boards of Canada - Dayvan Cowboy")
+	require.Eventually(t, func() bool { return scrobbler.nowPlayingCount() == 1 }, 2*time.Second, 5*time.Millisecond)
+	// Let the failed submission get past its closing check into the wait.
+	time.Sleep(20 * time.Millisecond)
+
+	start := time.Now()
+	s.Shutdown()
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, lastfmShutdownWait/2, "shutdown must not wait out a pending retry")
+	assert.Equal(t, 1, scrobbler.nowPlayingCount(), "the retry is dropped, not sent early")
 }
 
 // shrinkLastfmSameTrackWindow shrinks lastfmSameTrackWindow for the

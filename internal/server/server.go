@@ -117,7 +117,8 @@ type Server struct {
 	lastfmRecent map[string]*lastfmTrack
 	// lastfmLogMu guards lastfmLogged, the "log this failure kind once"
 	// bookkeeping for the scrobble/now-playing submission goroutines
-	// (lastfm.go); separate from mu since those run off it entirely.
+	// (lastfm.go), cleared by every reloadLastfm; separate from mu since
+	// those run off it entirely.
 	lastfmLogMu  sync.Mutex
 	lastfmLogged map[string]bool
 	// lastfmWG tracks in-flight scrobble/now-playing submission goroutines

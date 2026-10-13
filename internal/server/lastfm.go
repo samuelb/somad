@@ -1,10 +1,12 @@
 package server
 
 import (
+	"errors"
 	"log"
 	"time"
 
 	"somad/internal/audio"
+	"somad/internal/lastfm"
 )
 
 // Scrobbler is the Last.fm now-playing/scrobble sink (TODO.md "Last.fm
@@ -151,27 +153,42 @@ func (s *Server) endLastfmTrackLocked() {
 // "scrobble"). retryOK, when non-nil, is checked immediately before the
 // retry; a false result skips it silently (see updateLastfmLocked). The
 // goroutine is tracked in lastfmWG, which Shutdown waits on (bounded by
-// lastfmShutdownWait) so the final scrobble has a chance to land; once the
-// server is closing, a failed submission skips the retry delay entirely
-// rather than outlive that bound for nothing. A failure is logged once per
-// kind, further ones of the same kind silently swallowed — like desktop
+// lastfmShutdownWait) so the final scrobble has a chance to land. The retry
+// delay ends early, dropping the retry, when Shutdown begins: a retry still
+// pending then would only hold Shutdown up to that bound, with the old
+// daemon keeping the single-instance lock (ADR-0004) while a restart onto
+// a new binary waits to spawn its successor. lastfm.ErrNoSession is not
+// retried at all, since only a login (and the reloadLastfm that follows
+// it) can cure it. A failure is logged once per kind until the next reload,
+// further ones of the same kind silently swallowed — like desktop
 // notifications (ADR-0030), this is a nice-to-have, never worth playback
 // going wrong over.
 func (s *Server) submitLastfm(kind string, retryOK func() bool, action func() error) {
 	s.lastfmWG.Add(1)
 	go func() {
 		defer s.lastfmWG.Done()
-		if err := action(); err != nil {
+		err := action()
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, lastfm.ErrNoSession) {
+			// closing is set before Shutdown closes done, so a failure seen
+			// after that never waits at all.
 			if s.isClosing() {
 				return
 			}
-			time.Sleep(lastfmRetryDelay)
+			select {
+			case <-s.done:
+				return
+			case <-time.After(lastfmRetryDelay):
+			}
 			if retryOK != nil && !retryOK() {
 				return
 			}
-			if err = action(); err != nil {
-				s.logLastfmFailureOnce(kind, err)
-			}
+			err = action()
+		}
+		if err != nil {
+			s.logLastfmFailureOnce(kind, err)
 		}
 	}()
 }
@@ -218,6 +235,16 @@ func (s *Server) logLastfmFailureOnce(kind string, err error) {
 	log.Printf("last.fm %s failed (further %s failures are not logged): %v", kind, kind, err)
 }
 
+// resetLastfmFailureLog lets the next failure of each kind be logged again.
+// A reload means the session changed (a login or logout), so the "logged
+// once" from before it says nothing about whether the new one works: a
+// failure after a fresh login would otherwise never show up in the log.
+func (s *Server) resetLastfmFailureLog() {
+	s.lastfmLogMu.Lock()
+	defer s.lastfmLogMu.Unlock()
+	clear(s.lastfmLogged)
+}
+
 // ReloadLastfm re-reads the Last.fm session key (the config's
 // lastfm.session_key override, else internal/state's persisted
 // lastfm.json — see Config.ReloadLastfmSession) and applies it to the
@@ -225,7 +252,8 @@ func (s *Server) logLastfmFailureOnce(kind string, err error) {
 // this daemon started takes effect without a restart. With no Scrobbler
 // yet it first asks Config.LoadScrobbler for one, so credentials added to
 // the config file after startup take effect the same way; a no-op while
-// scrobbling is still not configured.
+// scrobbling is still not configured. Failures are logged afresh after it
+// (resetLastfmFailureLog).
 func (s *Server) ReloadLastfm() error {
 	s.lastfmReloadMu.Lock()
 	defer s.lastfmReloadMu.Unlock()
@@ -250,6 +278,7 @@ func (s *Server) ReloadLastfm() error {
 		}
 		scrobbler.SetSessionKey(key)
 	}
+	s.resetLastfmFailureLog()
 	if !installed {
 		// Picks up from the next title change on; the one playing now was
 		// never tracked, so it is neither announced nor scrobbled.

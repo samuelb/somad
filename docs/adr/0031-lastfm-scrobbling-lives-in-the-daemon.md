@@ -2,7 +2,8 @@
 
 - **Status:** Accepted (amended 2026-09-09: one scrobble per play across
   interruptions; 2026-09-25: a reload can start scrobbling, local daemons
-  only)
+  only; 2026-10-13: retries yield to shutdown, no retry without a session,
+  failures logged afresh after a reload)
 - **Date:** 2026-09-03
 - **Sources:** TODO.md "Last.fm scrobbling"; `internal/lastfm`,
   `internal/server/lastfm.go`, `internal/state/lastfm.go`,
@@ -43,7 +44,14 @@ the config file is meant to be hand-editable, never machine-written
   (`lastfmMinPlayDuration`); a title with no artist (`audio.SplitTitle`
   finds none) is skipped entirely; both submissions run off the server's
   lock on a goroutine with one bounded retry, and a failure is logged once
-  per kind, never blocking or failing playback.
+  per kind, never blocking or failing playback. (Amended 2026-10-13.) The
+  10 s retry delay ends, dropping the retry, as soon as shutdown begins:
+  a plain sleep held shutdown for its full 3 s bound on Last.fm
+  submissions, and with it the single-instance lock (ADR-0004), so a
+  version-skew restart (ADR-0006) spun on respawning for those seconds.
+  A missing session (`lastfm.ErrNoSession`) is not retried, since only a
+  login cures it, and every `reloadLastfm` clears the logged-once flags,
+  so the first failure under a new session shows up in the log.
 - A play is scrobbled at most once (amended 2026-09-09). Every interruption
   tears the stream down and the fresh connection re-reports the current
   title with no memory of the last one, so a stall-and-reconnect, a pause,
