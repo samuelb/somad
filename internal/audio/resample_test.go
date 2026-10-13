@@ -3,8 +3,10 @@ package audio
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,6 +108,28 @@ func TestResampler_SingleFrameSource(t *testing.T) {
 	for _, f := range frames {
 		assert.Equal(t, [2]int16{42, -42}, f, "a single frame should be held flat")
 	}
+}
+
+func TestResampler_SourceErrorMidStreamPassesThrough(t *testing.T) {
+	// A decoder failing mid-stream must surface as its own error, not as
+	// the end of the stream, which the resampler plays out flat: the
+	// report the session makes of it names the cause.
+	boom := errors.New("corrupt frame")
+	src := io.MultiReader(
+		bytes.NewReader(encodeFrames([][2]int16{{0, 0}, {100, -100}, {200, -200}})),
+		iotest.ErrReader(boom),
+	)
+	r := newResampler(src, 22050, 44100)
+
+	out, err := io.ReadAll(r)
+	require.ErrorIs(t, err, boom)
+	// What was decoded before the failure still comes out, interpolated.
+	frames := decodeFrames(t, out)
+	require.GreaterOrEqual(t, len(frames), 4)
+	assert.Equal(t, [][2]int16{{0, 0}, {50, -50}, {100, -100}, {150, -150}}, frames[:4])
+
+	_, err = r.Read(make([]byte, 64))
+	assert.ErrorIs(t, err, boom, "the failure must not turn into a clean end on the next read")
 }
 
 func TestResampler_TruncatedFrameIsEOF(t *testing.T) {

@@ -270,6 +270,30 @@ func TestAACDecodeResyncsAfterGarbage(t *testing.T) {
 	}
 }
 
+func TestAACDecodeRejectsAFormatChangeMidStream(t *testing.T) {
+	// The converter is built for the first frame's core rate and channel
+	// count. A stream switching either one mid-way (here, another encoding
+	// spliced on at a frame boundary) would be decoded as the wrong format,
+	// so it fails with an error that leads to a reconnect, which probes
+	// the stream afresh.
+	for _, tc := range []struct {
+		name, next, change string
+	}{
+		{"channels", "sine-mono.aac", "(44100 Hz, 2 ch -> 44100 Hz, 1 ch)"},
+		{"sample rate", "he-aac-stereo.aac", "(44100 Hz, 2 ch -> 22050 Hz, 2 ch)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := append(readFixture(t, "sine-stereo.aac"), readFixture(t, tc.next)...)
+			dec, err := newAACDecoder(bytes.NewReader(stream))
+			require.NoError(t, err)
+			pcm, err := io.ReadAll(dec)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "AAC stream parameters changed mid-stream "+tc.change)
+			assert.NotEmpty(t, pcm, "the frames before the change still decode")
+		})
+	}
+}
+
 func TestAACDecodeTruncatedStream(t *testing.T) {
 	full := readFixture(t, "sine-stereo.aac")
 	dec, err := newAACDecoder(bytes.NewReader(full[:len(full)/3]))
