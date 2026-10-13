@@ -156,7 +156,7 @@ func (p *AudioPlayer) Spectrum(dst *Spectrum) bool {
 	p.mu.Lock()
 	s := p.current
 	p.mu.Unlock()
-	if s == nil || s.tap == nil || s.tap.stalled() {
+	if s == nil || s.tap.stalled() {
 		dst.silence()
 		return false
 	}

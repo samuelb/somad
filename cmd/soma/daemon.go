@@ -332,10 +332,7 @@ func openListeners(opts daemonOptions) ([]net.Listener, func(), error) {
 // tray is nil when disabled, unsupported, or when no GUI is present (a
 // headless host), so the server still runs anywhere.
 func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.Tray, error) {
-	player, err := audio.NewPlayer(userAgent())
-	if err != nil {
-		return nil, nil, fmt.Errorf("error initializing the audio player: %w", err)
-	}
+	player := audio.NewPlayer(userAgent())
 	if opts.quality != "" && opts.quality != "highest" && !slices.Contains(audio.PreferredFormats(), audio.FormatAACP) {
 		log.Printf("note: stream quality %q has no effect in this build: SomaFM offers its lower qualities "+
 			"only as HE-AAC, which only the macOS build decodes, so every channel plays at the highest quality", opts.quality)

@@ -161,8 +161,7 @@ func newLifecycleTestPlayer(t *testing.T) (*AudioPlayer, *fakeAudioContext, *ato
 	// The streaming test server sends less than the prefill and then holds
 	// the connection, so without this every Play would wait out the full
 	// prefill deadline.
-	p, err := NewPlayer("soma/test")
-	require.NoError(t, err)
+	p := NewPlayer("soma/test")
 	p.prefillWait = 10 * time.Millisecond
 	ctx := &fakeAudioContext{}
 	created := &atomic.Int32{}
@@ -220,8 +219,7 @@ func TestPlayStop_ResumesAndSuspendsAudioDevice(t *testing.T) {
 }
 
 func TestEnsureContext_RecoversAfterReadyTimeout(t *testing.T) {
-	p, err := NewPlayer("soma/test")
-	require.NoError(t, err)
+	p := NewPlayer("soma/test")
 	ctx := &fakeAudioContext{}
 	ready := make(chan struct{})
 	p.newContext = func() (audioContext, <-chan struct{}, error) {
@@ -229,7 +227,7 @@ func TestEnsureContext_RecoversAfterReadyTimeout(t *testing.T) {
 	}
 	p.readyTimeout = 20 * time.Millisecond
 
-	err = p.ensureContext(context.Background())
+	err := p.ensureContext(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "audio device not ready")
 

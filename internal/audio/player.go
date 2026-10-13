@@ -261,7 +261,7 @@ const audioReadyTimeout = 15 * time.Second
 
 // NewPlayer initializes an audio player without opening the audio device. The
 // process-global oto context is created lazily by the first Play call.
-func NewPlayer(userAgent string) (*AudioPlayer, error) {
+func NewPlayer(userAgent string) *AudioPlayer {
 	return &AudioPlayer{
 		userAgent: userAgent,
 		errChan:   make(chan error, 2),
@@ -286,7 +286,7 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 			}
 			return &otoContext{Context: ctx}, ready, nil
 		},
-	}, nil
+	}
 }
 
 // ensureContext creates the process-global oto context once and waits until the
