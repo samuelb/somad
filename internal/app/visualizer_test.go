@@ -120,6 +120,26 @@ func TestVisualizer_FailureTurnsItOff(t *testing.T) {
 	assert.Contains(t, m.RequestErr, "out of date", "an older server is the likely cause")
 }
 
+// TestVisualizer_FailedResizeStopsTheOldSubscription: a resize asks for a
+// new band count; when that fails, the subscription from before it is still
+// running and must be stopped, or the daemon keeps sending frames that
+// nothing draws.
+func TestVisualizer_FailedResizeStopsTheOldSubscription(t *testing.T) {
+	m := newVizModel(t)
+	settle(t, m, pressV(m, 1))
+	bands := ui.VisualizerBands(80)
+	require.Equal(t, []int{bands}, backend(m).spectrumBands)
+
+	backend(m).spectrumErr = errors.New("boom")
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	settle(t, m, cmd)
+
+	assert.Equal(t, ui.VisualizerOff, m.Visualizer)
+	assert.Contains(t, m.RequestErr, "visualizer failed: boom")
+	assert.Equal(t, []int{bands, ui.VisualizerBands(120), 0}, backend(m).spectrumBands,
+		"one try at stopping the old subscription, and no more once that fails too")
+}
+
 func TestVisualizer_DisconnectLeavesItToTheReconnect(t *testing.T) {
 	m := newVizModel(t)
 	backend(m).spectrumErr = client.ErrDisconnected

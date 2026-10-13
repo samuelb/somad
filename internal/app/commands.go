@@ -436,17 +436,26 @@ func (m *Model) applySpectrumSubscribed(msg spectrumSubscribedMsg) tea.Cmd {
 		if errors.Is(msg.err, client.ErrDisconnected) {
 			return nil // the reconnect subscribes afresh
 		}
-		if m.Visualizer == ui.VisualizerOff {
-			return m.syncSpectrum() // turned off meanwhile: nothing to report
+		if msg.bands == 0 {
+			// Even stopping failed, and there is nothing else to try: take
+			// the subscription as gone, so a style picked later (or one
+			// picked meanwhile) subscribes afresh.
+			m.vizBands = 0
+			return m.syncSpectrum()
 		}
-		m.Visualizer = ui.VisualizerOff
-		m.vizNotice = false
-		m.viz.Reset()
-		m.RequestErr = fmt.Sprintf("visualizer failed: %v", msg.err)
-		if m.skewed() {
-			m.RequestErr += " (the server is out of date; it restarts onto this version at the next channel change, pause or stop)"
+		if m.Visualizer != ui.VisualizerOff { // else turned off meanwhile: nothing to report
+			m.Visualizer = ui.VisualizerOff
+			m.vizNotice = false
+			m.viz.Reset()
+			m.RequestErr = fmt.Sprintf("visualizer failed: %v", msg.err)
+			if m.skewed() {
+				m.RequestErr += " (the server is out of date; it restarts onto this version at the next channel change, pause or stop)"
+			}
 		}
-		return nil
+		// A subscription from before the failed change (a resize asking
+		// for another band count) is still running: stop it, or the
+		// daemon keeps sending frames nothing draws.
+		return m.syncSpectrum()
 	}
 	m.vizBands = msg.bands
 	return m.syncSpectrum()
