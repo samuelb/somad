@@ -1,7 +1,7 @@
 # Somad
 
 [![CI](https://github.com/samuelb/somad/actions/workflows/ci.yml/badge.svg)](https://github.com/samuelb/somad/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/badge/go-1.25-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/go-1.26-blue.svg)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Website: [samuelb.github.io/somad](https://samuelb.github.io/somad/)
@@ -158,9 +158,11 @@ Then, you can run it from your terminal.
 
 ### Build from Source
 
-Prerequisites: Go 1.25.13 or newer. No C libraries are needed at build
-time: on Linux, audio goes to PulseAudio or PipeWire directly, and the
-ALSA library (`libasound.so.2`) is loaded at runtime only as a fallback.
+Prerequisites: Go 1.26 or newer. On macOS, also the Xcode Command Line
+Tools (`xcode-select --install`): AAC decoding and the menu bar icon use
+system frameworks through cgo. Linux needs no C libraries at build time:
+audio goes to PulseAudio or PipeWire directly, and the ALSA library
+(`libasound.so.2`) is loaded at runtime only as a fallback.
 
 
 ```sh

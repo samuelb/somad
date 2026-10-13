@@ -32,6 +32,9 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   in pure Go and falls back to ALSA, which it `dlopen`s at runtime
   (`libasound.so.2`, via purego). Release builds keep `CGO_ENABLED=1` for
   glibc's resolver (mDNS `.local` names for `--server`), not for audio.
+  macOS builds do need cgo, and so the Xcode Command Line Tools:
+  `aac_darwin.go` (AudioToolbox) and the vendored systray call system
+  frameworks.
 - lefthook (`lefthook.yml`) runs lint and race tests on pre-commit and
   pre-push. CI (`.github/workflows/ci.yml`) additionally runs `govulncheck`
   and fails below 60 % total coverage on the Linux job.
@@ -106,6 +109,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
 | Config keys | `internal/config/config.go` (structs + template text) | README "Configuration", `printUsage` example, `site/content/_index.md` "Configuration" |
 | Keyboard controls | keymap in `internal/app/update.go` | README "Keyboard Controls" (`<kbd>` tables), `site/content/_index.md` "Keyboard controls" |
 | Installation instructions | README "Installation" | `site/content/_index.md` "Install" |
+| Minimum Go version | `go` line in `go.mod` (dependency bumps raise it) | README badge and "Build from Source", `site/content/_index.md` "Build from source" |
 | Feature list | README "Features" | `site/content/_index.md` "What you get" |
 | Data directories | `config.Path`, `state.Dir`, the cache dir in `internal/channels`, `protocol.SocketPath` | README "Data Storage", `site/content/_index.md` "Where Somad keeps its files" |
 | Wire protocol | `internal/protocol/protocol.go`, `types.go` | ADR 0002 |
