@@ -1382,6 +1382,26 @@ func listenFlaky(t *testing.T, failures int) *flakyListener {
 // TestAcceptLoop_SurvivesRunningOutOfDescriptors covers EMFILE, which Go
 // hands back from Accept: it used to end the accept loop and with it the
 // whole daemon, music included.
+func TestRun_AfterShutdownReturnsAtOnce(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	// A signal handled before Run got going: Shutdown finds no listeners.
+	s.Shutdown()
+	runDone := make(chan error, 1)
+	go func() { runDone <- s.Run(ln) }()
+
+	select {
+	case err := <-runDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run blocked in Accept after Shutdown")
+	}
+	_, err = ln.Accept()
+	assert.ErrorIs(t, err, net.ErrClosed, "the listener Run was handed is closed")
+}
+
 func TestAcceptLoop_SurvivesRunningOutOfDescriptors(t *testing.T) {
 	logs := captureLog(t)
 	s, _ := newTestServer(t, Config{})

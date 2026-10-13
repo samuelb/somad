@@ -244,6 +244,17 @@ func New(cfg Config) *Server {
 // goroutines that watch the audio player.
 func (s *Server) Run(lns ...net.Listener) error {
 	s.mu.Lock()
+	if s.closing {
+		// Shutdown came first (a signal while the daemon was starting, or
+		// an early MPRIS Quit) and found no listeners to close. Serving now
+		// would block in Accept for good, holding the single-instance lock.
+		s.mu.Unlock()
+		for _, ln := range lns {
+			_ = ln.Close()
+		}
+		s.Shutdown() // joins it, as below
+		return nil
+	}
 	s.lns = lns
 	// If no client ever connects (e.g. the spawning client died), the idle
 	// timer still reaps the server.
