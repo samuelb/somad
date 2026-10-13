@@ -6,6 +6,7 @@ package audio
 #cgo LDFLAGS: -framework AudioToolbox
 
 #include <AudioToolbox/AudioToolbox.h>
+#include <stdlib.h>
 
 // somaAACNoMoreData is the private status the input proc returns once its
 // single packet is consumed, telling the converter to stop asking for input
@@ -45,25 +46,43 @@ static OSStatus somaAACInputProc(AudioConverterRef conv, UInt32 *ioNumberDataPac
 
 // somaAACFormat is what the system ADTS parser makes of a stream's first
 // frames: the best format it can decode (AAC-LC, HE-AAC, or HE-AAC v2) and
-// the magic cookie describing it to the converter.
+// the magic cookie describing it to the converter. The cookie is allocated
+// with malloc at the size the parser reports, and released with
+// somaAACFormatRelease.
 typedef struct {
 	AudioStreamBasicDescription asbd;
-	UInt8 cookie[256];
+	UInt8 *cookie;
 	UInt32 cookieLen;
 	int found;
 } somaAACFormat;
+
+static void somaAACFormatRelease(somaAACFormat *f) {
+	free(f->cookie);
+	f->cookie = NULL;
+	f->cookieLen = 0;
+}
 
 static void somaAACProbeProperty(void *inClientData, AudioFileStreamID stream, AudioFileStreamPropertyID id, AudioFileStreamPropertyFlags *ioFlags) {
 	somaAACFormat *f = (somaAACFormat *)inClientData;
 	UInt32 size = 0;
 	Boolean writable;
 	if (id == kAudioFileStreamProperty_MagicCookieData) {
-		if (AudioFileStreamGetPropertyInfo(stream, id, &size, &writable) != noErr || size > sizeof(f->cookie)) {
+		if (AudioFileStreamGetPropertyInfo(stream, id, &size, &writable) != noErr || size == 0) {
 			return;
 		}
-		if (AudioFileStreamGetProperty(stream, id, &size, f->cookie) == noErr) {
-			f->cookieLen = size;
+		UInt8 *cookie = malloc(size);
+		if (cookie == NULL) {
+			return;
 		}
+		if (AudioFileStreamGetProperty(stream, id, &size, cookie) != noErr) {
+			free(cookie);
+			return;
+		}
+		// Each probe parses the stream afresh into the same f, so the
+		// property can arrive again; the newest copy wins.
+		free(f->cookie);
+		f->cookie = cookie;
+		f->cookieLen = size;
 	} else if (id == kAudioFileStreamProperty_FormatList) {
 		// The list runs from the richest decoding the stream supports (HE-AAC
 		// v2, HE-AAC) down to its plain AAC-LC core.
@@ -107,10 +126,11 @@ static OSStatus somaAACProbe(const UInt8 *data, UInt32 len, somaAACFormat *f) {
 
 // somaAACNewConverter prepares a converter from the probed format to 16-bit
 // interleaved stereo PCM at the format's output rate. Mono input is
-// duplicated onto both channels by the converter.
-static OSStatus somaAACNewConverter(const somaAACFormat *f, AudioConverterRef *out) {
+// duplicated onto both channels by the converter, which keeps its own copy
+// of the cookie.
+static OSStatus somaAACNewConverter(const AudioStreamBasicDescription *src, const void *cookie, UInt32 cookieLen, AudioConverterRef *out) {
 	AudioStreamBasicDescription dst = {0};
-	dst.mSampleRate = f->asbd.mSampleRate;
+	dst.mSampleRate = src->mSampleRate;
 	dst.mFormatID = kAudioFormatLinearPCM;
 	dst.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
 	dst.mBitsPerChannel = 16;
@@ -119,11 +139,11 @@ static OSStatus somaAACNewConverter(const somaAACFormat *f, AudioConverterRef *o
 	dst.mBytesPerFrame = 4;
 	dst.mBytesPerPacket = 4;
 
-	OSStatus st = AudioConverterNew(&f->asbd, &dst, out);
-	if (st != noErr || f->cookieLen == 0) {
+	OSStatus st = AudioConverterNew(src, &dst, out);
+	if (st != noErr || cookieLen == 0) {
 		return st;
 	}
-	st = AudioConverterSetProperty(*out, kAudioConverterDecompressionMagicCookie, f->cookieLen, f->cookie);
+	st = AudioConverterSetProperty(*out, kAudioConverterDecompressionMagicCookie, cookieLen, cookie);
 	if (st != noErr) {
 		AudioConverterDispose(*out);
 		*out = NULL;
@@ -222,9 +242,13 @@ func newAACDecoder(r io.Reader) (pcmDecoder, error) {
 		return nil, err
 	}
 	d.sampleRate = int(format.asbd.mSampleRate)
+	var cookie unsafe.Pointer
+	if len(format.cookie) > 0 {
+		cookie = unsafe.Pointer(&format.cookie[0])
+	}
 	// nolint below: gocritic's dupSubExpr trips on the pointer checks cgo
 	// generates for &d.conv, not on anything in this source line.
-	if st := C.somaAACNewConverter(format, &d.conv); st != 0 { //nolint:gocritic
+	if st := C.somaAACNewConverter(&format.asbd, cookie, C.UInt32(len(format.cookie)), &d.conv); st != 0 { //nolint:gocritic
 		return nil, fmt.Errorf("creating the system AAC converter: OSStatus %d", int32(st))
 	}
 	// The playback pipeline drops decoders rather than closing them (the
@@ -245,26 +269,43 @@ func newAACDecoder(r io.Reader) (pcmDecoder, error) {
 	return d, nil
 }
 
+// aacFormat is what probe makes of a stream: the format to decode it as
+// and the magic cookie describing that format to the converter.
+type aacFormat struct {
+	asbd   C.AudioStreamBasicDescription
+	cookie []byte
+}
+
 // probe identifies the stream's format from its first frames, reading
 // further frames into d.queued until the system parser has seen enough.
-func (d *aacDecoder) probe() (*C.somaAACFormat, error) {
+//
+// The cookie is taken at whatever size the parser reports. A fixed-size
+// buffer silently dropped a cookie too big for it, leaving the converter
+// without one, and AudioToolbox has crashed decoding HE-AAC v2 without a
+// cookie (ADR-0016). SomaFM's streams have cookies of 39 bytes (AAC-LC),
+// 42 (HE-AAC), and 44 (HE-AAC v2).
+func (d *aacDecoder) probe() (aacFormat, error) {
 	format := new(C.somaAACFormat)
+	defer C.somaAACFormatRelease(format) // what is returned holds a Go copy of the cookie
 	var head []byte
 	for i := 0; ; i++ {
 		head = append(head, d.queued[i].raw...)
 		st := C.somaAACProbe((*C.UInt8)(unsafe.Pointer(&head[0])), C.UInt32(len(head)), format)
 		if st != 0 {
-			return nil, fmt.Errorf("identifying the AAC stream format: OSStatus %d", int32(st))
+			return aacFormat{}, fmt.Errorf("identifying the AAC stream format: OSStatus %d", int32(st))
 		}
 		if format.found != 0 {
-			return format, nil
+			return aacFormat{
+				asbd:   format.asbd,
+				cookie: C.GoBytes(unsafe.Pointer(format.cookie), C.int(format.cookieLen)),
+			}, nil
 		}
 		if i+1 == aacProbeFrames {
-			return nil, errors.New("identifying the AAC stream format: no format found")
+			return aacFormat{}, errors.New("identifying the AAC stream format: no format found")
 		}
 		f, err := d.frames.next()
 		if err != nil {
-			return nil, fmt.Errorf("reading ADTS frame: %w", err)
+			return aacFormat{}, fmt.Errorf("reading ADTS frame: %w", err)
 		}
 		d.queued = append(d.queued, f)
 	}

@@ -215,6 +215,52 @@ func TestNewDecoder_HEAACFormatIsDecoded(t *testing.T) {
 	assert.Equal(t, fixtureRate, dec.SampleRate())
 }
 
+// cafHeader returns the header of a Core Audio Format file holding HE-AAC
+// v2 with the given magic cookie: the AAC-LC core it is stored as, the
+// cookie, and the list of formats it decodes as, richest first.
+func cafHeader(cookie []byte) []byte {
+	// A CAF audio description: sample rate, format, flags, bytes per
+	// packet, frames per packet, channels, bits per channel; big-endian.
+	desc := func(rate float64, format string, framesPerPacket, channels uint32) []byte {
+		b := binary.BigEndian.AppendUint64(nil, math.Float64bits(rate))
+		b = append(b, format...)
+		for _, v := range []uint32{0, 0, framesPerPacket, channels, 0} {
+			b = binary.BigEndian.AppendUint32(b, v)
+		}
+		return b
+	}
+	chunk := func(b []byte, kind string, body []byte) []byte {
+		b = append(b, kind...)
+		b = binary.BigEndian.AppendUint64(b, uint64(len(body)))
+		return append(b, body...)
+	}
+	const stereoLayout = 101<<16 | 2 // kAudioChannelLayoutTag_Stereo
+	formats := binary.BigEndian.AppendUint32(desc(44100, "aacp", 2048, 2), stereoLayout)
+
+	b := []byte("caff\x00\x01\x00\x00") // version 1, no flags
+	b = chunk(b, "desc", desc(22050, "aac ", 1024, 1))
+	b = chunk(b, "kuki", cookie)
+	return chunk(b, "ldsc", formats)
+}
+
+func TestAACProbeKeepsALargeMagicCookie(t *testing.T) {
+	// SomaFM's cookies are 39 to 44 bytes, and ADTS cannot describe a
+	// format whose cookie would be much larger. A CAF file's cookie can be
+	// any size, and the system parser recognizes the file despite the ADTS
+	// hint, so it stands in for a stream with a cookie of a kilobyte, which
+	// must reach the converter whole rather than not at all.
+	cookie := bytes.Repeat([]byte{0x5A}, 1024)
+	d := &aacDecoder{
+		frames: newADTSReader(bytes.NewReader(nil)),
+		queued: []adtsFrame{{raw: cafHeader(cookie)}},
+	}
+	format, err := d.probe()
+	require.NoError(t, err)
+	assert.EqualValues(t, 44100, format.asbd.mSampleRate)
+	require.Len(t, format.cookie, len(cookie))
+	assert.True(t, bytes.Equal(cookie, format.cookie), "the cookie came back altered")
+}
+
 func TestAACDecodeResyncsAfterGarbage(t *testing.T) {
 	garbage := append([]byte("ICY junk\xff\x00 that is not audio"), readFixture(t, "sine-stereo.aac")...)
 	_, pcm := decodeAllAAC(t, bytes.NewReader(garbage))
