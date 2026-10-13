@@ -61,10 +61,18 @@ type StyledDelegate struct {
 	Frame *int
 }
 
+// RowHeight is how many lines a row takes, and RowSpacing how many blank
+// lines separate two rows; mouse clicks are mapped to rows by them.
+const (
+	RowHeight  = 2
+	RowSpacing = 1
+)
+
 // NewStyledDelegate creates the channel list's delegate.
 func NewStyledDelegate(info func(int, Item) RowInfo, frame *int) StyledDelegate {
 	d := list.NewDefaultDelegate()
-	d.ShowDescription = true // two lines per row, with one line between rows
+	d.ShowDescription = true // RowHeight: the title line and the description
+	d.SetSpacing(RowSpacing)
 	return StyledDelegate{DefaultDelegate: d, Info: info, Frame: frame}
 }
 

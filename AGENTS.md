@@ -88,7 +88,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   commit. Rejected ideas get a record too. Which records cover what:
   - daemon lifecycle and spawning: 0001, 0004, 0005, 0006
   - wire protocol: 0002, 0018
-  - TUI: 0003, 0020, 0026, 0033, 0034 (spectrum visualizer, also audio and wire)
+  - TUI: 0003, 0020, 0026, 0033, 0034 (spectrum visualizer, also audio and wire), 0036 (mouse)
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
   - config and persisted state: 0011, 0012
   - audio pipeline and formats: 0013–0017, 0028
@@ -262,6 +262,12 @@ band per bar, frames arrive as `SpectrumMsg` from the bridge in
 `cmd/soma/tui.go`, and `ui.Visualizer.Underlay` draws the style behind the
 rendered view above the cards: glyphs in blank cells, a darker background
 behind text.
+`mouse.go` handles the mouse (ADR-0036): the wheel scrolls the list, or
+steps the volume over the gauge; a click selects a channel and a second
+plays it; a click or drag on the gauge's bar sets the volume; a click on
+a short help bar item presses its key (`pressBinding`). It hit-tests
+against the chrome and body View lays out (`mouseLayout`), so layout
+changes must keep `nowPlayingIndex` and `cardContentX` in step.
 
 **Supporting packages**:
 - `internal/audio` — stream playback via oto: MP3 through go-mp3

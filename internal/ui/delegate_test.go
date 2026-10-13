@@ -74,6 +74,12 @@ func testChannels() []channels.Channel {
 	}
 }
 
+func TestNewStyledDelegate_RowGeometry(t *testing.T) {
+	d := NewStyledDelegate(nil, nil)
+	assert.Equal(t, RowHeight, d.Height())
+	assert.Equal(t, RowSpacing, d.Spacing())
+}
+
 func TestDelegateRender_Normal(t *testing.T) {
 	l, delegate := newTestList(testChannels(), plain)
 

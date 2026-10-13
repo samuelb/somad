@@ -54,6 +54,9 @@ type Model struct {
 	// requestedID, not playback state: it only lives until the replies end.
 	volumeTarget, volumeSent float64
 	volumeBusy               bool
+	// draggingVolume is true from a click on the volume gauge's bar to the
+	// button's release; meanwhile the volume follows the pointer.
+	draggingVolume bool
 	// sleepTickStopAt is the sleep-timer deadline (Snapshot.StopAt) the
 	// countdown tick chain was started for, and sleepTickGen that chain's
 	// number; ticks from older chains are dropped. See syncSleepTick.

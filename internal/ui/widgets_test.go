@@ -6,7 +6,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCard_FramesTheBodyWithLabelsInTheTopEdge(t *testing.T) {
@@ -67,10 +69,43 @@ func TestSpinner_Cycles(t *testing.T) {
 }
 
 func TestVolumeGauge(t *testing.T) {
-	assert.Equal(t, "vol ━━━━━━━━━━ 70%", VolumeGauge(0.7, 10, PrimaryColor))
-	assert.Equal(t, "vol 70%", VolumeGauge(0.7, 0, PrimaryColor), "no bar without room")
+	assert.Equal(t, "vol ━━━━━━━━━━ 70%  ", VolumeGauge(0.7, 10, PrimaryColor))
+	assert.Equal(t, "vol 70%  ", VolumeGauge(0.7, 0, PrimaryColor), "no bar without room")
 	assert.Equal(t, "vol ━━━━━━━━━━ muted", VolumeGauge(0, 10, PrimaryColor))
-	assert.Equal(t, "vol ━━━━━━━━━━ 100%", VolumeGauge(1.4, 10, PrimaryColor), "clamped")
+	assert.Equal(t, "vol ━━━━━━━━━━ 100% ", VolumeGauge(1.4, 10, PrimaryColor), "clamped")
+	for _, bar := range []int{0, 10} {
+		for _, v := range []float64{0, 0.07, 1} {
+			assert.Equal(t, VolumeGaugeWidth(bar), lipgloss.Width(VolumeGauge(v, bar, PrimaryColor)),
+				"one width at every volume, so the bar stays put")
+		}
+	}
+}
+
+func TestVolumeGaugeAt(t *testing.T) {
+	tests := []struct {
+		x     int
+		v     float64
+		onBar bool
+	}{
+		{x: 0, v: 0, onBar: false},  // on "vol"
+		{x: 4, v: 0.1, onBar: true}, // the first cell
+		{x: 8, v: 0.5, onBar: true},
+		{x: 13, v: 1, onBar: true}, // the last cell
+		{x: 15, v: 1, onBar: false},
+	}
+	for _, tt := range tests {
+		v, onBar := VolumeGaugeAt(tt.x, 10)
+		assert.InDelta(t, tt.v, v, 1e-9, "x=%d", tt.x)
+		assert.Equal(t, tt.onBar, onBar, "x=%d", tt.x)
+	}
+	v, onBar := VolumeGaugeAt(2, 0)
+	assert.Zero(t, v)
+	assert.False(t, onBar, "no bar to hit")
+}
+
+func TestVolumeGaugeAt_RoundsToWholePercents(t *testing.T) {
+	v, _ := VolumeGaugeAt(4, 16) // 1/16
+	assert.InDelta(t, 0.06, v, 1e-9)
 }
 
 func TestFormatGenre(t *testing.T) {
@@ -97,4 +132,20 @@ func TestShortHelp_TruncatesWithinTheWidth(t *testing.T) {
 		assert.LessOrEqual(t, lipgloss.Width(got), width, "width %d: %q", width, got)
 	}
 	assert.Equal(t, "a alpha · b bravo …", ShortHelp(bindings, 22))
+}
+
+func TestShortHelpSpans_LocateEachShownBinding(t *testing.T) {
+	bindings := []key.Binding{
+		key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "alpha")),
+		key.NewBinding(key.WithKeys("x"), key.WithDisabled()),
+		key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "bravo")),
+		key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "charlie")),
+	}
+
+	line, spans := ShortHelpSpans(bindings, 22)
+	require.Len(t, spans, 2, "the binding cut off by the ellipsis has none")
+	for _, sp := range spans {
+		h := sp.Binding.Help()
+		assert.Equal(t, h.Key+" "+h.Desc, ansi.Cut(line, sp.Start, sp.End))
+	}
 }

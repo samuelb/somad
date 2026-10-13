@@ -53,8 +53,8 @@ Linux and macOS — other platforms are not supported and may not work.
 - Sleep timer (`soma stop --in 45m`) owned by the daemon, so it fires even
   if you close the TUI or the terminal
 - Fast startup with cached channels and background refresh
-- Smooth, keyboard-driven navigation and playback controls, with mouse wheel
-  scrolling in the channel list
+- Smooth, keyboard-driven navigation and playback controls, with mouse
+  support: scroll and click the channel list, click or drag the volume
 - MPRIS desktop integration (Linux) — media keys keep working even with the
   TUI closed
 - System tray / menu-bar icon (macOS and Linux) — shows the current track,
@@ -438,8 +438,8 @@ speak the same protocol version.
 
 | Key                                 | Action                          |
 | ----------------------------------- | ------------------------------- |
-| <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up (mouse wheel scrolling works too) |
-| <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down (mouse wheel scrolling works too) |
+| <kbd>↑</kbd> / <kbd>k</kbd>         | Navigate channels up (the mouse wheel too) |
+| <kbd>↓</kbd> / <kbd>j</kbd>         | Navigate channels down (the mouse wheel too) |
 | <kbd>←</kbd> / <kbd>→</kbd>         | Previous / next page (<kbd>PgUp</kbd> / <kbd>PgDn</kbd> work too) |
 | <kbd>g</kbd> / <kbd>G</kbd>         | First / last channel (<kbd>Home</kbd> / <kbd>End</kbd> work too) |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel           |
@@ -458,6 +458,11 @@ speak the same protocol version.
 | <kbd>?</kbd>                        | Show every key (press again to hide) |
 | <kbd>Esc</kbd>                      | Close the about screen / history overlay, else cancel or clear the search (never quits) |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd>    | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
+
+The mouse works too: the wheel scrolls the channel list; a click selects a
+channel and a second click plays it; a click or drag on the volume bar sets
+the volume, the wheel over it steps it, and a click on its label toggles mute;
+a click on an item of the help bar at the bottom presses its key.
 
 ## Configuration
 

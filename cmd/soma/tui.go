@@ -52,9 +52,9 @@ func runTUI(shutdownOnExit bool) {
 	m.Visualizer, _ = ui.ParseVisualizerMode(prefs.Visualizer)
 
 	// Start the Bubble Tea program with window size handling. Mouse cell
-	// motion reporting lets the mouse wheel scroll the channel list (see
-	// internal/app/update.go's tea.MouseMsg handling: the vendored
-	// bubbles/list does not process mouse events on its own).
+	// motion reporting lets the mouse scroll and click the channel list and
+	// click or drag the volume gauge (see internal/app/mouse.go: the
+	// vendored bubbles/list does not process mouse events on its own).
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	saver := newVisualizerSaver(saveVisualizer, func(err error) {

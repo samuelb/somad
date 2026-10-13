@@ -36,6 +36,10 @@ func (m *Model) cardWidth() int {
 	return max(m.screenWidth()-2, 8)
 }
 
+// cardContentX is the column a card's body starts in: after the margin,
+// the border, and the padding.
+const cardContentX = 3
+
 // card renders lines in a ui.Card of cardWidth, indented by the margin.
 func (m *Model) card(border lipgloss.TerminalColor, title, info string, lines []string) string {
 	c := ui.Card(m.cardWidth(), border, title, info, strings.Join(lines, "\n"))
@@ -339,7 +343,7 @@ func (m *Model) historyEntryLimit() int {
 // RenderHelp renders the key help under the now-playing card: one line of
 // the main keys, or every key once ? expands it.
 func (m *Model) RenderHelp() string {
-	width := max(m.screenWidth()-helpIndent-1, 0)
+	width := m.helpWidth()
 	var help string
 	if m.List.Help.ShowAll {
 		h := m.List.Help
@@ -349,6 +353,12 @@ func (m *Model) RenderHelp() string {
 		help = ui.ShortHelp(m.List.ShortHelp(), width)
 	}
 	return lipgloss.NewStyle().PaddingLeft(helpIndent).Render(help)
+}
+
+// helpWidth is the room RenderHelp gives the help: the screen less the
+// indent and the right margin.
+func (m *Model) helpWidth() int {
+	return max(m.screenWidth()-helpIndent-1, 0)
 }
 
 // View renders the application's UI.
@@ -375,10 +385,7 @@ func (m *Model) View() string {
 		return m.place(box)
 	}
 
-	body := m.List.View()
-	if len(m.List.Items()) == 0 {
-		body = m.renderEmptyList()
-	}
+	body := m.body()
 	above, below := m.chrome()
 	components := append(append(above, body), below...)
 	view := lipgloss.JoinVertical(lipgloss.Left, components...)
@@ -394,6 +401,15 @@ func (m *Model) View() string {
 		view = m.viz.Underlay(view, m.Visualizer, m.Width, field)
 	}
 	return view
+}
+
+// body renders what View frames with the chrome: the list, or why it is
+// empty.
+func (m *Model) body() string {
+	if len(m.List.Items()) == 0 {
+		return m.renderEmptyList()
+	}
+	return m.List.View()
 }
 
 // place centers s in the window, or returns it as is before the window
@@ -463,7 +479,8 @@ const (
 	bare                        // no spacing and no short help either
 )
 
-// layout returns the chrome at the given level; see chromeWith.
+// layout returns the chrome at the given level; see chromeWith. Keep
+// nowPlayingIndex in step with the order it lays below out in.
 func (m *Model) layout(history string, level chromeLevel) (above, below []string) {
 	spaced := level == roomy
 	if spaced {
@@ -488,6 +505,23 @@ func (m *Model) layout(history string, level chromeLevel) (above, below []string
 		below = append(below, m.RenderHelp())
 	}
 	return above, below
+}
+
+// nowPlayingIndex is where layout put the now-playing card among below:
+// after the spacing line and the about and history cards, those of them
+// it has.
+func (m *Model) nowPlayingIndex(below []string) int {
+	i := 0
+	if len(below) > 0 && below[0] == "" {
+		i++
+	}
+	if m.ShowAbout {
+		i++
+	}
+	if m.ShowHistory {
+		i++
+	}
+	return i
 }
 
 // chromeHeight is how many lines the components take.

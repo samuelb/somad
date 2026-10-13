@@ -238,8 +238,8 @@ Every command works without the TUI, which makes them handy for scripts, keybind
 
 | Key | Action |
 |---|---|
-| <kbd>↑</kbd> / <kbd>k</kbd> | Navigate channels up (mouse wheel scrolling works too) |
-| <kbd>↓</kbd> / <kbd>j</kbd> | Navigate channels down (mouse wheel scrolling works too) |
+| <kbd>↑</kbd> / <kbd>k</kbd> | Navigate channels up (the mouse wheel too) |
+| <kbd>↓</kbd> / <kbd>j</kbd> | Navigate channels down (the mouse wheel too) |
 | <kbd>←</kbd> / <kbd>→</kbd> | Previous / next page (<kbd>PgUp</kbd> / <kbd>PgDn</kbd> work too) |
 | <kbd>g</kbd> / <kbd>G</kbd> | First / last channel (<kbd>Home</kbd> / <kbd>End</kbd> work too) |
 | <kbd>Enter</kbd> / <kbd>Space</kbd> | Play selected channel |
@@ -258,6 +258,11 @@ Every command works without the TUI, which makes them handy for scripts, keybind
 | <kbd>?</kbd> | Show every key (press again to hide) |
 | <kbd>Esc</kbd> | Close the about screen / history overlay, else cancel or clear the search (never quits) |
 | <kbd>q</kbd> / <kbd>Ctrl+C</kbd> | Quit the TUI (playback continues, unless started with `--shutdown-on-exit`) |
+
+The mouse works too: the wheel scrolls the channel list; a click selects a
+channel and a second click plays it; a click or drag on the volume bar sets
+the volume, the wheel over it steps it, and a click on its label toggles mute;
+a click on an item of the help bar at the bottom presses its key.
 
 </div>
 <div>

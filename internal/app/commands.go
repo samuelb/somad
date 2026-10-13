@@ -234,7 +234,13 @@ func (m *Model) stepVolume(delta float64) tea.Cmd {
 	if m.volumeBusy {
 		base = m.volumeTarget
 	}
-	m.volumeTarget = min(max(base+delta, 0), 1)
+	return m.setVolume(base + delta)
+}
+
+// setVolume sets the volume to v, clamped to [0, 1]: at once, or when the
+// change in flight returns.
+func (m *Model) setVolume(v float64) tea.Cmd {
+	m.volumeTarget = min(max(v, 0), 1)
 	if m.volumeBusy {
 		return nil // the reply in flight sends it
 	}

@@ -110,9 +110,19 @@ func Spinner(frame int) string {
 	return frames[frame%len(frames)]
 }
 
+// The parts of a VolumeGauge: the prefix ahead of the bar, the gap after
+// it, and the room the percentage is padded to ("100%", "muted"), so the
+// gauge keeps its width and the bar stays put under a mouse dragging it.
+const (
+	gaugePrefix     = "vol "
+	gaugeGap        = 1
+	gaugeLabelWidth = 5
+)
+
 // VolumeGauge renders volume v (0–1) as a labelled slider with a bar
 // barWidth cells wide in accent, or without the bar when barWidth is 0:
-// "vol ━━━━━━━━━━━━──── 85%". Zero reads "muted".
+// "vol ━━━━━━━━━━━━──── 85%". Zero reads "muted". It is always
+// VolumeGaugeWidth(barWidth) cells wide.
 func VolumeGauge(v float64, barWidth int, accent lipgloss.TerminalColor) string {
 	v = min(max(v, 0), 1)
 	pct := int(math.Round(v * 100))
@@ -120,7 +130,8 @@ func VolumeGauge(v float64, barWidth int, accent lipgloss.TerminalColor) string 
 	if pct == 0 {
 		label = "muted"
 	}
-	out := SubtleStyle.Render("vol ")
+	label = pad(label, gaugeLabelWidth)
+	out := SubtleStyle.Render(gaugePrefix)
 	if barWidth > 0 {
 		filled := int(math.Round(v * float64(barWidth)))
 		// Anything audible lights at least one cell.
@@ -131,6 +142,30 @@ func VolumeGauge(v float64, barWidth int, accent lipgloss.TerminalColor) string 
 			DimStyle.Render(strings.Repeat("━", barWidth-filled)) + " "
 	}
 	return out + MutedStyle.Render(label)
+}
+
+// VolumeGaugeWidth is how many cells a VolumeGauge with a bar barWidth
+// cells wide takes.
+func VolumeGaugeWidth(barWidth int) int {
+	w := len(gaugePrefix) + gaugeLabelWidth
+	if barWidth > 0 {
+		w += barWidth + gaugeGap
+	}
+	return w
+}
+
+// VolumeGaugeAt maps cell x of a VolumeGauge with a bar barWidth cells
+// wide, counted from the gauge's left edge, to the volume that fills the
+// bar up to and including that cell, clamped to 0 left of the bar and 1
+// right of it; onBar reports whether x is on the bar itself.
+func VolumeGaugeAt(x, barWidth int) (v float64, onBar bool) {
+	if barWidth <= 0 {
+		return 0, false
+	}
+	cell := x - len(gaugePrefix)
+	v = min(max(float64(cell+1)/float64(barWidth), 0), 1)
+	// Whole percents, as the label shows and the +/- keys step.
+	return math.Round(v*100) / 100, cell >= 0 && cell < barWidth
 }
 
 // FormatGenre renders SomaFM's pipe-separated genre field for display:
@@ -148,11 +183,25 @@ func FormatGenre(genre string) string {
 // HelpSeparator separates the entries of the short help line.
 const HelpSeparator = " · "
 
+// HelpSpan is where a binding's help sits on the short help line: cells
+// Start to End (exclusive) from its left edge, the separator excluded.
+type HelpSpan struct {
+	Start, End int
+	Binding    key.Binding
+}
+
 // ShortHelp renders the enabled bindings' help on one line at most width
 // cells wide, ending in an ellipsis where the rest do not fit. It stands in
 // for help.Model.ShortHelpView, which overflows the width when an item
 // does not fit and the ellipsis would not either.
 func ShortHelp(bindings []key.Binding, width int) string {
+	s, _ := ShortHelpSpans(bindings, width)
+	return s
+}
+
+// ShortHelpSpans is ShortHelp that also returns where each binding it
+// shows ended up on the line, for mouse clicks.
+func ShortHelpSpans(bindings []key.Binding, width int) (string, []HelpSpan) {
 	var enabled []key.Binding
 	for _, kb := range bindings {
 		if kb.Enabled() {
@@ -161,12 +210,16 @@ func ShortHelp(bindings []key.Binding, width int) string {
 	}
 	ellipsis := " …"
 	ellipsisWidth := lipgloss.Width(ellipsis)
+	sep := HelpSepStyle.Render(HelpSeparator)
 	var b strings.Builder
+	var spans []HelpSpan
 	used := 0
 	for i, kb := range enabled {
 		item := HelpKeyStyle.Render(kb.Help().Key) + " " + HelpDescStyle.Render(kb.Help().Desc)
+		start := used
 		if used > 0 {
-			item = HelpSepStyle.Render(HelpSeparator) + item
+			item = sep + item
+			start += lipgloss.Width(sep)
 		}
 		w := lipgloss.Width(item)
 		// Leave room for the ellipsis unless this is the last item.
@@ -182,8 +235,9 @@ func ShortHelp(bindings []key.Binding, width int) string {
 		}
 		b.WriteString(item)
 		used += w
+		spans = append(spans, HelpSpan{Start: start, End: used, Binding: kb})
 	}
-	return b.String()
+	return b.String(), spans
 }
 
 // pad right-pads s with spaces to width cells; s is assumed to fit.

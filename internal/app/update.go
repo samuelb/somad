@@ -45,16 +45,8 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.syncSpectrum() // a band per bar, and the bars fit the width
 
 	case tea.MouseMsg:
-		// The vendored bubbles/list does not handle mouse events itself, so
-		// the wheel is wired to the same cursor movement as j/k here.
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.List.CursorUp()
-			return nil
-		case tea.MouseButtonWheelDown:
-			m.List.CursorDown()
-			return nil
-		}
+		// The vendored bubbles/list does not handle mouse events itself.
+		return m.updateMouse(msg)
 
 	case ServerStateMsg:
 		m.applySnapshot(msg.State)
@@ -196,19 +188,7 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if id == "" {
 			return nil, false
 		}
-		// Changing channel interrupts the stream anyway, so an out-of-date
-		// server is restarted first and the channel is played once the
-		// reconnect delivers a fresh backend. The channel already playing
-		// (or connecting) is the exception: the server keeps it going, so
-		// restarting would cut the music off just to upgrade.
-		if m.skewed() && !m.playingOrConnecting(id) {
-			m.pendingPlayID = id
-			return m.restartCmd(), true
-		}
-		if !m.playingOrConnecting(id) {
-			m.requestedID = id // mark it tuning until the server answers
-		}
-		return m.playCmd(id), true
+		return m.playChannel(id), true
 	case key.Matches(msg, keys.Stop):
 		// Stopping interrupts the stream anyway; upgrade an out-of-date
 		// server while we're at it (the fresh one comes up stopped).
@@ -284,6 +264,23 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// playChannel plays channel id, the one selected, by enter or a click.
+func (m *Model) playChannel(id string) tea.Cmd {
+	// Changing channel interrupts the stream anyway, so an out-of-date
+	// server is restarted first and the channel is played once the
+	// reconnect delivers a fresh backend. The channel already playing (or
+	// connecting) is the exception: the server keeps it going, so
+	// restarting would cut the music off just to upgrade.
+	if m.skewed() && !m.playingOrConnecting(id) {
+		m.pendingPlayID = id
+		return m.restartCmd()
+	}
+	if !m.playingOrConnecting(id) {
+		m.requestedID = id // mark it tuning until the server answers
+	}
+	return m.playCmd(id)
 }
 
 // toggleHistory opens or closes the now-playing history overlay for the
