@@ -109,7 +109,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
 | Config keys | `internal/config/config.go` (structs + template text) | README "Configuration", `printUsage` example, `site/content/_index.md` "Configuration" |
 | Keyboard controls | keymap in `internal/app/update.go` | README "Keyboard Controls" (`<kbd>` tables), `site/content/_index.md` "Keyboard controls" |
 | Installation instructions | README "Installation" | `site/content/_index.md` "Install" |
-| Minimum Go version | `go` line in `go.mod` (dependency bumps raise it) | README badge and "Build from Source", `site/content/_index.md` "Build from source" |
+| Minimum Go version | `go` line in `go.mod` (dependency bumps raise it) | README badge and "Build from Source", `site/content/_index.md` "Build from source"; `flake.nix` has no `flake.lock` and builds with nixos-unstable's default `go`, so a bump past that breaks `nix run` until nixpkgs catches up |
 | Feature list | README "Features" | `site/content/_index.md` "What you get" |
 | Data directories | `config.Path`, `state.Dir`, the cache dir in `internal/channels`, `protocol.SocketPath` | README "Data Storage", `site/content/_index.md` "Where Somad keeps its files" |
 | Wire protocol | `internal/protocol/protocol.go`, `types.go` | ADR 0002 |
