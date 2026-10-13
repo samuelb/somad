@@ -199,6 +199,67 @@ func TestClient_EventsDeliveredAndDecoded(t *testing.T) {
 	}
 }
 
+// TestClient_LaggingConsumerStillGetsTheCatalog covers a consumer (the TUI's
+// event bridge) that stalls while a burst of state events, say a run of
+// volume changes, follows the one channels event that carries a favorite
+// toggle: the state events must not crowd the catalog out, or it stays
+// stale until the daemon's next catalog refresh minutes later.
+func TestClient_LaggingConsumerStillGetsTheCatalog(t *testing.T) {
+	path := testSocketPath(t)
+	startFakeServer(t, path, func(req protocol.Request, send func(v any)) {
+		if req.Method == protocol.MethodStatus {
+			chEv, _ := protocol.NewEvent(protocol.EventChannels, protocol.ChannelsPayload{Favorites: []string{"dronezone"}})
+			send(chEv)
+			for i := range 100 {
+				stEv, _ := protocol.NewEvent(protocol.EventState, protocol.PlaybackState{Status: protocol.StatusPlaying, Volume: float64(i) / 100})
+				send(stEv)
+			}
+		}
+		defaultHandler("dev")(req, send)
+	})
+
+	c, err := Dial(path)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	// Answered after every event was sent, so all of them have been
+	// dispatched, with nobody reading, by the time it returns.
+	_, err = c.Status()
+	require.NoError(t, err)
+
+	var gotChannels bool
+	var lastState protocol.PlaybackState
+	for drained := false; !drained; {
+		select {
+		case ev := <-c.Events():
+			switch v := ev.(type) {
+			case protocol.ChannelsPayload:
+				assert.Equal(t, []string{"dronezone"}, v.Favorites)
+				gotChannels = true
+			case protocol.PlaybackState:
+				lastState = v
+			}
+		case <-time.After(100 * time.Millisecond):
+			drained = true
+		}
+	}
+	assert.True(t, gotChannels, "the only channels event must survive the burst of state events")
+	assert.InDelta(t, 0.99, lastState.Volume, 1e-9, "the newest state must be the one delivered")
+}
+
+func TestQueueEvent_KeepsTheNewestOfEachTypeInArrivalOrder(t *testing.T) {
+	c := &Client{events: make(chan any, eventTypes)}
+	state := func(v float64) protocol.PlaybackState { return protocol.PlaybackState{Volume: v} }
+	channels := func(id string) protocol.ChannelsPayload { return protocol.ChannelsPayload{LastChannelID: id} }
+
+	c.queueEvent(state(0.1))
+	c.queueEvent(channels("a"))
+	c.queueEvent(state(0.2))
+	c.queueEvent(state(0.3))
+
+	assert.Equal(t, []any{channels("a"), state(0.3)}, []any{<-c.events, <-c.events})
+	assert.Empty(t, c.events)
+}
+
 func TestClient_EventsChannelClosesOnDisconnect(t *testing.T) {
 	path := testSocketPath(t)
 	fs := startFakeServer(t, path, defaultHandler("dev"))

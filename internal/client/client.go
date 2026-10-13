@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -50,7 +52,8 @@ type Client struct {
 	closeOnce sync.Once
 
 	// events carries decoded protocol.PlaybackState and
-	// protocol.ChannelsPayload values; closed on disconnect.
+	// protocol.ChannelsPayload values, the newest of each only (see
+	// queueEvent), so it holds one per type; closed on disconnect.
 	events chan any
 	// spectrum carries the levels of the newest spectrum event. Apart from
 	// events, so 25 frames a second cannot crowd snapshots out of it.
@@ -130,7 +133,7 @@ func DialEndpoint(ep Endpoint) (*Client, error) {
 	c := &Client{
 		nc:       nc,
 		pending:  make(map[int64]chan protocol.Response),
-		events:   make(chan any, 32),
+		events:   make(chan any, eventTypes),
 		spectrum: make(chan []byte, 1),
 	}
 	go c.readLoop()
@@ -222,9 +225,7 @@ func (c *Client) readLoop() {
 	_ = c.Close()
 }
 
-// dispatchEvent decodes and queues one event, dropping the oldest queued
-// value when the consumer lags. Events are full snapshots, so dropping
-// intermediate ones only skips stale states.
+// dispatchEvent decodes and queues one event (see queueEvent).
 func (c *Client) dispatchEvent(msg protocol.ServerMessage) {
 	var ev any
 	switch msg.Event {
@@ -254,16 +255,44 @@ func (c *Client) dispatchEvent(msg protocol.ServerMessage) {
 	default:
 		return
 	}
-	for {
+	c.queueEvent(ev)
+}
+
+// eventTypes is how many kinds of value Events carries: PlaybackState and
+// ChannelsPayload. Keep it in step with dispatchEvent, or queueEvent can
+// block readLoop.
+const eventTypes = 2
+
+// queueEvent queues ev on events, latest-wins per type like the daemon's
+// side of the connection (ADR-0018): a value still queued of ev's type is
+// replaced, one of the other type kept. Events are full snapshots
+// (ADR-0002), so a consumer that lags (the TUI's bridge while the program
+// is busy) loses only stale ones. Dropping the oldest queued value
+// instead, whatever its type, let a burst of state events (a run of volume
+// changes) push out the one catalog event carrying a favorite toggle,
+// which then stayed stale until the daemon's next catalog refresh.
+//
+// It takes back whatever is queued and re-queues the newest of each type,
+// ev last since it arrived last. That never blocks: readLoop is the only
+// sender, the channel was empty once taken back (the consumer can only
+// empty it further), and it has room for one value per type.
+func (c *Client) queueEvent(ev any) {
+	queued := make([]any, 0, eventTypes)
+	keep := func(v any) {
+		queued = slices.DeleteFunc(queued, func(q any) bool { return reflect.TypeOf(q) == reflect.TypeOf(v) })
+		queued = append(queued, v)
+	}
+	for taken := false; !taken; {
 		select {
-		case c.events <- ev:
-			return
+		case v := <-c.events:
+			keep(v)
 		default:
+			taken = true
 		}
-		select {
-		case <-c.events:
-		default:
-		}
+	}
+	keep(ev)
+	for _, v := range queued {
+		c.events <- v
 	}
 }
 

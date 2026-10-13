@@ -1,8 +1,10 @@
 # ADR-0018: Per-connection request cap and latest-wins event delivery
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-13: the client's queue is
+  latest-wins per type too)
 - **Date:** 2026-07-05 (shutdown-aware 2026-07-12)
-- **Sources:** 48dff39, f0d3eb4, 88312ec; `internal/server/conn.go`
+- **Sources:** 48dff39, f0d3eb4, 88312ec; `internal/server/conn.go`,
+  `internal/client/client.go`
 
 ## Context
 
@@ -19,6 +21,13 @@ client could in principle block the broadcast path for everyone.
   type. A slow client only ever loses intermediate snapshots; it can never
   block the server's broadcast. This works because events are full
   snapshots (ADR-0002).
+- The client's side follows the same rule (amended 2026-10-13).
+  `client.Events` used to be one 32-slot queue that dropped its oldest
+  value when the consumer lagged, whatever the type, so a burst of state
+  events could push out the only catalog event (a favorite toggle) and
+  leave it stale until the next catalog refresh. It now holds the newest
+  value of each type, in arrival order, and still closes on disconnect.
+  The spectrum frames have their own one-slot channel there already.
 - Responses and events share a write mutex so lines never interleave; a
   failed write tears the connection down.
 
