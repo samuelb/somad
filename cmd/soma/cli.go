@@ -22,9 +22,19 @@ import (
 // server to finish loading the channel catalog.
 const catalogWait = 15 * time.Second
 
+// fail reports a command that ran and failed, exiting 1.
 func fail(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "soma: "+format+"\n", args...)
 	os.Exit(1)
+}
+
+// failUsage reports a command line soma cannot make sense of (wrong
+// arguments, a bad flag value), exiting 2 as the flag package does for an
+// unknown flag, so a script can tell a mistake in its call from a command
+// that failed.
+func failUsage(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "soma: "+format+"\n", args...)
+	os.Exit(2)
 }
 
 // ensureServer connects for a command that does not interrupt playback (it
@@ -200,7 +210,7 @@ func resolveChannel(catalog []channels.Channel, query string) (channels.Channel,
 func runPlay(args []string) {
 	args, jsonOut := parseJSONFlag("play", "soma play [--json] [channel-id-or-name]", args)
 	if len(args) > 1 {
-		fail("usage: soma play [--json] [channel-id-or-name]")
+		failUsage("usage: soma play [--json] [channel-id-or-name]")
 	}
 	c := ensureServerForPlayback()
 	defer func() { _ = c.Close() }()
@@ -232,8 +242,9 @@ func runPlay(args []string) {
 	printState(jsonOut, st, playingLine(st))
 }
 
-// parseJSONFlag parses a client command's arguments, which may lead with
-// --json for machine-readable output, and returns the positional rest.
+// parseJSONFlag parses a client command's arguments, which may carry
+// --json for machine-readable output anywhere among them, and returns the
+// positional rest.
 //
 // It is not used for soma volume: the flag package treats any argument
 // starting with "-" as a flag, and volume's own positional argument can be
@@ -243,8 +254,29 @@ func parseJSONFlag(name, usageLine string, args []string) (rest []string, jsonOu
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usageLine) }
 	j := fs.Bool("json", false, "print machine-readable JSON")
-	_ = fs.Parse(args)
-	return fs.Args(), *j
+	rest = parseFlags(fs, args)
+	return rest, *j
+}
+
+// parseFlags parses a command's own flags with fs and returns its positional
+// arguments. The flags may come before, between or after them: the flag
+// package alone stops at the first positional, so `soma play groovesalad
+// --json` would have taken --json for a second channel. A "--" ends the
+// flags as usual. A bad flag exits 2 (flag.ExitOnError).
+func parseFlags(fs *flag.FlagSet, args []string) []string {
+	var positional []string
+	for {
+		_ = fs.Parse(args)
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return positional
+		}
+		if consumed := len(args) - len(rest); consumed > 0 && args[consumed-1] == "--" {
+			return append(positional, rest...)
+		}
+		positional = append(positional, rest[0])
+		args = rest[1:]
+	}
 }
 
 // stripJSONFlag strips a --json argument at either end, for soma volume,
@@ -268,7 +300,7 @@ func stripJSONFlag(args []string) (rest []string, jsonOut bool) {
 func runList(args []string) {
 	args, jsonOut := parseJSONFlag("list", "soma list [--json]", args)
 	if len(args) != 0 {
-		fail("usage: soma list [--json]")
+		failUsage("usage: soma list [--json]")
 	}
 
 	c := ensureServer()
@@ -331,7 +363,7 @@ func channelListEntries(payload protocol.ChannelsPayload) []channelListEntry {
 func runFavorite(args []string) {
 	args, jsonOut := parseJSONFlag("favorite", "soma favorite [--json] <channel-id-or-name>", args)
 	if len(args) != 1 {
-		fail("usage: soma favorite [--json] <channel-id-or-name>")
+		failUsage("usage: soma favorite [--json] <channel-id-or-name>")
 	}
 	c := ensureServer()
 	defer func() { _ = c.Close() }()
@@ -386,7 +418,7 @@ func runPlayRelative(delta int, name string, args []string) {
 	usage := "soma " + name + " [--json]"
 	args, jsonOut := parseJSONFlag(name, usage, args)
 	if len(args) != 0 {
-		fail("usage: %s", usage)
+		failUsage("usage: %s", usage)
 	}
 
 	c := ensureServerForPlayback()
@@ -409,7 +441,7 @@ func runPlayRelative(delta int, name string, args []string) {
 func runPause(args []string) {
 	args, jsonOut := parseJSONFlag("pause", "soma pause [--json]", args)
 	if len(args) != 0 {
-		fail("usage: soma pause [--json]")
+		failUsage("usage: soma pause [--json]")
 	}
 
 	c, serverVersion, running, replaced := dialServerForPlayback()
@@ -470,7 +502,7 @@ func runPause(args []string) {
 func runStop(args []string) {
 	a, err := parseStopArgs(args)
 	if err != nil {
-		fail("%v", err)
+		failUsage("%v", err)
 	}
 	timer := a.cancel || a.delay > 0
 
@@ -536,8 +568,7 @@ func parseStopArgs(args []string) (stopArgs, error) {
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON")
 	in := fs.String("in", "", "stop after this long instead of immediately, e.g. 45m (replaces any pending timer)")
 	cancel := fs.Bool("cancel", false, "cancel a pending sleep timer without stopping now")
-	_ = fs.Parse(args)
-	if fs.NArg() != 0 {
+	if rest := parseFlags(fs, args); len(rest) != 0 {
 		return stopArgs{}, fmt.Errorf("usage: %s", usage)
 	}
 	a := stopArgs{jsonOut: *jsonOut, cancel: *cancel, in: *in}
@@ -575,7 +606,7 @@ func parseStopInDuration(s string) (time.Duration, error) {
 func runStatus(args []string) {
 	args, jsonOut := parseJSONFlag("status", "soma status [--json]", args)
 	if len(args) != 0 {
-		fail("usage: soma status [--json]")
+		failUsage("usage: soma status [--json]")
 	}
 	if jsonOut {
 		printStatusSnapshot()
@@ -738,7 +769,7 @@ func runVolume(args []string) {
 		return
 	}
 	if len(args) != 1 {
-		fail("usage: soma volume [--json] [<0-100> | +<n> | -<n> | mute]")
+		failUsage("usage: soma volume [--json] [<0-100> | +<n> | -<n> | mute]")
 	}
 	if args[0] == "mute" {
 		runVolumeMute(jsonOut)
@@ -746,7 +777,7 @@ func runVolume(args []string) {
 	}
 	pct, relative, err := parseVolumeArg(args[0])
 	if err != nil {
-		fail("%v", err)
+		failUsage("%v", err)
 	}
 
 	c := ensureServer()
@@ -828,7 +859,7 @@ const historyDefaultLimit = 20
 func runHistory(args []string) {
 	jsonOut, n, rest, err := parseHistoryArgs(args)
 	if err != nil {
-		fail("%v", err)
+		failUsage("%v", err)
 	}
 
 	// The history lives in the daemon's memory. Without a channel there is
@@ -903,14 +934,14 @@ func parseHistoryArgs(args []string) (jsonOut bool, limit int, rest []string, er
 	fs.Usage = func() { _, _ = fmt.Fprintf(fs.Output(), "usage: %s\n", usage) }
 	j := fs.Bool("json", false, "print machine-readable JSON")
 	n := fs.Int("n", historyDefaultLimit, "maximum number of entries to show")
-	_ = fs.Parse(args)
-	if fs.NArg() > 1 {
+	rest = parseFlags(fs, args)
+	if len(rest) > 1 {
 		return false, 0, nil, fmt.Errorf("usage: %s", usage)
 	}
 	if *n < 1 {
 		return false, 0, nil, fmt.Errorf("-n must be at least 1 (got %d)", *n)
 	}
-	return *j, *n, fs.Args(), nil
+	return *j, *n, rest, nil
 }
 
 // formatHistory renders history entries as one line per entry: local time,

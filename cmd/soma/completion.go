@@ -23,7 +23,7 @@ var (
 // completion.
 func runCompletion(args []string) {
 	if len(args) != 1 {
-		fail("usage: soma completion <bash|zsh>")
+		failUsage("usage: soma completion <bash|zsh>")
 	}
 	switch args[0] {
 	case "bash":
@@ -33,7 +33,7 @@ func runCompletion(args []string) {
 	case "channels":
 		printChannelCompletions(os.Stdout)
 	default:
-		fail("unsupported shell %q; usage: soma completion <bash|zsh>", args[0])
+		failUsage("unsupported shell %q; usage: soma completion <bash|zsh>", args[0])
 	}
 }
 

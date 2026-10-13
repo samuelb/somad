@@ -41,7 +41,7 @@ func openURL(rawURL string) error {
 func runLastfm(cfg *config.Config, args []string) {
 	usage := "usage: soma lastfm <login|logout|status>"
 	if len(args) == 0 {
-		fail("%s", usage)
+		failUsage("%s", usage)
 	}
 	switch args[0] {
 	case "login":
@@ -51,7 +51,7 @@ func runLastfm(cfg *config.Config, args []string) {
 	case "status":
 		runLastfmStatus(cfg, args[1:])
 	default:
-		fail("%s", usage)
+		failUsage("%s", usage)
 	}
 }
 
@@ -87,7 +87,7 @@ func lastfmClientFromConfig(cfg *config.Config) *lastfm.Client {
 // a remote one.
 func runLastfmLogin(cfg *config.Config, args []string) {
 	if len(args) != 0 {
-		fail("usage: soma lastfm login")
+		failUsage("usage: soma lastfm login")
 	}
 	c := lastfmClientFromConfig(cfg)
 
@@ -119,7 +119,7 @@ func runLastfmLogin(cfg *config.Config, args []string) {
 // daemon to stop scrobbling under it.
 func runLastfmLogout(args []string) {
 	if len(args) != 0 {
-		fail("usage: soma lastfm logout")
+		failUsage("usage: soma lastfm logout")
 	}
 	if err := state.ClearLastfmSession(); err != nil {
 		fail("%v", err)
@@ -166,7 +166,7 @@ type lastfmStatusResult struct {
 func runLastfmStatus(cfg *config.Config, args []string) {
 	args, jsonOut := parseJSONFlag("lastfm status", "soma lastfm status [--json]", args)
 	if len(args) != 0 {
-		fail("usage: soma lastfm status [--json]")
+		failUsage("usage: soma lastfm status [--json]")
 	}
 
 	configured := str(cfg.Lastfm.APIKey) != "" && str(cfg.Lastfm.APISecret) != ""

@@ -237,6 +237,40 @@ func TestParseJSONFlag(t *testing.T) {
 	rest, jsonOut = parseJSONFlag("favorite", "soma favorite [--json] <channel>", []string{"--json", "groovesalad"})
 	assert.Equal(t, []string{"groovesalad"}, rest)
 	assert.True(t, jsonOut)
+
+	// After the channel too: the flag package alone would stop at it and
+	// take --json for a second channel.
+	rest, jsonOut = parseJSONFlag("favorite", "soma favorite [--json] <channel>", []string{"groovesalad", "--json"})
+	assert.Equal(t, []string{"groovesalad"}, rest)
+	assert.True(t, jsonOut)
+}
+
+func TestParseFlags_AnyOrder(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantRest []string
+		wantJSON bool
+		wantN    int
+	}{
+		{name: "flags first", args: []string{"--json", "-n", "5", "a"}, wantRest: []string{"a"}, wantJSON: true, wantN: 5},
+		{name: "flags last", args: []string{"a", "-n", "5", "--json"}, wantRest: []string{"a"}, wantJSON: true, wantN: 5},
+		{name: "flags between", args: []string{"a", "--json", "b"}, wantRest: []string{"a", "b"}, wantJSON: true, wantN: 1},
+		{name: "no flags", args: []string{"a", "b"}, wantRest: []string{"a", "b"}, wantN: 1},
+		{name: "double dash ends flags", args: []string{"a", "--", "--json"}, wantRest: []string{"a", "--json"}, wantN: 1},
+		{name: "nothing", args: nil, wantN: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			j := fs.Bool("json", false, "")
+			n := fs.Int("n", 1, "")
+			rest := parseFlags(fs, tt.args)
+			assert.Equal(t, tt.wantRest, rest)
+			assert.Equal(t, tt.wantJSON, *j)
+			assert.Equal(t, tt.wantN, *n)
+		})
+	}
 }
 
 func TestStripJSONFlag(t *testing.T) {
@@ -339,6 +373,7 @@ func TestParseHistoryArgs(t *testing.T) {
 	}{
 		{name: "defaults", args: nil, wantLimit: historyDefaultLimit},
 		{name: "limit, json and channel", args: []string{"--json", "-n", "5", "groove"}, wantJSON: true, wantLimit: 5, wantRest: []string{"groove"}},
+		{name: "flags after the channel", args: []string{"groove", "-n", "5", "--json"}, wantJSON: true, wantLimit: 5, wantRest: []string{"groove"}},
 		{name: "one entry", args: []string{"-n", "1"}, wantLimit: 1},
 		// The server reads a limit <= 0 as its default, so these would print
 		// a full page rather than nothing.

@@ -1,6 +1,6 @@
 # ADR-0021: Shell completion is cache-only and side-effect free; scripting uses `--json`
 
-- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed; amended 2026-10-13: one set of field names)
+- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed; amended 2026-10-13: one set of field names, flags in any order, exit status 2 for usage errors)
 - **Date:** 2026-07-05 (completion 2026-07-11)
 - **Sources:** cc3a8f2, 224efb2, 79f4ba1, 0c2224a, 0dadcbd; `cmd/soma/completion.go`, `internal/channels` `PeekChannelsFromCache`
 
@@ -37,6 +37,16 @@ Tab press, so it must be instant and must never change anything.
   `protocol.HistoryEntry`, which an older daemon still running would
   otherwise answer without. Changed without a breaking-change commit: no
   one was scripting against the old names.
+- A command's own flags may come before or after its arguments (amended
+  2026-10-13): `soma play groovesalad --json` used to fail as a second
+  channel, since the flag package stops at the first positional
+  argument. `parseFlags` parses on past it. `volume` keeps its own
+  parsing, since its argument may be a negative number.
+- The exit status tells a script what went wrong (amended 2026-10-13): 0
+  for success, 1 for a command that ran and failed, 2 for a command line
+  soma cannot make sense of (an unknown flag, a wrong number of
+  arguments, a bad value). Usage errors used to exit 1 and unknown flags
+  2, as the flag package does; `failUsage` now exits 2 for all of them.
 
 ## Consequences
 

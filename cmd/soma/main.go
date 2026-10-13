@@ -66,7 +66,7 @@ func main() {
 		var set []string
 		fs.Visit(func(f *flag.Flag) { set = append(set, "--"+f.Name) })
 		if len(set) > 0 {
-			fail("%s does not apply to the daemon; daemon flags go after the subcommand: soma daemon [flags]", strings.Join(set, ", "))
+			failUsage("%s does not apply to the daemon; daemon flags go after the subcommand: soma daemon [flags]", strings.Join(set, ", "))
 		}
 		runServer(rest[1:])
 		return
@@ -105,7 +105,7 @@ func runCommand(cfg *config.Config, name string, args []string) {
 	switch name {
 	case "daemon": // only `daemon stop` gets here (see main)
 		if len(args) != 1 {
-			fail("usage: soma daemon stop")
+			failUsage("usage: soma daemon stop")
 		}
 		runServerStop()
 	case "play":
@@ -242,6 +242,10 @@ machine instead of the local one:
   --tls-fingerprint <fp>      pin the server certificate ("sha256:...", as
                                  printed by soma daemon --show-cert)
   --psk-file <file>           read the server's pre-shared key from a file
+
+A command's own flags may also follow its arguments (soma play groovesalad
+--json). Exit status: 0 on success, 1 when the command fails, 2 when the
+command line is wrong.
 `)
 	if path, err := config.Path(); err == nil {
 		_, _ = fmt.Fprintf(w, `

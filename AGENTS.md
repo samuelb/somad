@@ -127,7 +127,9 @@ command; daemon flags (`--idle-timeout`, `--no-tray`, `--notify`,
 `--quality`, `--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`,
 `--gen-psk`, `--insecure`, `--show-cert`) go after it. `play`, `list`,
 `favorite`, `next`, `prev`, `pause`, `stop`, `status`, `volume`, `history`,
-`lastfm status` all take `--json`. `stop` also takes `--in <duration>` (arm
+`lastfm status` all take `--json`. A command's own flags may come before
+or after its arguments (`parseFlags`); a command line soma cannot parse
+exits 2 (`failUsage`), a command that ran and failed 1 (`fail`). `stop` also takes `--in <duration>` (arm
 a sleep timer instead of stopping now, replacing any timer already
 pending) and `--cancel` (drop a pending timer without stopping); the two are
 mutually exclusive.

@@ -254,6 +254,11 @@ JSON shapes (the channel catalog, the toggle result, and the list of
 history entries, respectively). The names are the same everywhere: a
 channel is `channelId` and `channelTitle`, a track's title `trackTitle`.
 
+A command's flags can go before or after its arguments (`soma play
+groovesalad --json`). The exit status is 0 on success, 1 when the command
+fails, and 2 when the command line is wrong: an unknown flag, a missing or
+extra argument, or a bad value.
+
 ### Background playback
 
 Audio is streamed and decoded by a separate `soma daemon` process that the
