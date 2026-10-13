@@ -229,7 +229,7 @@ func TestEnsureContext_RecoversAfterReadyTimeout(t *testing.T) {
 	}
 	p.readyTimeout = 20 * time.Millisecond
 
-	err = p.ensureContext()
+	err = p.ensureContext(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "audio device not ready")
 
@@ -237,7 +237,61 @@ func TestEnsureContext_RecoversAfterReadyTimeout(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return ctx.suspends.Load() == 1
 	}, time.Second, 10*time.Millisecond)
-	require.NoError(t, p.ensureContext())
+	require.NoError(t, p.ensureContext(context.Background()))
+}
+
+// slowDevice makes p's audio device come up only once the returned ready
+// channel is closed, like a hung audio daemon; waiting is closed when the
+// first Play starts waiting for it. The ready timeout stays the default,
+// seconds away.
+func slowDevice(p *AudioPlayer, ctx *fakeAudioContext) (ready, waiting chan struct{}) {
+	ready, waiting = make(chan struct{}), make(chan struct{})
+	p.newContext = func() (audioContext, <-chan struct{}, error) {
+		close(waiting)
+		return ctx, ready, nil
+	}
+	return ready, waiting
+}
+
+func TestPlay_StopEndsTheWaitForTheAudioDevice(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+	ready, waiting := slowDevice(p, ctx)
+
+	done := playAsync(p, server.URL, FormatMP3, testGen.Add(1))
+	<-waiting
+	stopNext(p)
+	// Only the Stop can end Play this soon: the stream has decoded, and
+	// the device's timeout is seconds away.
+	assert.ErrorIs(t, awaitPlay(t, done, time.Second), ErrSuperseded)
+
+	// The device comes up after all, with nothing to play, so it is
+	// suspended, and the next Play resumes it.
+	close(ready)
+	require.Eventually(t, func() bool {
+		return ctx.suspends.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	assert.EqualValues(t, 1, ctx.resumes.Load())
+	assert.EqualValues(t, 1, ctx.players.Load())
+}
+
+func TestPlay_NewerPlayEndsTheWaitForTheAudioDevice(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+	ready, waiting := slowDevice(p, ctx)
+
+	older := playAsync(p, server.URL, FormatMP3, testGen.Add(1))
+	<-waiting
+	newer := playAsync(p, server.URL, FormatMP3, testGen.Add(1))
+	assert.ErrorIs(t, awaitPlay(t, older, time.Second), ErrSuperseded)
+
+	// The newer Play waits for the same device, and plays once it is up.
+	close(ready)
+	require.NoError(t, awaitPlay(t, newer, time.Second))
+	assert.EqualValues(t, 1, ctx.players.Load())
 }
 
 func TestPlay_ResumeErrorDoesNotCommitSession(t *testing.T) {

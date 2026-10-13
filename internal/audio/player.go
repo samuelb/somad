@@ -290,16 +290,18 @@ func NewPlayer(userAgent string) (*AudioPlayer, error) {
 }
 
 // ensureContext creates the process-global oto context once and waits until the
-// device is ready. A readiness timeout is not sticky: oto initialization can
-// finish later, and a subsequent Play can then use the recovered device.
-func (p *AudioPlayer) ensureContext() error {
+// device is ready, or until ctx, the play attempt's, is cancelled: a Stop or a
+// newer Play must not have to wait out the device's timeout. Neither ending is
+// sticky: oto initialization carries on, and a subsequent Play can then use
+// the recovered device.
+func (p *AudioPlayer) ensureContext(ctx context.Context) error {
 	p.contextOnce.Do(func() {
-		ctx, ready, err := p.newContext()
+		device, ready, err := p.newContext()
 		if err != nil {
 			p.contextErr = fmt.Errorf("failed to create oto context: %w", err)
 			return
 		}
-		p.ctx = ctx
+		p.ctx = device
 		p.contextReady = ready
 	})
 	if p.contextErr != nil {
@@ -308,25 +310,35 @@ func (p *AudioPlayer) ensureContext() error {
 
 	select {
 	case <-p.contextReady:
+	case <-ctx.Done():
+		p.suspendWhenReady()
+		return ctx.Err()
 	case <-time.After(p.readyTimeout):
-		// NewContext has no cancellation or Close operation. If it becomes
-		// ready later, stop its render loop unless another Play committed first.
-		p.lateSuspendOnce.Do(func() {
-			go func() {
-				<-p.contextReady
-				p.deviceMu.Lock()
-				p.mu.Lock()
-				p.suspendIfIdleLocked()
-				p.mu.Unlock()
-				p.deviceMu.Unlock()
-			}()
-		})
+		p.suspendWhenReady()
 		return fmt.Errorf("audio device not ready after %s", p.readyTimeout)
 	}
 	if err := p.ctx.Err(); err != nil {
 		return fmt.Errorf("failed to initialize audio device: %w", err)
 	}
 	return nil
+}
+
+// suspendWhenReady stops the device's render loop once it is ready, unless
+// a Play has committed a session by then. NewContext has no cancellation or
+// Close operation, so a Play that stops waiting for the device leaves this
+// behind; a device that came up with nothing to play would otherwise keep
+// running, idle, until a later session ended.
+func (p *AudioPlayer) suspendWhenReady() {
+	p.lateSuspendOnce.Do(func() {
+		go func() {
+			<-p.contextReady
+			p.deviceMu.Lock()
+			p.mu.Lock()
+			p.suspendIfIdleLocked()
+			p.mu.Unlock()
+			p.deviceMu.Unlock()
+		}()
+	})
 }
 
 // Play starts streaming and playing audio from the given URL, decoded as
@@ -384,7 +396,10 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 	if p.superseded(attempt) {
 		return discard(ErrSuperseded)
 	}
-	if err := p.ensureContext(); err != nil {
+	// Until the device is first ready, Play waits here for it, up to
+	// p.readyTimeout. A Stop or newer Play meanwhile ends the wait, and
+	// discard then returns the abort's reason, not the device error.
+	if err := p.ensureContext(ctx); err != nil {
 		return discard(deviceError{err})
 	}
 
