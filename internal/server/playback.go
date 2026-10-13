@@ -302,8 +302,10 @@ func (s *Server) failConnect(gen uint64, err error, retry bool) (protocol.Playba
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if gen != s.playGen {
-		// Superseded while connecting; the newer request owns the state.
-		return s.snapshotLocked(), err
+		// Superseded while connecting (the failure may have taken a while);
+		// the newer request owns the state, so this is no failure to report.
+		log.Printf("superseded play failed: %v", err)
+		return s.snapshotLocked(), audio.ErrSuperseded
 	}
 	// Nothing committed for this generation, but the previous channel's
 	// session may still be playing (a switch whose every candidate failed

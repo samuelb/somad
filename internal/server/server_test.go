@@ -1282,6 +1282,24 @@ func TestPlay_RefusedWhileShuttingDown(t *testing.T) {
 	player.mu.Unlock()
 }
 
+func TestPlay_FailureAfterAStopIsSuperseded(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+
+	// The stop lands while the playlist fetch is still failing: the play's
+	// answer is that it was overtaken, not its stale failure.
+	resolveStreamURLs = func(string, string) ([]string, error) {
+		s.Stop()
+		return nil, errors.New("resolve failed")
+	}
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"})
+
+	assert.Equal(t, protocol.ErrSuperseded.Error(), resp.Error)
+	assert.Equal(t, protocol.StatusStopped, s.Snapshot().Status)
+	assert.Empty(t, s.Snapshot().StreamError, "the stopped state carries no stale error")
+}
+
 func TestPlay_FailedSwitchStopsThePreviousSession(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	c := connect(t, s)
