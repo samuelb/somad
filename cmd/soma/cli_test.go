@@ -296,6 +296,38 @@ func TestParseStopInDuration(t *testing.T) {
 	}
 }
 
+func TestParseStopArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    stopArgs
+		wantErr string
+	}{
+		{name: "immediate", args: nil, want: stopArgs{}},
+		{name: "json", args: []string{"--json"}, want: stopArgs{jsonOut: true}},
+		{name: "timer", args: []string{"--in", "45m"}, want: stopArgs{in: "45m", delay: 45 * time.Minute}},
+		{name: "cancel", args: []string{"--cancel"}, want: stopArgs{cancel: true}},
+		// An unset shell variable must not turn a sleep timer into an
+		// immediate stop.
+		{name: "empty --in", args: []string{"--in", ""}, wantErr: "invalid --in duration"},
+		{name: "empty --in with --cancel", args: []string{"--in", "", "--cancel"}, wantErr: "mutually exclusive"},
+		{name: "--in with --cancel", args: []string{"--in", "5m", "--cancel"}, wantErr: "mutually exclusive"},
+		{name: "stray argument", args: []string{"now"}, wantErr: "usage"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseStopArgs(tt.args)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestParseHistoryArgs(t *testing.T) {
 	tests := []struct {
 		name      string
