@@ -1,4 +1,4 @@
-# ADR-0027: Release workflow supply-chain hardening
+# ADR-0027: Release workflow supply-chain hardening: SHA-pinned actions, pinned tool versions, checksummed nfpm download, minimal permissions, build provenance
 
 - **Status:** Accepted
 - **Date:** 2026-09-03

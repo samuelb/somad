@@ -15,7 +15,7 @@ add a record or mark the old one superseded in the same commit. Use
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](0001-playback-in-a-background-daemon.md) | Playback runs in a background daemon, shipped in one binary | Accepted |
-| [0002](0002-newline-delimited-json-with-full-snapshots.md) | Newline-delimited JSON with full-state snapshots and an exact protocol version | Accepted |
+| [0002](0002-newline-delimited-json-with-full-snapshots.md) | Newline-delimited JSON with full-state snapshots and an exact protocol version | Accepted (amended) |
 | [0003](0003-tui-holds-no-playback-state.md) | The TUI holds no playback state of its own | Accepted |
 | [0004](0004-single-daemon-instance-and-detached-spawn.md) | One daemon instance via a lock file; clients spawn it detached | Accepted (amended) |
 | [0005](0005-daemon-runs-until-stopped.md) | The daemon runs until stopped explicitly | Accepted (supersedes the two-minute default from 95fb723) |
@@ -23,7 +23,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0007](0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md) | The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK | Accepted |
 | [0008](0008-psk-challenge-response.md) | PSK authentication is an HMAC challenge-response; the client always authenticates when a key is configured | Accepted |
 | [0009](0009-tls-1-3-only-with-a-long-lived-self-signed-certificate.md) | TLS 1.3 only, with an auto-generated long-lived self-signed certificate and three trust modes | Accepted (amended) |
-| [0010](0010-outbound-http-restricted-to-somafm.md) | All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped | Accepted |
+| [0010](0010-outbound-http-restricted-to-somafm.md) | All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped | Accepted (amended) |
 | [0011](0011-strict-config-file-supplies-flag-defaults.md) | The config file is strict, supplies flag defaults, and ships fully commented out | Accepted |
 | [0012](0012-persisted-state-atomic-writes-and-corrupt-file-quarantine.md) | Persisted state uses atomic writes, quarantines corrupt files, and orders saves by sequence | Accepted |
 | [0013](0013-stream-resilience-jitter-buffer-watchdog-reconnect-forever.md) | Stream resilience: jitter buffer, stall watchdog, clean EOF is an error, reconnect forever | Accepted |
@@ -47,5 +47,5 @@ add a record or mark the old one superseded in the same commit. Use
 | [0031](0031-lastfm-scrobbling-lives-in-the-daemon.md) | Last.fm scrobbling lives in the daemon, opt-in, with the session key kept out of the config file | Accepted (amended) |
 | [0032](0032-website-is-a-single-page-zola-site.md) | The website is a single-page Zola site: copy in Markdown and front matter, layout in Tera templates, pinned Zola in CI | Accepted |
 | [0033](0033-tui-cards-tuning-feedback-and-spinners-only-while-waiting.md) | The TUI frames the list with cards, marks a channel tuning in at once, and animates only while waiting | Accepted (amended) |
-| [0034](0034-spectrum-visualizer-analyzed-in-the-daemon.md) | The TUI's spectrum visualizer is analyzed in the daemon and drawn into the view's blank cells | Accepted |
+| [0034](0034-spectrum-visualizer-analyzed-in-the-daemon.md) | The TUI's spectrum visualizer is analyzed in the daemon and drawn into the view's blank cells | Accepted (amended) |
 | [0035](0035-website-looks-like-the-tui-with-self-hosted-fonts.md) | The website looks like the TUI, with self-hosted fonts and decoration-only script | Accepted |

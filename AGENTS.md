@@ -196,7 +196,8 @@ everything goes through the daemon over the wire protocol.
 domain socket (`SocketPath()` in `socket.go`) or, when configured, TCP with
 optional TLS and pre-shared-key auth. Clients send `Request`s; the server
 replies with ID-correlated `Response`s and pushes `Event`s carrying full
-state snapshots. `auth.go` holds the HMAC challenge–response used for PSK
+state snapshots (spectrum events, to subscribers only, carry a frame of
+levels instead). `auth.go` holds the HMAC challenge–response used for PSK
 auth on TCP only; the Unix socket is guarded by file permissions.
 
 **Daemon** (`internal/server`): owns audio playback, the channel catalog,

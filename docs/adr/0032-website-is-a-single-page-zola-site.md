@@ -1,4 +1,4 @@
-# ADR-0032: The website is a single-page Zola site
+# ADR-0032: The website is a single-page Zola site: copy in Markdown and front matter, layout in Tera templates, pinned Zola in CI
 
 - **Status:** Accepted
 - **Date:** 2026-09-07

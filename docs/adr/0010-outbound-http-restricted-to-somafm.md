@@ -1,7 +1,7 @@
 # ADR-0010: All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped
 
-- **Status:** Accepted
-- **Date:** 2026-02-18 (hardened through 2026-07-12; Last.fm allowlist entry 2026-09-03; displayed text sanitized 2026-10-13)
+- **Status:** Accepted (amended 2026-09-03: a Last.fm allowlist entry; amended 2026-10-13: text from the network is sanitized before display)
+- **Date:** 2026-02-18 (hardened through 2026-07-12)
 - **Sources:** 8b9f5e4, cbdb7af, f2955b4, f1acbfa, 494330d, 04b1ad4, acdf2e5, 3a143ad; `internal/security/validation.go`, `securitytest/`
 
 ## Context

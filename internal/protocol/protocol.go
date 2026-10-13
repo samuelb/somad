@@ -1,7 +1,8 @@
 // Package protocol defines the wire protocol between the soma client and
 // server: newline-delimited JSON over a Unix domain socket. Clients send
 // Requests; the server answers with Responses (correlated by ID) and pushes
-// Events carrying full state snapshots.
+// Events carrying full state snapshots, or, to connections subscribed with
+// MethodSpectrum, frames of spectrum levels.
 package protocol
 
 import (
