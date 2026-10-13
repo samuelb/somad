@@ -181,6 +181,13 @@ func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.He
 func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
 	c, err := DialEndpoint(ep)
 	if err != nil {
+		// Something answers, just not ours: a spawn could not take the
+		// socket over (the directory or the lock file next to it belongs
+		// to that other user too) and would only bury this error under its
+		// own failure to start.
+		if errors.Is(err, ErrForeignDaemon) {
+			return nil, protocol.HelloResult{}, err
+		}
 		if !ep.IsLocal() {
 			return nil, protocol.HelloResult{}, fmt.Errorf(
 				"cannot reach the soma daemon at %s (remote servers are not started automatically; run `soma daemon` there): %w", ep, err)
@@ -199,6 +206,9 @@ func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloR
 			c, err = DialEndpoint(ep)
 			if err == nil {
 				break
+			}
+			if errors.Is(err, ErrForeignDaemon) {
+				return nil, protocol.HelloResult{}, err
 			}
 			if running {
 				select {

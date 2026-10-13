@@ -182,7 +182,8 @@ has `fakeAudioContext`. `internal/client` tests shrink `restartWait`;
 their fake daemons run in the test process, so a test that makes the
 client signal a protocol-skewed daemon diverts SIGTERM with `catchSIGTERM`
 (`cmd/soma` has `startIncompatibleDaemon`) or the signal kills the test
-binary.
+binary. Being the test's own user, they pass the peer-UID check;
+`fakePeerUID` makes one look like another user's.
 
 **Without lefthook installed** the git hooks do not run; `make check` is
 the equivalent, so run it before committing.
@@ -236,10 +237,11 @@ restarted onto the new binary only at a moment that already interrupts
 playback (channel change, pause, stop), never mid-song. One that speaks
 another protocol version refuses every request, `shutdown` included, so at
 those moments (and on `soma daemon stop`) it is sent SIGTERM instead, its
-PID read from the socket's peer credentials (`peerpid_darwin.go` /
-`peerpid_linux.go` / `peerpid_other.go`); any other command fails with a
+PID read from the socket's peer credentials (`peercred_darwin.go` /
+`peercred_linux.go` / `peercred_other.go`); any other command fails with a
 `ProtocolSkewError`. Remote endpoints are never spawned, restarted, or
-signalled.
+signalled. The same credentials guard every Unix-socket dial: a peer
+running as another user is refused with `ErrForeignDaemon` (ADR-0007).
 
 **TUI** (`internal/app` + `internal/ui`): Bubble Tea Elm architecture
 (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no

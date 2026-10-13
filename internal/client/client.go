@@ -97,12 +97,22 @@ func Dial(socketPath string) (*Client, error) {
 
 // DialEndpoint connects to a soma daemon, performing the TLS handshake and
 // pre-shared-key authentication when the endpoint asks for them. It does not
-// spawn a server and does not perform the hello handshake.
+// spawn a server and does not perform the hello handshake. A local socket
+// served by another user fails with ErrForeignDaemon before anything is
+// sent.
 func DialEndpoint(ep Endpoint) (*Client, error) {
 	dialer := net.Dialer{Timeout: dialTimeout}
 	nc, err := dialer.DialContext(context.Background(), ep.Network, ep.Address)
 	if err != nil {
 		return nil, err
+	}
+	// Only the Unix socket: a TCP peer's user is unknowable, and TLS and the
+	// PSK are what vouch for it (ADR-0007).
+	if ep.IsLocal() {
+		if err := verifyPeerOwner(nc, ep); err != nil {
+			_ = nc.Close()
+			return nil, err
+		}
 	}
 	if ep.TLS != nil {
 		tc := tls.Client(nc, ep.TLS)

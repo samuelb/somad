@@ -1,8 +1,10 @@
 # ADR-0007: The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-13: clients check the socket
+  peer's user)
 - **Date:** 2026-07-11 (tightened 2026-07-12, resource limits 2026-09-03)
-- **Sources:** a396db0, 890fd5f; `internal/server/conn.go`, `cmd/soma/main.go` `checkTCPSecurity`, `internal/protocol/auth.go`
+- **Sources:** a396db0, 890fd5f; `internal/server/conn.go`, `cmd/soma/main.go` `checkTCPSecurity`, `internal/protocol/auth.go`,
+  `internal/protocol/socket.go`, `internal/client/peercred*.go`
 
 ## Context
 
@@ -18,6 +20,21 @@ only the handshake, so an on-path attacker could hijack the session.
 
 - Unix-socket connections are exempt from authentication. The directory
   permission check is the authorization.
+- The client checks the other direction (amended 2026-10-13). The directory
+  check only protects the daemon: a client dials whatever is at the socket
+  path, and the fallback path `$TMPDIR/somad-<uid>/somad.sock` is
+  predictable, in the world-writable `/tmp` on Linux without
+  `$XDG_RUNTIME_DIR`, so another local user could create the directory
+  first and serve a fake daemon there. After connecting to the Unix socket
+  the client reads the peer's UID from the kernel (`SO_PEERCRED` on Linux,
+  `LOCAL_PEERCRED` on macOS; `internal/client/peercred*.go`) and refuses a
+  peer that is not its own user with `client.ErrForeignDaemon` before
+  sending anything, never spawning a daemon in its place. Credentials that
+  exist but cannot be read refuse the connection too; on other platforms,
+  which soma does not target, the check is skipped. TCP peers are not
+  checked: TLS and the PSK vouch for them. `EnsureSocketDir` also refuses
+  a socket directory that is a symlink instead of following it, since
+  whoever owns the link can re-point it after the check.
 - A non-loopback TCP listener **refuses to start** unless both TLS
   (ADR-0009) and a PSK (ADR-0008) are configured. `--insecure` or
   `server.insecure` restores the old behaviour explicitly, with prominent

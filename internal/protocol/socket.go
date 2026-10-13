@@ -32,15 +32,22 @@ func LockPath(socketPath string) string {
 }
 
 // EnsureSocketDir creates the socket's parent directory (user-only
-// permissions) if it does not exist yet.
+// permissions) if it does not exist yet, and refuses one that is not the
+// user's own. A symlink is refused rather than followed: whoever owns the
+// link can re-point it after this check (the fallback path under /tmp is
+// predictable, so another user can plant one there first), and the
+// daemon's socket and lock file would then live wherever it points.
 func EnsureSocketDir(socketPath string) error {
 	dir := filepath.Dir(socketPath)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	info, err := os.Stat(dir)
+	info, err := os.Lstat(dir)
 	if err != nil {
 		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("socket directory %s is a symlink; use the directory it points to (via $XDG_RUNTIME_DIR or $SOMAD_SOCKET) instead", dir)
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("socket parent is not a directory: %s", dir)

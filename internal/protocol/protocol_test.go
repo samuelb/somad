@@ -156,3 +156,19 @@ func TestEnsureSocketDir_RejectsGroupAccessibleDirectory(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must not be accessible")
 }
+
+// TestEnsureSocketDir_RejectsSymlinkedDirectory covers a link planted where
+// the socket directory goes: even one pointing at a directory that passes
+// every check must not be followed, since its owner can re-point it.
+func TestEnsureSocketDir_RejectsSymlinkedDirectory(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "private")
+	require.NoError(t, os.Mkdir(target, 0o700))
+	link := filepath.Join(base, "runtime")
+	require.NoError(t, os.Symlink(target, link))
+
+	err := EnsureSocketDir(filepath.Join(link, "somad.sock"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "symlink")
+}

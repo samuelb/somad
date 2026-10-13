@@ -10,3 +10,12 @@ func socketPeerPID(fd uintptr) (int, error) {
 	}
 	return int(cred.Pid), nil
 }
+
+// socketPeerUID reads the peer's UID from its SO_PEERCRED credentials.
+func socketPeerUID(fd uintptr) (uint32, error) {
+	cred, err := unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED) // #nosec G115 -- a file descriptor fits an int
+	if err != nil {
+		return 0, err
+	}
+	return cred.Uid, nil
+}

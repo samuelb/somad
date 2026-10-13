@@ -103,11 +103,15 @@ func (e noServerError) Error() string { return e.err.Error() }
 func (e noServerError) Unwrap() error { return e.err }
 
 // tryDialServer dials and greets a running server, without spawning one and
-// without exiting on failure. A dial failure is a noServerError; a local
-// server that speaks another protocol version is a
-// *client.ProtocolSkewError.
+// without exiting on failure. A dial failure is a noServerError, unless what
+// answered is another user's (client.ErrForeignDaemon), which is no reason
+// to report playback as stopped; a local server that speaks another
+// protocol version is a *client.ProtocolSkewError.
 func tryDialServer() (*client.Client, protocol.HelloResult, error) {
 	c, err := client.DialEndpoint(endpoint)
+	if errors.Is(err, client.ErrForeignDaemon) {
+		return nil, protocol.HelloResult{}, err
+	}
 	if err != nil {
 		return nil, protocol.HelloResult{}, noServerError{err}
 	}

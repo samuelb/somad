@@ -3,7 +3,7 @@
 - **Status:** Accepted (amended 2026-09-25: a daemon speaking another protocol version)
 - **Date:** 2026-07-05 (refined 2026-07-12, dev exemption added 2026-09-03)
 - **Sources:** e5620c4, 9936858, 59fccbd, a396db0; `internal/client/spawn.go`,
-  `internal/client/version.go`, `internal/client/peerpid*.go`; rejection of
+  `internal/client/version.go`, `internal/client/peercred*.go`; rejection of
   semver ordering on 2026-09-03
 
 ## Context
@@ -62,7 +62,7 @@ be neither used nor stopped: even `soma daemon stop` failed, and
   the user plays, pauses, or stops. `pause` cannot tell whether the old
   daemon was playing and assumes it was, so it leaves the fresh daemon
   stopped rather than risk starting music.
-- On a platform without a peer-PID implementation (`peerpid_other.go`) a
+- On a platform without a peer-PID implementation (`peercred_other.go`) a
   protocol-skewed daemon cannot be stopped from the CLI; the error says to
   quit it by hand.
 

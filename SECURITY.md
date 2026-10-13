@@ -29,7 +29,8 @@ for remote control, listens on the network. The security model, in short:
 
 - **Local control (Unix domain socket)** is authorized by filesystem
   permissions, not a credential: the socket directory is created `0700` and
-  owner-checked, so the OS user boundary is the trust boundary. See
+  owner-checked, and clients refuse a socket served by another user, so
+  the OS user boundary is the trust boundary in both directions. See
   [ADR-0007](docs/adr/0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md).
 - **Remote control (TCP)** requires both TLS and a pre-shared key by
   default; the daemon refuses to start a non-loopback listener without
