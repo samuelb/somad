@@ -300,13 +300,18 @@ func formatChannelList(payload protocol.ChannelsPayload) string {
 	return b.String()
 }
 
+// The --json shapes name things the way protocol.PlaybackState, which
+// most commands print, does: a channel's ID and title are always channelId
+// and channelTitle, and a track's title is trackTitle, so a field means
+// the same in every command's output.
+
 // channelListEntry is the machine-readable form of one catalog row for
 // `soma list --json`.
 type channelListEntry struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Genre    string `json:"genre"`
-	Favorite bool   `json:"favorite"`
+	ChannelID    string `json:"channelId"`
+	ChannelTitle string `json:"channelTitle"`
+	Genre        string `json:"genre"`
+	Favorite     bool   `json:"favorite"`
 }
 
 // channelListEntries converts the catalog payload to its JSON list form,
@@ -315,7 +320,7 @@ func channelListEntries(payload protocol.ChannelsPayload) []channelListEntry {
 	fav := state.FavoriteSet(payload.Favorites)
 	entries := make([]channelListEntry, len(payload.Channels))
 	for i, ch := range payload.Channels {
-		entries[i] = channelListEntry{ID: ch.ID, Title: ch.Title, Genre: ch.Genre, Favorite: fav[ch.ID]}
+		entries[i] = channelListEntry{ChannelID: ch.ID, ChannelTitle: ch.Title, Genre: ch.Genre, Favorite: fav[ch.ID]}
 	}
 	return entries
 }
@@ -341,7 +346,7 @@ func runFavorite(args []string) {
 		fail("%v", err)
 	}
 	if jsonOut {
-		printJSON(favoriteResult{ChannelID: ch.ID, Title: ch.Title, Favorite: slices.Contains(favorites, ch.ID)})
+		printJSON(favoriteResult{ChannelID: ch.ID, ChannelTitle: ch.Title, Favorite: slices.Contains(favorites, ch.ID)})
 		return
 	}
 	fmt.Println(favoriteMessage(favorites, ch))
@@ -350,9 +355,9 @@ func runFavorite(args []string) {
 // favoriteResult is the machine-readable form of a favorite toggle for
 // `soma favorite --json`.
 type favoriteResult struct {
-	ChannelID string `json:"channelId"`
-	Title     string `json:"title"`
-	Favorite  bool   `json:"favorite"`
+	ChannelID    string `json:"channelId"`
+	ChannelTitle string `json:"channelTitle"`
+	Favorite     bool   `json:"favorite"`
 }
 
 // favoriteMessage reports which way a favorite toggle went, based on the
@@ -833,7 +838,7 @@ func runHistory(args []string) {
 	if len(rest) == 0 {
 		var running bool
 		if c, _, running = dialServer(); !running {
-			printHistory(jsonOut, []protocol.HistoryEntry{})
+			printHistory(jsonOut, nil)
 			return
 		}
 	} else {
@@ -862,10 +867,31 @@ func runHistory(args []string) {
 // table.
 func printHistory(jsonOut bool, entries []protocol.HistoryEntry) {
 	if jsonOut {
-		printJSON(entries)
+		printJSON(historyJSON(entries))
 		return
 	}
 	fmt.Print(formatHistory(entries))
+}
+
+// historyEntry is the machine-readable form of a history entry for
+// `soma history --json`. protocol.HistoryEntry calls the track's title
+// "title" on the wire; renaming it there would leave a daemon still running
+// an older version answering without one, so the rename happens here.
+type historyEntry struct {
+	ChannelID    string    `json:"channelId"`
+	ChannelTitle string    `json:"channelTitle"`
+	TrackTitle   string    `json:"trackTitle"`
+	Time         time.Time `json:"time"`
+}
+
+// historyJSON converts entries to their JSON form, never nil, so an empty
+// history prints as [].
+func historyJSON(entries []protocol.HistoryEntry) []historyEntry {
+	out := make([]historyEntry, len(entries))
+	for i, e := range entries {
+		out[i] = historyEntry{ChannelID: e.ChannelID, ChannelTitle: e.ChannelTitle, TrackTitle: e.Title, Time: e.Time}
+	}
+	return out
 }
 
 // parseHistoryArgs parses soma history's flags and its optional channel

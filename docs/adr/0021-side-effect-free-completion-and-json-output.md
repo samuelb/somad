@@ -1,6 +1,6 @@
 # ADR-0021: Shell completion is cache-only and side-effect free; scripting uses `--json`
 
-- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed)
+- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed; amended 2026-10-13: one set of field names)
 - **Date:** 2026-07-05 (completion 2026-07-11)
 - **Sources:** cc3a8f2, 224efb2, 79f4ba1, 0c2224a, 0dadcbd; `cmd/soma/completion.go`, `internal/channels` `PeekChannelsFromCache`
 
@@ -28,6 +28,15 @@ Tab press, so it must be instant and must never change anything.
   2026-09-25): it may be playing, and reporting it as stopped was false.
 - Global client flags given to `soma daemon` are refused by name rather
   than silently ignored.
+- The JSON shapes share their field names (amended 2026-10-13): a
+  channel's ID and title are always `channelId` and `channelTitle`, and a
+  track's title `trackTitle`, as in the playback state. `list` used `id`
+  and `title`, `favorite` `title`, and `history` `title` for the track,
+  so `title` meant the channel in two commands and the track in a third.
+  The CLI renames history's `title` itself rather than the wire's
+  `protocol.HistoryEntry`, which an older daemon still running would
+  otherwise answer without. Changed without a breaking-change commit: no
+  one was scripting against the old names.
 
 ## Consequences
 

@@ -374,8 +374,8 @@ func TestChannelListEntries_MarksFavorites(t *testing.T) {
 	entries := channelListEntries(payload)
 
 	require.Len(t, entries, 2)
-	assert.Equal(t, channelListEntry{ID: "dronezone", Title: "Drone Zone", Genre: "ambient", Favorite: true}, entries[0])
-	assert.Equal(t, channelListEntry{ID: "groovesalad", Title: "Groove Salad", Genre: "ambient|electronica", Favorite: false}, entries[1])
+	assert.Equal(t, channelListEntry{ChannelID: "dronezone", ChannelTitle: "Drone Zone", Genre: "ambient", Favorite: true}, entries[0])
+	assert.Equal(t, channelListEntry{ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Genre: "ambient|electronica", Favorite: false}, entries[1])
 }
 
 func TestFavoriteMessage_ReportsToggleDirection(t *testing.T) {

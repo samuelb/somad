@@ -251,7 +251,8 @@ prints the resulting playback state as a single JSON line (channel, status,
 volume, track title, and so on) instead of the human-readable message, for
 status bars and scripts. `list`, `favorite`, and `history` print their own
 JSON shapes (the channel catalog, the toggle result, and the list of
-history entries, respectively).
+history entries, respectively). The names are the same everywhere: a
+channel is `channelId` and `channelTitle`, a track's title `trackTitle`.
 
 ### Background playback
 

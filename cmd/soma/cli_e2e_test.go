@@ -246,10 +246,12 @@ func TestRunList_PlainAndJSON(t *testing.T) {
 	assert.Contains(t, plain, "* dronezone", "favorites carry the star marker")
 
 	jsonOut := captureStdout(t, func() { runList([]string{"--json"}) })
-	var entries []channelListEntry
+	var entries []map[string]any
 	require.NoError(t, json.Unmarshal([]byte(jsonOut), &entries))
 	require.Len(t, entries, 2)
-	assert.True(t, entries[1].Favorite, "dronezone is a favorite")
+	assert.Equal(t, map[string]any{
+		"channelId": "dronezone", "channelTitle": "Drone Zone", "genre": "ambient|space", "favorite": true,
+	}, entries[1], "the field names every --json shape shares")
 }
 
 func TestRunStop_StopsPlayback(t *testing.T) {
@@ -463,9 +465,7 @@ func TestRunFavorite_ToggleWithJSON(t *testing.T) {
 
 	out := captureStdout(t, func() { runFavorite([]string{"--json", "groove"}) })
 
-	var res favoriteResult
-	require.NoError(t, json.Unmarshal([]byte(out), &res))
-	assert.Equal(t, favoriteResult{ChannelID: "groovesalad", Title: "Groove Salad", Favorite: true}, res)
+	assert.JSONEq(t, `{"channelId":"groovesalad","channelTitle":"Groove Salad","favorite":true}`, out)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	assert.ElementsMatch(t, []string{"dronezone", "groovesalad"}, d.payload.Favorites)
@@ -508,10 +508,8 @@ func TestRunHistory_PlainAndJSON(t *testing.T) {
 	assert.Contains(t, plain, "Some Track")
 
 	jsonOut := captureStdout(t, func() { runHistory([]string{"--json"}) })
-	var entries []protocol.HistoryEntry
-	require.NoError(t, json.Unmarshal([]byte(jsonOut), &entries))
-	require.Len(t, entries, 1)
-	assert.Equal(t, "Some Track", entries[0].Title)
+	assert.JSONEq(t, `[{"channelId":"groovesalad","channelTitle":"Groove Salad","trackTitle":"Some Track",`+
+		`"time":"2026-01-02T15:04:00Z"}]`, jsonOut)
 }
 
 func TestRunHistory_NoEntries(t *testing.T) {
