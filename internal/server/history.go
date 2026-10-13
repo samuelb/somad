@@ -143,43 +143,58 @@ func (s *Server) backfillHistory(channelID string, existing []historyEntry) []hi
 	return merged
 }
 
-// songsCacheEntry is one channel's cached SomaFM song history.
+// songsCacheEntry is one channel's cached SomaFM song history: the entries
+// of the last fetch that worked, and whether the newest attempt failed.
 type songsCacheEntry struct {
 	fetchedAt time.Time
 	entries   []historyEntry
+	failed    bool
 }
 
 // songsCacheTTL bounds how long a fetched songs.json response is reused
-// before the next history request for that channel refetches it. A
-// variable so tests can shrink it.
-var songsCacheTTL = 5 * time.Minute
+// before the next history request for that channel refetches it, and
+// songsRetryAfter how long a failed fetch is: long enough that requests in
+// a row do not each wait out SomaFM's timeout, short enough that one
+// hiccup does not blank the backfill for the whole TTL. Variables so tests
+// can shrink them.
+var (
+	songsCacheTTL   = 5 * time.Minute
+	songsRetryAfter = 30 * time.Second
+)
 
 // songsCached returns channelID's recent song history from SomaFM,
 // fetching (and caching) it on a miss or an expired entry. A fetch failure
-// returns nil; it is logged, not propagated, so a flaky or unreachable
-// SomaFM never fails the history RPC.
+// is logged, not propagated, so a flaky or unreachable SomaFM never fails
+// the history RPC; the last fetch that worked, if any, stands in for it.
 func (s *Server) songsCached(channelID string) []historyEntry {
 	s.songsCacheMu.Lock()
-	if c, ok := s.songsCache[channelID]; ok && time.Since(c.fetchedAt) < songsCacheTTL {
-		entries := c.entries
+	c, ok := s.songsCache[channelID]
+	ttl := songsCacheTTL
+	if c.failed {
+		ttl = songsRetryAfter
+	}
+	if ok && time.Since(c.fetchedAt) < ttl {
 		s.songsCacheMu.Unlock()
-		return entries
+		return c.entries
 	}
 	s.songsCacheMu.Unlock()
 
+	next := songsCacheEntry{fetchedAt: time.Now()}
 	entries, err := fetchSongs(channelID, s.userAgent)
 	if err != nil {
 		log.Printf("history: fetching song history for %s failed: %v", channelID, err)
-		entries = nil
+		next.entries, next.failed = c.entries, true
+	} else {
+		next.entries = entries
 	}
 
 	s.songsCacheMu.Lock()
 	if s.songsCache == nil {
 		s.songsCache = make(map[string]songsCacheEntry)
 	}
-	s.songsCache[channelID] = songsCacheEntry{fetchedAt: time.Now(), entries: entries}
+	s.songsCache[channelID] = next
 	s.songsCacheMu.Unlock()
-	return entries
+	return next.entries
 }
 
 // songsURLFormat is the endpoint for a channel's recent song history, with

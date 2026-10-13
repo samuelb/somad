@@ -251,6 +251,53 @@ func TestHistory_SongsResponseRefetchedAfterTTL(t *testing.T) {
 	assert.GreaterOrEqual(t, hits.Load(), int32(2), "an expired cache entry must be refetched")
 }
 
+func TestHistory_FailedFetchIsRetriedSoon(t *testing.T) {
+	var hits atomic.Int32
+	s, _ := newTestServer(t, Config{})
+	withSongsServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"songs":[{"artist":"A","title":"B","date":"1000000000"}]}`))
+	})
+	s.mu.Lock()
+	s.recordHistoryLocked("groovesalad", "Groove Salad", "Live Track")
+	s.mu.Unlock()
+
+	assert.Len(t, s.History("groovesalad", 10), 1, "the first fetch fails")
+	assert.Len(t, s.History("groovesalad", 10), 1, "and is not retried at once")
+	assert.EqualValues(t, 1, hits.Load())
+
+	prev := songsRetryAfter
+	songsRetryAfter = 0
+	t.Cleanup(func() { songsRetryAfter = prev })
+	assert.Len(t, s.History("groovesalad", 10), 2, "but well before the TTL is up")
+	assert.EqualValues(t, 2, hits.Load())
+}
+
+func TestHistory_FailedRefetchKeepsTheLastGoodOne(t *testing.T) {
+	var hits atomic.Int32
+	s, _ := newTestServer(t, Config{})
+	withSongsServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) > 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"songs":[{"artist":"A","title":"B","date":"1000000000"}]}`))
+	})
+	prevTTL := songsCacheTTL
+	songsCacheTTL = 0
+	t.Cleanup(func() { songsCacheTTL = prevTTL })
+	s.mu.Lock()
+	s.recordHistoryLocked("groovesalad", "Groove Salad", "Live Track")
+	s.mu.Unlock()
+
+	assert.Len(t, s.History("groovesalad", 10), 2)
+	assert.Len(t, s.History("groovesalad", 10), 2, "an expired entry stands in for a failed refetch")
+	assert.EqualValues(t, 2, hits.Load())
+}
+
 func TestHistory_UnknownChannelNeverBackfills(t *testing.T) {
 	var hits atomic.Int32
 	s, _ := newTestServer(t, Config{})
