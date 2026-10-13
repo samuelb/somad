@@ -37,6 +37,8 @@ type fakeDaemon struct {
 	history       []protocol.HistoryEntry
 	historyParams []protocol.HistoryParams // one entry per history request received
 	lastfmReloads int
+	conns         []net.Conn // every connection served, for push and dropConns
+	onHello       func()     // when set, runs (under mu) before each hello is answered
 }
 
 func startFakeDaemon(t *testing.T) *fakeDaemon {
@@ -74,6 +76,9 @@ func startFakeDaemon(t *testing.T) *fakeDaemon {
 
 func (d *fakeDaemon) serve(nc net.Conn) {
 	defer func() { _ = nc.Close() }()
+	d.mu.Lock()
+	d.conns = append(d.conns, nc)
+	d.mu.Unlock()
 	sc := protocol.NewScanner(nc)
 	for sc.Scan() {
 		var req protocol.Request
@@ -95,6 +100,9 @@ func (d *fakeDaemon) handle(req protocol.Request) any {
 	defer d.mu.Unlock()
 	switch req.Method {
 	case protocol.MethodHello:
+		if d.onHello != nil {
+			d.onHello()
+		}
 		return protocol.HelloResult{ServerVersion: version, ProtocolVersion: protocol.Version}
 	case protocol.MethodStatus:
 		return d.status

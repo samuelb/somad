@@ -70,7 +70,7 @@ func runTUI(shutdownOnExit bool) {
 	bridgeExited := make(chan struct{})
 	go func() {
 		defer close(bridgeExited)
-		runBridge(p, c, bridgeDone, shutdownOnExit)
+		runBridge(p.Send, c, bridgeDone, shutdownOnExit)
 	}()
 
 	_, err = p.Run()
@@ -98,10 +98,11 @@ func saveVisualizer(mode ui.VisualizerMode) error {
 	return state.SaveTUIPrefs(prefs)
 }
 
-// runBridge forwards server events to the program. When the connection is
-// lost it re-establishes it (spawning a new local server if needed) and hands
-// the fresh client, and its version, to the model.
-func runBridge(p *tea.Program, c *client.Client, done <-chan struct{}, shutdownOnExit bool) {
+// runBridge forwards server events to the program through send (its Send).
+// When the connection is lost it re-establishes it (spawning a new local
+// server if needed) and hands the fresh client, and its version, to the
+// model.
+func runBridge(send func(tea.Msg), c *client.Client, done <-chan struct{}, shutdownOnExit bool) {
 	for {
 	events:
 		for {
@@ -114,16 +115,16 @@ func runBridge(p *tea.Program, c *client.Client, done <-chan struct{}, shutdownO
 				}
 				switch v := ev.(type) {
 				case protocol.PlaybackState:
-					p.Send(app.ServerStateMsg{State: v})
+					send(app.ServerStateMsg{State: v})
 				case protocol.ChannelsPayload:
-					p.Send(app.ServerChannelsMsg{Payload: v})
+					send(app.ServerChannelsMsg{Payload: v})
 				}
 			case levels := <-c.Spectrum():
-				p.Send(app.SpectrumMsg{Levels: levels})
+				send(app.SpectrumMsg{Levels: levels})
 			}
 		}
 
-		p.Send(app.ServerLostMsg{})
+		send(app.ServerLostMsg{})
 		select {
 		case <-done:
 			return
@@ -131,7 +132,7 @@ func runBridge(p *tea.Program, c *client.Client, done <-chan struct{}, shutdownO
 		}
 		newClient, serverVersion, err := reconnect()
 		if err != nil {
-			p.Send(app.ServerGoneMsg{Err: err})
+			send(app.ServerGoneMsg{Err: err})
 			return
 		}
 		select {
@@ -147,22 +148,29 @@ func runBridge(p *tea.Program, c *client.Client, done <-chan struct{}, shutdownO
 		}
 		_ = c.Close()
 		c = newClient
-		p.Send(app.ServerReconnectedMsg{Backend: c, ServerVersion: serverVersion})
+		send(app.ServerReconnectedMsg{Backend: c, ServerVersion: serverVersion})
 	}
 }
+
+// reconnectAttempts and reconnectDelay are how often, and how far apart,
+// reconnect tries. Variables so tests need not wait.
+var (
+	reconnectAttempts = 3
+	reconnectDelay    = time.Second
+)
 
 // reconnect tries a few times to get a fresh server connection, returning the
 // reconnected server's version alongside the client.
 func reconnect() (*client.Client, string, error) {
 	var err error
-	for range 3 {
+	for range reconnectAttempts {
 		var c *client.Client
 		var hr protocol.HelloResult
 		c, hr, err = client.EnsureServer(endpoint, version)
 		if err == nil {
 			return c, hr.ServerVersion, nil
 		}
-		time.Sleep(time.Second)
+		time.Sleep(reconnectDelay)
 	}
 	return nil, "", fmt.Errorf("lost connection to the soma daemon and could not restore it: %w", err)
 }
