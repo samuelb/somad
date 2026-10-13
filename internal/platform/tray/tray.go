@@ -18,6 +18,13 @@ import (
 // Supported reports whether this build has a real tray implementation.
 const Supported = true
 
+// The icons are rendered from the SVGs beside them, the website favicon's
+// broadcast mark: icon_template at 32 px, the 16 pt systray draws on macOS
+// at 2x, icon at 64 px for HiDPI Linux panels:
+//
+//	rsvg-convert -w 32 -h 32 icon_template.svg -o icon_template.png
+//	rsvg-convert -w 64 -h 64 icon.svg -o icon.png
+//
 //go:embed icon.png
 var iconPNG []byte
 
