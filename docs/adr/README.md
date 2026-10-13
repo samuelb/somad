@@ -20,7 +20,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0004](0004-single-daemon-instance-and-detached-spawn.md) | One daemon instance via a lock file; clients spawn it detached | Accepted (amended) |
 | [0005](0005-daemon-runs-until-stopped.md) | The daemon runs until stopped explicitly | Accepted (supersedes the two-minute default from 95fb723) |
 | [0006](0006-version-skew-restart-only-when-playback-is-interrupted.md) | Restart a version-skewed daemon only at moments that already interrupt playback | Accepted (amended) |
-| [0007](0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md) | The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK | Accepted |
+| [0007](0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md) | The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK | Accepted (amended) |
 | [0008](0008-psk-challenge-response.md) | PSK authentication is an HMAC challenge-response; the client always authenticates when a key is configured | Accepted |
 | [0009](0009-tls-1-3-only-with-a-long-lived-self-signed-certificate.md) | TLS 1.3 only, with an auto-generated long-lived self-signed certificate and three trust modes | Accepted (amended) |
 | [0010](0010-outbound-http-restricted-to-somafm.md) | All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped | Accepted (amended) |
@@ -31,7 +31,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0015](0015-icy-metadata-demuxed-from-the-playback-connection.md) | Track titles are demuxed from the playback connection, not fetched separately | Accepted |
 | [0016](0016-stream-format-selection-aac-where-decodable-mp3-otherwise.md) | Prefer AAC where the platform decodes it, MP3 elsewhere, at the configured quality; no Linux AAC decoder | Accepted (amended) |
 | [0017](0017-go-mp3-directly-and-release-the-audio-device-when-idle.md) | Decode MP3 with go-mp3 directly, and suspend the audio device when idle | Accepted (amended) |
-| [0018](0018-per-connection-backpressure-and-latest-wins-events.md) | Per-connection request cap and latest-wins event delivery | Accepted |
+| [0018](0018-per-connection-backpressure-and-latest-wins-events.md) | Per-connection request cap and latest-wins event delivery | Accepted (amended) |
 | [0019](0019-mpris-and-tray-live-in-the-daemon.md) | MPRIS and the system tray live in the daemon process | Accepted |
 | [0020](0020-adaptive-palette-following-somafm-no-theming.md) | The palette follows somafm.com and adapts to light and dark terminals; no user theming | Accepted |
 | [0021](0021-side-effect-free-completion-and-json-output.md) | Shell completion is cache-only and side-effect free; scripting uses `--json` | Accepted (amended) |
