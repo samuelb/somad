@@ -42,17 +42,21 @@ type adtsFrame struct {
 // adtsReader extracts AAC frames from an ADTS bitstream (the framing
 // Shoutcast/Icecast AAC streams use). It resynchronizes on the syncword, so
 // joining mid-stream or stray garbage only costs the bytes up to the next
-// valid header — within adtsMaxSkip, beyond which the stream is not AAC.
+// valid header that the next frame's header confirms — within adtsMaxSkip,
+// beyond which the stream is not AAC.
 type adtsReader struct {
 	src *bufio.Reader
 	// aligned is true at the stream start and right after a cleanly parsed
 	// frame — positions where a header is authoritative. While scanning
 	// through garbage it is false, and header-shaped noise is skipped
-	// rather than trusted.
+	// rather than trusted: a header found there must be followed by the
+	// next frame's (see confirmed).
 	aligned bool
 }
 
 func newADTSReader(r io.Reader) *adtsReader {
+	// The buffer must hold a maximum-size frame (8191 bytes) and the header
+	// after it, for confirmed to peek at both.
 	return &adtsReader{src: bufio.NewReaderSize(r, 16*1024), aligned: true}
 }
 
@@ -71,7 +75,8 @@ func (r *adtsReader) next() (adtsFrame, error) {
 		// position; in mid-garbage scanning it is just header-shaped noise
 		// whose block bits happen to be set.
 		if errors.Is(err, errADTSNotAHeader) ||
-			(errors.Is(err, errADTSMultipleBlocks) && !r.aligned) {
+			(errors.Is(err, errADTSMultipleBlocks) && !r.aligned) ||
+			(err == nil && !r.aligned && !r.confirmed(f, frameLen)) {
 			if skipped == adtsMaxSkip {
 				return adtsFrame{}, errADTSLostSync
 			}
@@ -90,6 +95,27 @@ func (r *adtsReader) next() (adtsFrame, error) {
 		r.aligned = true
 		return f, nil
 	}
+}
+
+// confirmed reports whether a header found while scanning, for a frame of
+// frameLen bytes with f's parameters, is followed by the next frame's
+// header with the same parameters. A header is a 12-bit syncword and a few
+// fields that random bytes satisfy often enough, and nearly all such noise
+// carries another sample rate or channel count than the stream: trusted,
+// it would reach the decoder as a mid-stream format change, a hard error
+// that costs a reconnect where skipping it costs a few bytes. Noise that
+// also points at a matching header is rare. The check waits for the next
+// header to arrive, a frame's worth of audio, but only while resyncing. A
+// stream that ends or fails before then leaves nothing to check the
+// candidate against, so it is taken as at an aligned position: reading it
+// then returns the frame, or the stream's end or failure.
+func (r *adtsReader) confirmed(f adtsFrame, frameLen int) bool {
+	b, err := r.src.Peek(frameLen + adtsHeaderLen)
+	if err != nil {
+		return true
+	}
+	next, _, _, err := parseADTSHeader(b[frameLen:])
+	return err == nil && next.sampleRate == f.sampleRate && next.channels == f.channels
 }
 
 // errADTSNotAHeader marks bytes that are not a valid ADTS header; the

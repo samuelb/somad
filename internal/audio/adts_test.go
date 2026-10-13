@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"testing"
+	"time"
 )
 
 // buildADTSFrame assembles a syntactically valid ADTS frame around the given
@@ -58,6 +59,57 @@ func TestADTSReaderResyncsPastGarbage(t *testing.T) {
 	}
 	if f.channels != 1 || string(f.payload) != "mono" {
 		t.Fatalf("frame = %d ch, %q", f.channels, f.payload)
+	}
+}
+
+func TestADTSReaderSkipsAFalseSyncInGarbage(t *testing.T) {
+	// A header-shaped run in the garbage before a stereo stream: a mono
+	// header whose frame would swallow the stream's start. Taken at its
+	// word, it would hand the decoder a frame with another channel count,
+	// which it rejects as a mid-stream change; nothing at the end of its
+	// frame looks like the next header, so it must be skipped.
+	falseSync := buildADTSFrame(1, make([]byte, 20))[:adtsHeaderLen]
+	stream := append([]byte("leading junk"), falseSync...)
+	stream = append(stream, "more junk"...)
+	payloads := []string{"first", "second", "third"}
+	for _, p := range payloads {
+		stream = append(stream, buildADTSFrame(2, []byte(p))...)
+	}
+	r := newADTSReader(bytes.NewReader(stream))
+
+	for _, want := range payloads {
+		f, err := r.next()
+		if err != nil {
+			t.Fatalf("frame %q: %v", want, err)
+		}
+		if f.channels != 2 || string(f.payload) != want {
+			t.Fatalf("frame = %d ch, %q; want 2 ch, %q", f.channels, f.payload, want)
+		}
+	}
+}
+
+func TestADTSReaderTrustsAnAlignedStart(t *testing.T) {
+	// A header at the stream start is authoritative: the first frame comes
+	// back as soon as it is in, without waiting for the next one, which a
+	// live stream may deliver only later.
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	go func() { _, _ = pw.Write(buildADTSFrame(2, []byte("first"))) }()
+
+	got := make(chan adtsFrame, 1)
+	go func() {
+		f, err := newADTSReader(pr).next()
+		if err == nil {
+			got <- f
+		}
+	}()
+	select {
+	case f := <-got:
+		if string(f.payload) != "first" {
+			t.Fatalf("payload = %q, want %q", f.payload, "first")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first frame waited for the next one")
 	}
 }
 
@@ -123,15 +175,18 @@ func TestADTSReaderGivesUpAfterSkipLimit(t *testing.T) {
 
 func TestADTSReaderSkipLimitIsPerResync(t *testing.T) {
 	// Garbage between frames is fine as long as each run stays under the
-	// limit: the budget starts over after every good frame.
+	// limit: the budget starts over after every good frame. (Two frames
+	// after each run: the first frame found by scanning is confirmed by
+	// the header of the one after it.)
 	junk := bytes.Repeat([]byte{0x13}, adtsMaxSkip*3/4)
 	var stream []byte
 	for i := 0; i < 3; i++ {
 		stream = append(stream, junk...)
 		stream = append(stream, buildADTSFrame(2, []byte("payload"))...)
+		stream = append(stream, buildADTSFrame(2, []byte("payload"))...)
 	}
 	r := newADTSReader(bytes.NewReader(stream))
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 6; i++ {
 		if _, err := r.next(); err != nil {
 			t.Fatalf("frame %d: %v", i, err)
 		}
