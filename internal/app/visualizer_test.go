@@ -62,7 +62,6 @@ func TestVisualizer_KeyCyclesTheStylesThenOff(t *testing.T) {
 	assert.Equal(t, []int{bands}, backend(m).spectrumBands, "a band per bar")
 
 	m.Update(SpectrumMsg{Levels: []byte{255}})
-	m.Update(SpectrumMsg{Levels: []byte{255}}) // a waterfall row takes two
 	plain := view
 	for _, want := range []ui.VisualizerMode{ui.VisualizerMirror, ui.VisualizerWave, ui.VisualizerMirrorWave, ui.VisualizerWaterfall} {
 		assert.Nil(t, msgOrNil[spectrumSubscribedMsg](pressV(m, 1)), "%s: the subscription stays", want)

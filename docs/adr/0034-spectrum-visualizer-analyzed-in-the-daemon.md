@@ -1,6 +1,6 @@
 # ADR-0034: The TUI's spectrum visualizer is analyzed in the daemon and drawn into the view's blank cells
 
-- **Status:** Accepted (amended 2026-10-06: styles cycled by `v`, remembered across restarts)
+- **Status:** Accepted (amended 2026-10-06: styles cycled by `v`, remembered across restarts; amended 2026-10-13: the waterfall draws a frame per half line)
 - **Date:** 2026-10-06
 - **Sources:** `internal/audio/spectrum.go`, `internal/server/spectrum.go`, `internal/ui/visualizer.go`, `internal/app/commands.go` (`syncSpectrum`), `internal/app/view.go` (`View`)
 
@@ -47,9 +47,13 @@ speakers (ADR-0007), so the samples exist only in the daemon.
   the middle line), wave (a smooth hill of braille dots blended from band
   to band, outlined at full strength), mirror wave (the hill both ways
   from the middle line), and waterfall (a spectrogram: a
-  row every other frame, newest at the bottom, colored by loudness above
-  a third of full scale, cleared once the bars settle), then off; a
-  moment's note in the now-playing card names the style. All draw from
+  frame per half line, newest at the bottom, so it moves half a line
+  every frame; a half block takes one frame's color and the cell's
+  background the other's. Colored by loudness above a third of full
+  scale in 24 steps that fade in out of the terminal's background to
+  the teal and on to the gold, so a sound has no hard edge; cleared
+  once the bars settle), then off; a moment's note in the now-playing
+  card names the style. All draw from
   the same frames, so a change of style is not a new subscription. The
   wave's dotted fill looks lighter than a block, so the shade behind
   text on it is fainter (70 %).
@@ -99,6 +103,11 @@ speakers (ADR-0007), so the samples exist only in the daemon.
 - **Shade glyphs (░▒▓█) for the waterfall** (2026-10-06, tried): on real
   music they read as noise; blocks colored by loudness read as a
   spectrogram.
+- **A waterfall row a line tall, every other frame** (2026-10-06, the
+  first version): it jumped a whole line twelve times a second, and its
+  eight colors starting hard at the floor left blocky patches; the user
+  found it blocky and choppy. Half blocks give two rows a line at the
+  same scrolling speed, so every frame moves it.
 
 - **Bars only through blank cells** (2026-10-06, the first version): with
   a blank margin around text and no half bars, every row of text cut the

@@ -74,7 +74,7 @@ func TestUnderlay_SingleSpacesBetweenWordsTakeNoGlyph(t *testing.T) {
 func TestUnderlay_BarsCarryOnBehindText(t *testing.T) {
 	withTrueColor(t)
 	v := fullBars(11)
-	fill := vizFill(0, vizFillShade)
+	fill := newVizPaint().fill[barInk(0)]
 	require.NotEmpty(t, fill)
 	got := v.Underlay("    ab     ", VisualizerBars, 11, 1)
 	// "a" sits on bar 3-4, "b" on the gap: only "a" gets the shade, and
@@ -217,8 +217,7 @@ func TestUnderlay_WaveIsAHillOfBrailleWithABrightOutline(t *testing.T) {
 		}
 	}
 	assert.Contains(t, got[1], "⣿⣿⣿⣿", "the body is solid dots")
-	bright, _, _ := strings.Cut(vizBrightStyles[vizShades-1].Render("x"), "x")
-	assert.Contains(t, got[0], bright, "the outline is at full strength")
+	assert.Contains(t, got[0], newVizPaint().fg[brightInk(vizShades-1)], "the outline is at full strength")
 
 	assert.Equal(t, "\n", settled(0, 0).Underlay("\n", VisualizerWave, 4, 2), "silence draws nothing")
 }
@@ -226,24 +225,60 @@ func TestUnderlay_WaveIsAHillOfBrailleWithABrightOutline(t *testing.T) {
 func TestUnderlay_WaveShadesTextFainterThanBars(t *testing.T) {
 	withTrueColor(t)
 	got := settled(255).Underlay("ab", VisualizerWave, 2, 1)
-	assert.Contains(t, got, vizFill(0, vizFaintShade))
-	assert.NotContains(t, got, vizFill(0, vizFillShade))
+	p := newVizPaint()
+	assert.Contains(t, got, p.faint[barInk(0)])
+	assert.NotContains(t, got, p.fill[barInk(0)])
 }
 
-func TestUnderlay_WaterfallScrollsUpAndSkipsQuietBands(t *testing.T) {
+func TestUnderlay_WaterfallScrollsUpHalfALineAFrame(t *testing.T) {
 	v := &Visualizer{}
 	v.Update([]byte{255, 0})
-	assert.Equal(t, "\n", v.Underlay("\n", VisualizerWaterfall, 2, 2), "a row takes two frames")
-	v.Update([]byte{255, 0})
 	got := strings.Split(ansi.Strip(v.Underlay("\n", VisualizerWaterfall, 2, 2)), "\n")
-	assert.Equal(t, "█", strings.TrimSpace(got[1]), "the loud band, newest at the bottom; the quiet one is left out")
+	assert.Equal(t, "▄", strings.TrimSpace(got[1]), "the loud band, newest at the bottom; the quiet one is left out")
 	assert.Empty(t, strings.TrimSpace(got[0]))
+
+	v.Update([]byte{0, 255})
+	got = strings.Split(ansi.Strip(v.Underlay("\n", VisualizerWaterfall, 2, 2)), "\n")
+	assert.Equal(t, "▀▄", got[1], "the older frame moved up into the top half")
 
 	v.Update([]byte{0, 255})
 	v.Update([]byte{0, 255})
 	got = strings.Split(ansi.Strip(v.Underlay("\n", VisualizerWaterfall, 2, 2)), "\n")
-	assert.Equal(t, "█ ", got[0], "the older row moved up")
+	assert.Equal(t, "▀▄", got[0], "and on up a line")
 	assert.Equal(t, " █", got[1])
+}
+
+func TestUnderlay_WaterfallPacksTwoColorsACell(t *testing.T) {
+	withTrueColor(t)
+	v := &Visualizer{}
+	v.Update([]byte{255})
+	v.Update([]byte{128})
+	got := v.Underlay("", VisualizerWaterfall, 1, 1)
+	p, quieter := newVizPaint(), waterfallInkAt(128.0/255)
+	assert.Contains(t, got, p.fg[waterfallInk(vizWaterfallShades-1)]+p.bg[quieter]+"▀",
+		"the older frame's color above, the newer's behind it below")
+	assert.Equal(t, 1, ansi.StringWidth(got))
+
+	got = v.Underlay("x", VisualizerWaterfall, 1, 1)
+	assert.Contains(t, got, p.fill[waterfallInk(vizWaterfallShades-1)]+"x", "text takes the louder shade")
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	assert.Equal(t, "█", ansi.Strip(v.Underlay("", VisualizerWaterfall, 1, 1)), "without color, both halves stay")
+}
+
+func TestUnderlay_ReverseVideoDropsTheShade(t *testing.T) {
+	withTrueColor(t)
+	got := fullBars(2).Underlay("a\x1b[7mb\x1b[0m", VisualizerBars, 2, 1)
+	assert.Contains(t, got, newVizPaint().fill[barInk(0)]+"a\x1b[49m\x1b[7mb", "or reversed text would show it as its color")
+}
+
+func TestWaterfallInkAt_FadesInAboveTheFloor(t *testing.T) {
+	assert.Zero(t, waterfallInkAt(vizWaterfallFloor-0.01))
+	assert.Equal(t, waterfallInk(0), waterfallInkAt(vizWaterfallFloor))
+	assert.Equal(t, waterfallInk(vizWaterfallShades-1), waterfallInkAt(1))
+	quietest := vizInks[waterfallInk(0)][1]
+	assert.Equal(t, lerpHex(vizBottom[1], "#000000", vizWaterfallFade), quietest, "close to the dark background")
+	assert.Equal(t, vizTop[1], vizInks[waterfallInk(vizWaterfallShades-1)][1])
 }
 
 func TestUpdate_WaterfallHistoryClearsOnceSettled(t *testing.T) {
@@ -274,7 +309,7 @@ func TestUnderlay_MirrorWaveGrowsBothWaysFromTheMiddle(t *testing.T) {
 	}
 	assert.Equal(t, []string{"", "⣿⣿⣿⣿", "⣿⣿⣿⣿", ""}, plain)
 	// Both tips are outline, at the outer step of their halves.
-	bright, _, _ := strings.Cut(vizBrightStyles[0].Render("x"), "x")
+	bright := newVizPaint().fg[brightInk(0)]
 	assert.Contains(t, got[1], bright)
 	assert.Contains(t, got[2], bright)
 

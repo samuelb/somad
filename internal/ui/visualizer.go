@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 // VisualizerMode is a style of the spectrum drawn behind the TUI
@@ -64,9 +65,8 @@ func (m VisualizerMode) String() string {
 // own gravity, and for the waterfall, a history of recent frames.
 type Visualizer struct {
 	levels  []float64   // smoothed levels in [0, 1], lowest band first
-	history [][]float64 // waterfall rows, oldest first
-	pending []float64   // the loudest of each band since the last row
-	frames  int         // frames folded into pending
+	history [][]float64 // waterfall rows, a frame each, oldest first
+	paint   *vizPaint   // the SGR sequences it draws with, made for the terminal at the first draw
 }
 
 const (
@@ -82,16 +82,17 @@ const (
 	// vizFloor is where a falling bar drops to zero: within the daemon's
 	// tail of silent frames even from full height (0.83^25 < 0.01).
 	vizFloor = 0.01
-	// The waterfall adds a row every vizRowFrames frames (about twelve a
-	// second), so a screen holds a few seconds, and keeps vizHistory rows.
-	vizRowFrames = 2
-	vizHistory   = 256
+	// The waterfall adds a row every frame and draws two to a line, so at
+	// 25 frames a second it moves half a line at a time, twelve lines a
+	// second; it keeps vizHistory rows, enough for a tall screen.
+	vizHistory = 512
 	// vizWaveFloor is the level below which the wave leaves a gap rather
 	// than lie along the bottom.
 	vizWaveFloor = 0.02
 	// vizWaterfallFloor is the level below which the waterfall leaves a
 	// cell empty: most of the time a band sits above a third, and coloring
-	// all of that would bury the screen.
+	// all of that would bury the screen. Above it the color fades in out
+	// of the terminal's background, so a sound has no hard edge.
 	vizWaterfallFloor = 0.35
 )
 
@@ -108,9 +109,9 @@ func VisualizerBands(width int) int {
 // Update takes the next frame of levels (0–255 per band).
 func (v *Visualizer) Update(levels []byte) {
 	if len(v.levels) != len(levels) {
-		v.levels = make([]float64, len(levels))
-		v.pending, v.frames, v.history = make([]float64, len(levels)), 0, nil
+		v.levels, v.history = make([]float64, len(levels)), nil
 	}
+	row := make([]float64, len(levels))
 	silent := true
 	for i, b := range levels {
 		target, cur := float64(b)/255, v.levels[i]
@@ -119,16 +120,12 @@ func (v *Visualizer) Update(levels []byte) {
 		} else if cur = max(target, cur*vizDecay); cur < vizFloor {
 			cur = 0 // settled: no stub left standing once the frames stop
 		}
-		v.levels[i] = cur
-		v.pending[i] = max(v.pending[i], target)
+		v.levels[i], row[i] = cur, target
 		silent = silent && cur == 0
 	}
-	if v.frames++; v.frames == vizRowFrames {
-		v.history = append(v.history, v.pending)
-		if len(v.history) > vizHistory {
-			v.history = v.history[len(v.history)-vizHistory:]
-		}
-		v.pending, v.frames = make([]float64, len(levels)), 0
+	v.history = append(v.history, row)
+	if len(v.history) > vizHistory {
+		v.history = v.history[len(v.history)-vizHistory:]
 	}
 	if silent {
 		// The last frame of the daemon's silent tail: nothing left that
@@ -153,15 +150,13 @@ func (v *Visualizer) Underlay(view string, mode VisualizerMode, width, height in
 		return view
 	}
 	grid := v.grid(mode, width, height)
-	var fills [2 * vizShades]string
-	for i := range vizShades {
-		fills[i] = vizFill(i, vizFillShade)
-		fills[vizShades+i] = vizFill(i, vizFaintShade)
+	if p := v.paint; p == nil || p.profile != lipgloss.ColorProfile() || p.dark != lipgloss.HasDarkBackground() {
+		v.paint = newVizPaint()
 	}
 	lines := strings.Split(view, "\n")
 	for y := range min(len(lines), height) {
 		if grid[y] != nil {
-			lines[y] = underlayLine(lines[y], grid[y], width, &fills)
+			lines[y] = underlayLine(lines[y], grid[y], width, v.paint)
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -169,19 +164,20 @@ func (v *Visualizer) Underlay(view string, mode VisualizerMode, width, height in
 
 // vizCell is one cell of the visualizer.
 type vizCell struct {
-	g      rune // the glyph shown in a blank cell; ' ' for none
-	step   int  // the gradient step of its color
-	bright bool // whether it takes the gradient at full strength
-	solid  bool // whether it fills enough of the cell to shade text on it
-	faint  bool // whether that shade is fainter, for a sparse glyph
+	g      rune   // the glyph shown in a blank cell; ' ' for none
+	fg, bg vizInk // the glyph's color, and the one behind it
+	fill   vizInk // the color shading text on the cell, none if it fills too little of it
+	faint  bool   // whether that shade is fainter, for a sparse glyph
 }
 
-// fill is the index of the cell's shade among Underlay's fills.
-func (c vizCell) fill() int {
-	if c.faint {
-		return vizShades + c.step
+// barCell is a cell of a bar of gradient step, its glyph filling enough of
+// the cell to shade text on it if solid.
+func barCell(g rune, step int, solid bool) vizCell {
+	c := vizCell{g: g, fg: barInk(step)}
+	if solid {
+		c.fill = c.fg
 	}
-	return c.step
+	return c
 }
 
 // vizGrid is the visualizer's cells, a row per line; a nil row is empty.
@@ -258,7 +254,7 @@ func (v *Visualizer) drawBars(g vizGrid, width, height int) {
 			if k < 8 {
 				glyph = vizEighths[k-1]
 			}
-			putBar(g, x, height-1-up, vizCell{g: glyph, step: vizStep(up, height), solid: k >= 4})
+			putBar(g, x, height-1-up, barCell(glyph, vizStep(up, height), k >= 4))
 		}
 	}
 }
@@ -278,7 +274,7 @@ func (v *Visualizer) drawMirror(g vizGrid, width, height int) {
 			if k < 8 {
 				glyph = vizEighths[k-1]
 			}
-			putBar(g, x, upper-1-r, vizCell{g: glyph, step: vizStep(r, upper), solid: k >= 4})
+			putBar(g, x, upper-1-r, barCell(glyph, vizStep(r, upper), k >= 4))
 		}
 		total = int(math.Round(level * float64(lower*8)))
 		for r := 0; r < lower && r*8 < total; r++ {
@@ -290,7 +286,7 @@ func (v *Visualizer) drawMirror(g vizGrid, width, height int) {
 			case k < 8:
 				glyph = '▀'
 			}
-			putBar(g, x, upper+r, vizCell{g: glyph, step: vizStep(r, lower), solid: k >= 4})
+			putBar(g, x, upper+r, barCell(glyph, vizStep(r, lower), k >= 4))
 		}
 	}
 }
@@ -362,7 +358,11 @@ func (v *Visualizer) drawHills(g vizGrid, width, height int, hills ...hill) {
 	for y, row := range dots {
 		for x, bits := range row {
 			if bits != 0 {
-				g.put(x, y, vizCell{g: 0x2800 + bits, step: steps[y][x], bright: edge[y][x], solid: true, faint: true})
+				c := vizCell{g: 0x2800 + bits, fg: barInk(steps[y][x]), fill: barInk(steps[y][x]), faint: true}
+				if edge[y][x] {
+					c.fg = brightInk(steps[y][x])
+				}
+				g.put(x, y, c)
 			}
 		}
 	}
@@ -372,22 +372,44 @@ func abs(n int) int {
 	return max(n, -n)
 }
 
-// drawWaterfall draws the recent frames as rows of blocks colored by
-// loudness, the newest at the bottom, so the music scrolls upwards; the
-// gradient runs from quiet to loud.
+// drawWaterfall draws the recent frames as a spectrogram, newest at the
+// bottom, so the music scrolls upwards: a frame per half line, colored by
+// loudness, with the upper half block in the glyph's color and the lower
+// in the one behind it. The gradient runs from quiet to loud.
 func (v *Visualizer) drawWaterfall(g vizGrid, width, height int) {
-	for up := 0; up < height && up < len(v.history); up++ {
-		frame := v.history[len(v.history)-1-up]
+	newest := len(v.history) - 1
+	for up := 0; up < height && 2*up <= newest; up++ {
+		lower := v.history[newest-2*up]
+		var upper []float64 // above the oldest frame: empty
+		if newest-2*up > 0 {
+			upper = v.history[newest-2*up-1]
+		}
 		for x := range width {
-			level := interpolate(frame, (float64(x)+0.5)/float64(width))
-			if level < vizWaterfallFloor {
-				continue
+			at := (float64(x) + 0.5) / float64(width)
+			top, bottom := waterfallInkAt(interpolate(upper, at)), waterfallInkAt(interpolate(lower, at))
+			// Text takes the louder half's shade: the inks rise with loudness.
+			c := vizCell{g: '▀', fg: top, bg: bottom, fill: max(top, bottom)}
+			switch top {
+			case bottom:
+				c.g, c.bg = '█', 0
+			case 0:
+				c.g, c.fg, c.bg = '▄', bottom, 0
 			}
-			loudness := (level - vizWaterfallFloor) / (1 - vizWaterfallFloor)
-			step := min(int(loudness*vizShades), vizShades-1)
-			g.put(x, height-1-up, vizCell{g: '█', step: step, solid: true})
+			if c.fill != 0 {
+				g.put(x, height-1-up, c)
+			}
 		}
 	}
+}
+
+// waterfallInkAt returns the waterfall's ink for level, none below its
+// floor.
+func waterfallInkAt(level float64) vizInk {
+	if level < vizWaterfallFloor {
+		return 0
+	}
+	loudness := (level - vizWaterfallFloor) / (1 - vizWaterfallFloor)
+	return waterfallInk(min(int(loudness*vizWaterfallShades), vizWaterfallShades-1))
 }
 
 // interpolate returns the level at t in [0, 1] across levels, which stand
@@ -421,8 +443,20 @@ const (
 	vizFaintShade = 0.7
 )
 
-// vizShades is how many steps the gradient takes.
-const vizShades = 8
+// vizBackdrop stands in for the terminal's background, which the shades
+// behind text blend towards.
+var vizBackdrop = [2]string{"#FFFFFF", "#000000"} // light, dark
+
+// vizShades is how many steps the bars' gradient takes, a line each at
+// most. The waterfall's runs across a line, where coarse steps would show
+// as patches, so it takes vizWaterfallShades, rising out of the terminal's
+// background (vizWaterfallFade of the way from the teal towards it) to the
+// teal halfway, and on to the gold.
+const (
+	vizShades          = 8
+	vizWaterfallShades = 24
+	vizWaterfallFade   = 0.85
+)
 
 // The wave's thin line takes the accents at full strength.
 var (
@@ -430,37 +464,40 @@ var (
 	vizBrightTop    = [2]string{"#8F6400", "#D8A24D"} // PrimaryColor
 )
 
-// vizColors are the bar colors of the gradient's steps, bottom first, and
-// vizStyles their glyph styles; vizBrightStyles are the full-strength
-// gradient's.
-var (
-	vizColors = func() (colors [vizShades]lipgloss.AdaptiveColor) {
-		for i := range colors {
-			t := float64(i) / (vizShades - 1)
-			colors[i] = lipgloss.AdaptiveColor{
-				Light: lerpHex(vizBottom[0], vizTop[0], t),
-				Dark:  lerpHex(vizBottom[1], vizTop[1], t),
-			}
+// vizInk is a color the visualizer draws in, an index into vizInks; the
+// zero value is none.
+type vizInk uint8
+
+// barInk, brightInk, and waterfallInk return the ink of a step of the
+// bars' gradient, of its full-strength version, and of the waterfall's.
+// Every ink fits a byte (vizInkCount), which keeps a cell small.
+func barInk(step int) vizInk       { return vizInk(1 + step) }               //nolint:gosec // see above
+func brightInk(step int) vizInk    { return vizInk(1 + vizShades + step) }   //nolint:gosec // see above
+func waterfallInk(step int) vizInk { return vizInk(1 + 2*vizShades + step) } //nolint:gosec // see above
+
+// vizInkCount is how many inks there are, none included.
+const vizInkCount = 1 + 2*vizShades + vizWaterfallShades
+
+// vizInks are the inks' colors, light and dark.
+var vizInks = func() (inks [vizInkCount][2]string) {
+	blend := func(a, b [2]string, t float64) [2]string {
+		return [2]string{lerpHex(a[0], b[0], t), lerpHex(a[1], b[1], t)}
+	}
+	for i := range vizShades {
+		t := float64(i) / (vizShades - 1)
+		inks[barInk(i)] = blend(vizBottom, vizTop, t)
+		inks[brightInk(i)] = blend(vizBrightBottom, vizBrightTop, t)
+	}
+	faded := blend(vizBottom, vizBackdrop, vizWaterfallFade)
+	for i := range vizWaterfallShades {
+		if t := 2 * float64(i) / (vizWaterfallShades - 1); t < 1 {
+			inks[waterfallInk(i)] = blend(faded, vizBottom, t)
+		} else {
+			inks[waterfallInk(i)] = blend(vizBottom, vizTop, t-1)
 		}
-		return colors
-	}()
-	vizStyles = func() (styles [vizShades]lipgloss.Style) {
-		for i, c := range vizColors {
-			styles[i] = lipgloss.NewStyle().Foreground(c)
-		}
-		return styles
-	}()
-	vizBrightStyles = func() (styles [vizShades]lipgloss.Style) {
-		for i := range styles {
-			t := float64(i) / (vizShades - 1)
-			styles[i] = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{
-				Light: lerpHex(vizBrightBottom[0], vizBrightTop[0], t),
-				Dark:  lerpHex(vizBrightBottom[1], vizBrightTop[1], t),
-			})
-		}
-		return styles
-	}()
-)
+	}
+	return inks
+}()
 
 // vizStep returns the gradient step of the line that many lines up from
 // the base of a height-line field.
@@ -471,18 +508,51 @@ func vizStep(up, height int) int {
 	return up * (vizShades - 1) / (height - 1)
 }
 
-// vizFill returns the SGR sequence that sets the background behind text
-// on a bar of gradient step, or "" when the terminal shows no color.
-func vizFill(step int, shade float64) string {
-	c, toward := vizColors[step].Dark, "#000000"
-	if !lipgloss.HasDarkBackground() {
-		c, toward = vizColors[step].Light, "#FFFFFF"
+// vizPaint holds the SGR sequences that draw each ink in the terminal's
+// color profile and background, "" where it shows no color: as a glyph's
+// color, as the color behind it, and as the shades behind text.
+type vizPaint struct {
+	profile     termenv.Profile
+	dark        bool
+	fg, bg      [vizInkCount]string
+	fill, faint [vizInkCount]string // vizFillShade, vizFaintShade
+}
+
+func newVizPaint() *vizPaint {
+	p := &vizPaint{profile: lipgloss.ColorProfile(), dark: lipgloss.HasDarkBackground()}
+	side := 0 // of the light and dark pairs
+	if p.dark {
+		side = 1
 	}
-	color := lipgloss.ColorProfile().Color(lerpHex(c, toward, shade))
-	if color == nil || color.Sequence(true) == "" {
+	for ink := vizInk(1); ink < vizInkCount; ink++ {
+		c, toward := vizInks[ink][side], vizBackdrop[side]
+		p.fg[ink], p.bg[ink] = p.sgr(c, false), p.sgr(c, true)
+		p.fill[ink] = p.sgr(lerpHex(c, toward, vizFillShade), true)
+		p.faint[ink] = p.sgr(lerpHex(c, toward, vizFaintShade), true)
+	}
+	return p
+}
+
+// sgr returns the SGR sequence that sets hex as the foreground color, or
+// the background, or "" when the terminal shows no color.
+func (p *vizPaint) sgr(hex string, background bool) string {
+	color := p.profile.Color(hex)
+	if color == nil {
 		return ""
 	}
-	return "\x1b[" + color.Sequence(true) + "m"
+	seq := color.Sequence(background)
+	if seq == "" {
+		return ""
+	}
+	return "\x1b[" + seq + "m"
+}
+
+// shade returns the SGR sequence that shades text on c, or "" for none.
+func (p *vizPaint) shade(c vizCell) string {
+	if c.faint {
+		return p.faint[c.fill]
+	}
+	return p.fill[c.fill]
 }
 
 // lerpHex blends two #rrggbb colors, t of the way from a to b.
@@ -502,31 +572,35 @@ func hexRGB(h string) [3]int {
 
 // underlayLine draws cells, a line's worth of the visualizer, into line,
 // a rendered line that may carry SGR styling and may end short of width:
-// glyphs into its blank cells, and behind the rest of the cells a solid
-// one covers, its fill (fills, background SGRs indexed by vizCell.fill).
-func underlayLine(line string, cells []vizCell, width int, fills *[2 * vizShades]string) string {
+// glyphs into its blank cells, and behind the rest of the cells it fills
+// enough of, its shade, in p's sequences.
+func underlayLine(line string, cells []vizCell, width int, p *vizPaint) string {
 	var out strings.Builder
 	var active []string // the SGR sequences in effect since the last reset
 	backed := false     // whether they set a background
-	filling := -1       // the fill in effect on out, -1 for none
+	filling := ""       // the shade in effect on out, "" for none
 	col := 0
 	run := -1             // where the blanks before col start, -1 for none
 	var held bytes.Buffer // the run as it came, SGR changes included
 
 	shown := func(x int) bool { return x < len(cells) && cells[x].g != ' ' }
-	behind := func(x int) bool {
-		return !backed && x < len(cells) && cells[x].solid && fills[cells[x].fill()] != ""
+	// behind returns the shade text in cell x takes, "" for none.
+	behind := func(x int) string {
+		if backed || x >= len(cells) {
+			return ""
+		}
+		return p.shade(cells[x])
 	}
 	unfill := func() {
-		if filling >= 0 {
+		if filling != "" {
 			out.WriteString("\x1b[49m")
-			filling = -1
+			filling = ""
 		}
 	}
 
 	// flush writes the run of blanks ending at end with the glyphs in it,
 	// but for the cell after what precedes it and before what follows it
-	// unless the line ends there, which take the fill instead. The run's
+	// unless the line ends there, which take the shade instead. The run's
 	// SGR changes were held back; the state they leave is restored after
 	// it. A run the visualizer does not reach is written as it came.
 	flush := func(end int, lineEnds bool) {
@@ -546,29 +620,38 @@ func underlayLine(line string, cells []vizCell, width int, fills *[2 * vizShades
 		}
 		held.Reset()
 		out.WriteString(ansi.ResetStyle)
-		for x := start; x < end; {
-			switch {
-			case margin(x) && behind(x):
-				out.WriteString(fills[cells[x].fill()] + " " + ansi.ResetStyle)
-				x++
+		fg, bg := "", "" // the glyph colors in effect on out
+		for x := start; x < end; x++ {
+			switch shade := behind(x); {
+			case margin(x) && shade != "":
+				out.WriteString(shade + " " + ansi.ResetStyle)
+				fg, bg = "", ""
 			case margin(x) || !shown(x):
+				if bg != "" {
+					out.WriteString("\x1b[49m")
+					bg = ""
+				}
 				out.WriteByte(' ')
-				x++
 			default:
-				from, step, bright := x, cells[x].step, cells[x].bright
-				for x < end && shown(x) && !margin(x) && cells[x].step == step && cells[x].bright == bright {
-					x++
+				c := cells[x]
+				if s := p.fg[c.fg]; s != fg {
+					out.WriteString(s)
+					fg = s
 				}
-				glyphs := make([]rune, 0, x-from)
-				for _, c := range cells[from:x] {
-					glyphs = append(glyphs, c.g)
+				if s := p.bg[c.bg]; s != bg {
+					if bg = s; s == "" {
+						s = "\x1b[49m"
+					}
+					out.WriteString(s)
 				}
-				style := vizStyles[step]
-				if bright {
-					style = vizBrightStyles[step]
+				if c.bg != 0 && bg == "" {
+					c.g = '█' // both halves are there, but only one can show
 				}
-				out.WriteString(style.Render(string(glyphs)))
+				out.WriteRune(c.g)
 			}
+		}
+		if fg != "" || bg != "" {
+			out.WriteString(ansi.ResetStyle)
 		}
 		out.WriteString(strings.Join(active, ""))
 	}
@@ -587,14 +670,15 @@ func underlayLine(line string, cells []vizCell, width int, fills *[2 * vizShades
 			if run >= 0 {
 				held.WriteString(seq)
 			} else {
+				// A background of the text's own wins over the shade, which
+				// reverse video would otherwise show as the text's color;
+				// any other change may have reset the background.
+				if nextBacked {
+					unfill()
+				}
 				out.WriteString(seq)
-				// It may have reset the background; a background of the
-				// text's own wins over the fill.
-				switch {
-				case nextBacked:
-					filling = -1
-				case filling >= 0:
-					out.WriteString(fills[filling])
+				if !nextBacked && filling != "" {
+					out.WriteString(filling)
 				}
 			}
 			active, backed = nextActive, nextBacked
@@ -608,13 +692,12 @@ func underlayLine(line string, cells []vizCell, width int, fills *[2 * vizShades
 		default:
 			flush(col, false)
 			if w > 0 {
-				if behind(col) {
-					if f := cells[col].fill(); filling != f {
-						out.WriteString(fills[f])
-						filling = f
-					}
-				} else {
+				switch shade := behind(col); {
+				case shade == "":
 					unfill()
+				case shade != filling:
+					out.WriteString(shade)
+					filling = shade
 				}
 			}
 			out.WriteString(seq)
