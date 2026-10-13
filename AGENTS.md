@@ -273,7 +273,10 @@ behind text.
   SomaFM hosts (`http`/`https`) and, as a separate explicit entry,
   `ws.audioscrobbler.com` (`https` only) for Last.fm; both re-validate
   redirects; tests add hosts via `securitytest`. Also `CheckOwnerOnly`,
-  the owner-only permission check the socket directory and PSK files share
+  the owner-only permission check the socket directory and PSK files share,
+  and `SanitizeText`, which strips control characters from network text
+  the daemon passes on to clients (ICY titles, song history, the catalog)
+  so nothing printed can carry a terminal escape sequence (ADR-0010)
 - `internal/lastfm` — Last.fm API 2.0 client (auth.getToken/getSession,
   track.updateNowPlaying/scrobble): POST form requests, the `api_sig` MD5
   signature, JSON responses and error decoding

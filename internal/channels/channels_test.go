@@ -152,6 +152,33 @@ func TestFetchChannelsFromNetwork(t *testing.T) {
 	assert.Equal(t, len(channels.Channels), len(cached.Channels))
 }
 
+func TestFetchChannelsFromNetwork_SanitizesText(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	SetCacheDir(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"channels":[{"id":"gs","title":"Groove\u001b[2J Salad",` +
+			`"description":"Line one\nline two","lastPlaying":"\u001b]0;x\u0007Song"}]}`))
+	}))
+	defer server.Close()
+
+	originalURL := SomaFMChannelsURL
+	SomaFMChannelsURL = server.URL
+	t.Cleanup(func() { SomaFMChannelsURL = originalURL })
+
+	channels, err := FetchChannelsFromNetwork("soma/test")
+	require.NoError(t, err)
+	ch := channels.Channels[0]
+	assert.Equal(t, "Groove[2J Salad", ch.Title)
+	assert.Equal(t, "Line one line two", ch.Description)
+	assert.Equal(t, "]0;xSong", ch.LastPlaying)
+
+	cached, err := PeekChannelsFromCache()
+	require.NoError(t, err)
+	assert.Equal(t, ch, cached.Channels[0], "the cache holds the cleaned catalog")
+}
+
 func TestFetchChannelsFromNetwork_ServerError(t *testing.T) {
 	securitytest.AllowTestHosts(t)
 	SetCacheDir(t)

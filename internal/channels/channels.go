@@ -39,6 +39,14 @@ type Channel struct {
 	Playlists   []Playlist `json:"playlists"`
 }
 
+// sanitize strips control characters from the fields clients print (see
+// security.SanitizeText).
+func (c *Channel) sanitize() {
+	for _, s := range []*string{&c.ID, &c.Title, &c.Description, &c.Genre, &c.Listeners, &c.LastPlaying} {
+		*s = security.SanitizeText(*s)
+	}
+}
+
 // Channels is a wrapper for the list of SomaFM channels.
 type Channels struct {
 	Channels []Channel `json:"channels"`
@@ -158,6 +166,11 @@ func FetchChannelsFromNetwork(userAgent string) (*Channels, error) {
 	// "still loading" until the next refresh happens to succeed.
 	if len(fetchedChannels.Channels) == 0 {
 		return nil, errors.New("network response contained no channels")
+	}
+	// Cleaned before caching, so shell completion, which reads the cache
+	// directly, never sees anything else.
+	for i := range fetchedChannels.Channels {
+		fetchedChannels.Channels[i].sanitize()
 	}
 
 	// Write to cache for future use

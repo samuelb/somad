@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"somad/internal/channels"
@@ -236,9 +237,10 @@ func fetchSongs(channelID, userAgent string) ([]historyEntry, error) {
 
 	entries := make([]historyEntry, 0, len(parsed.Songs))
 	for _, song := range parsed.Songs {
-		title := song.Title
-		if song.Artist != "" && song.Title != "" {
-			title = song.Artist + " - " + song.Title
+		artist := strings.TrimSpace(security.SanitizeText(song.Artist))
+		title := strings.TrimSpace(security.SanitizeText(song.Title))
+		if artist != "" && title != "" {
+			title = artist + " - " + title
 		}
 		if title == "" {
 			continue

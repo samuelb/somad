@@ -43,9 +43,13 @@ for remote control, listens on the network. The security model, in short:
   [ADR-0007](docs/adr/0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md)
   for what that trades away.
 - **Outbound HTTP** (channel catalog, playlists, streams) is restricted to
-  an allowlist of SomaFM hosts, with redirect targets re-validated against
+  an allowlist of SomaFM hosts (plus Last.fm's API host, https only, when
+  scrobbling is configured), with redirect targets re-validated against
   the same allowlist and response bodies capped, to close off SSRF-shaped
-  abuse of attacker-influenceable URLs. See
+  abuse of attacker-influenceable URLs. Text from those responses that
+  ends up on screen (stream titles, song history, channel names) has its
+  control characters stripped, so a tampered stream cannot send escape
+  sequences to the terminal. See
   [ADR-0010](docs/adr/0010-outbound-http-restricted-to-somafm.md).
 
 Read the ADRs above (and the rest of `docs/adr/`) for the full reasoning

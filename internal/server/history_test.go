@@ -284,6 +284,26 @@ func TestFetchSongs_EscapesChannelIDInURL(t *testing.T) {
 	assert.Equal(t, "/"+url.PathEscape(id)+".json", gotPath)
 }
 
+func TestFetchSongs_SanitizesTitles(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"songs":[
+			{"artist":"\u001b[2JArtist","title":"Song\u0007","date":"1000000000"},
+			{"artist":"Artist","title":"\u001b","date":"999999000"}
+		]}`))
+	}))
+	t.Cleanup(ts.Close)
+	prev := songsURLFormat
+	songsURLFormat = ts.URL + "/%s.json"
+	t.Cleanup(func() { songsURLFormat = prev })
+
+	entries, err := fetchSongs("groovesalad", "test-agent")
+
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "a title that is nothing but control characters is skipped")
+	assert.Equal(t, "[2JArtist - Song", entries[0].title)
+}
+
 func TestHistory_NoChannelIDNeverBackfills(t *testing.T) {
 	var hits atomic.Int32
 	s, _ := newTestServer(t, Config{})

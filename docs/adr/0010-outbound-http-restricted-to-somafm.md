@@ -1,7 +1,7 @@
 # ADR-0010: All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped
 
 - **Status:** Accepted
-- **Date:** 2026-02-18 (hardened through 2026-07-12; Last.fm allowlist entry 2026-09-03)
+- **Date:** 2026-02-18 (hardened through 2026-07-12; Last.fm allowlist entry 2026-09-03; displayed text sanitized 2026-10-13)
 - **Sources:** 8b9f5e4, cbdb7af, f2955b4, f1acbfa, 494330d, 04b1ad4, acdf2e5, 3a143ad; `internal/security/validation.go`, `securitytest/`
 
 ## Context
@@ -30,6 +30,13 @@ review flagged SSRF-shaped code paths.
   allowlist entry, not a widening" this ADR called for below. Unlike the
   SomaFM allowlist, it is https-only: there is no legacy plain-http stream
   URL to accommodate there, and the API carries session keys.
+- **2026-10-13:** text from these responses that clients print (ICY
+  titles, `songs.json` history, the catalog's names and descriptions)
+  passes through `security.SanitizeText` where the daemon takes it in:
+  line breaks become spaces, other control characters and invalid UTF-8
+  are dropped. Clients print what the daemon sends verbatim, so an escape
+  sequence injected into a plain-http stream would otherwise reach the
+  user's terminal. New sources of displayed text sanitize the same way.
 
 ## Consequences
 
@@ -38,7 +45,8 @@ review flagged SSRF-shaped code paths.
   did above.
 - Plain http means audio and ICY titles are MITM-able on hostile
   networks; since 5704e35 an https playlist or stream entry is preferred
-  wherever the catalog offers one.
+  wherever the catalog offers one. A forged title can mislead but not
+  control the terminal (see the 2026-10-13 entry above).
 
 ## Rejected alternatives
 

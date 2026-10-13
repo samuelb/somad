@@ -82,6 +82,12 @@ func TestParseICYMetadata(t *testing.T) {
 			want:    "Artist - A; B",
 			wantErr: false,
 		},
+		{
+			name:    "terminal escape sequences disarmed",
+			input:   "StreamTitle='\x1b]0;pwned\x07Artist - Song\x1b[2J\n';",
+			want:    "]0;pwnedArtist - Song[2J",
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

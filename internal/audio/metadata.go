@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"strings"
+
+	"somad/internal/security"
 )
 
 // TrackInfo represents the current track information from ICY metadata.
@@ -112,7 +114,7 @@ func parseICYMetadata(metaStr string) (TrackInfo, error) {
 	}
 
 	return TrackInfo{
-		Title: strings.TrimSpace(title),
+		Title: strings.TrimSpace(security.SanitizeText(title)),
 	}, nil
 }
 
