@@ -1255,6 +1255,25 @@ func TestStop_StaleGenerationIsIgnored(t *testing.T) {
 	require.Eventually(t, func() bool { return ctx.pauses.Load() == 1 }, time.Second, 10*time.Millisecond)
 }
 
+func TestReportError_OlderGenerationIsDropped(t *testing.T) {
+	p := newTestPlayer()
+	p.playGen = 2
+
+	// The previous channel, still fading out under its successor (its
+	// context is cancelled only once the fade ends), loses its stream.
+	p.reportError(context.Background(), 1, errors.New("old stream ended"))
+	p.reportError(context.Background(), 1, errors.New("old decoder failed"))
+	assert.Empty(t, p.errChan, "a superseded session must not take up the error slots")
+
+	p.reportError(context.Background(), 2, errors.New("new stream failed"))
+	select {
+	case err := <-p.errChan:
+		assert.EqualError(t, err, "new stream failed")
+	default:
+		t.Fatal("the current session's error was not delivered")
+	}
+}
+
 func TestReportError_CarriesGeneration(t *testing.T) {
 	p := newTestPlayer()
 	p.reportError(context.Background(), 7, errors.New("boom"))

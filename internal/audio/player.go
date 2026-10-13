@@ -868,12 +868,24 @@ func (p *AudioPlayer) Stop(gen uint64) {
 }
 
 // reportError publishes an asynchronous failure of the session started with
-// gen. Errors from cancelled (superseded) sessions are dropped.
+// gen. Errors from cancelled (superseded) sessions are dropped, and so are
+// those from a generation older than the newest Play or Stop, as in
+// reportTrack: a session fading out is cancelled only once its fade ends,
+// and its stream failing meanwhile would take up the slots its successor's
+// errors need. mu makes the check and the send one step. The decoder side
+// reports from oto's mixer goroutine, which holds none of oto's locks
+// while it reads; nothing holding mu waits on the mixer (fadeOutAndClose
+// takes the player out of it before taking mu), so this cannot deadlock.
 func (p *AudioPlayer) reportError(ctx context.Context, gen uint64, err error) {
 	if err == nil {
 		return
 	}
 	if ctx != nil && ctx.Err() != nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if gen < p.playGen {
 		return
 	}
 	// Non-blocking send: if the buffer is full the error is dropped rather than
