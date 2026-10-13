@@ -21,6 +21,10 @@ tests can all speak easily, and that a stateless UI can render from.
 - One `Write` call per line so concurrent writers never interleave partial
   lines. The line limit is 4 MiB because the channel catalog travels as one
   JSON line.
+- `Response.Error` is free text for people, with one exception
+  (2026-10-13): `protocol.ErrSuperseded`, the answer to a play a newer
+  play or stop overtook, is sent verbatim and returned as that sentinel by
+  the client, so the TUI can tell it from a real failure and stay silent.
 
 ## Consequences
 

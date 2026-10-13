@@ -115,6 +115,20 @@ func TestClient_CallCorrelation(t *testing.T) {
 	assert.ErrorContains(t, err, "unknown method")
 }
 
+func TestClient_SupersededPlayIsSentinel(t *testing.T) {
+	path := testSocketPath(t)
+	startFakeServer(t, path, func(req protocol.Request, send func(v any)) {
+		send(protocol.Response{ID: req.ID, Error: protocol.ErrSuperseded.Error()})
+	})
+
+	c, err := Dial(path)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	_, err = c.Play("groovesalad")
+	assert.ErrorIs(t, err, protocol.ErrSuperseded)
+}
+
 func TestClient_History(t *testing.T) {
 	path := testSocketPath(t)
 	startFakeServer(t, path, defaultHandler("dev"))

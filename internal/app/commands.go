@@ -127,9 +127,11 @@ type animTickMsg struct{}
 const opLoadChannels = "loading channels"
 
 // requestErr wraps a failed request as a RequestErrorMsg — except for
-// connection loss, which the event bridge already surfaces as ServerLostMsg.
+// connection loss, which the event bridge already surfaces as ServerLostMsg,
+// and a play overtaken by a newer play or stop (pressing s while a channel
+// tunes in), whose snapshot arrives as an event.
 func requestErr(op string, err error) tea.Msg {
-	if errors.Is(err, client.ErrDisconnected) {
+	if errors.Is(err, client.ErrDisconnected) || errors.Is(err, protocol.ErrSuperseded) {
 		return nil
 	}
 	return RequestErrorMsg{Op: op, Err: err}

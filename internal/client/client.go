@@ -298,6 +298,9 @@ func (c *Client) call(method string, params any, result any) error {
 		if !ok {
 			return ErrDisconnected
 		}
+		if resp.Error == protocol.ErrSuperseded.Error() {
+			return protocol.ErrSuperseded
+		}
 		if resp.Error != "" {
 			return errors.New(resp.Error)
 		}

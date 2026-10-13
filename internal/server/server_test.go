@@ -246,7 +246,7 @@ func TestPlay_StopDuringSucceedingCandidateDoesNotStartAudio(t *testing.T) {
 
 	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"})
 
-	assert.Contains(t, resp.Error, audio.ErrSuperseded.Error())
+	assert.Equal(t, protocol.ErrSuperseded.Error(), resp.Error, "clients recognize the exact text")
 	assert.Equal(t, protocol.StatusStopped, s.Snapshot().Status)
 	player.mu.Lock()
 	assert.Empty(t, player.playURLs, "no audio may start after the stop")

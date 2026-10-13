@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"somad/internal/client"
+	"somad/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,15 @@ func TestCommands_DisconnectedErrorLeftToServerLost(t *testing.T) {
 	assert.Nil(t, runCmd(m.stopCmd()))
 	assert.Nil(t, runCmd(m.setVolumeCmd(0.5)))
 	assert.Nil(t, runCmd(m.fetchChannels()))
+}
+
+func TestCommands_SupersededPlayStaysSilent(t *testing.T) {
+	m := newTestModel(t)
+	backend(m).callErr = protocol.ErrSuperseded
+
+	// Enter on a channel, then s while it tunes in: the stop's snapshot says
+	// what happened, so the overtaken play must not report "play failed".
+	assert.Nil(t, runCmd(m.playCmd("groovesalad")))
 }
 
 func TestUpdate_FirstChannelLoadFailureShowsErrorScreen(t *testing.T) {

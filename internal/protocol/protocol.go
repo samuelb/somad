@@ -4,11 +4,20 @@
 // Events carrying full state snapshots.
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // Version is the protocol version. A client and server must agree on it
 // exactly; bump it on any incompatible wire change.
 const Version = 2
+
+// ErrSuperseded is the Response.Error of a play-type request that a newer
+// play or stop overtook while it was still connecting. It is not a failure:
+// the newer request owns the playback state, and its snapshot follows as an
+// event.
+var ErrSuperseded = errors.New("playback superseded by a newer request")
 
 // Method names for Request.Method.
 const (

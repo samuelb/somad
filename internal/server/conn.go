@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"somad/internal/audio"
 	"somad/internal/protocol"
 )
 
@@ -427,6 +428,9 @@ func (c *conn) respond(id int64, result any) {
 }
 
 func (c *conn) respondError(id int64, err error) {
+	if errors.Is(err, audio.ErrSuperseded) {
+		err = protocol.ErrSuperseded // the exact text clients recognize
+	}
 	c.write(protocol.Response{ID: id, Error: err.Error()})
 }
 
