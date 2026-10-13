@@ -4,8 +4,6 @@
 [![Go Version](https://img.shields.io/badge/go-1.25-blue.svg)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**✨ This project was entirely vibe-coded. ✨**
-
 Website: [samuelb.github.io/somad](https://samuelb.github.io/somad/)
 
 Somad is a client for streaming and exploring SomaFM radio channels, with a
@@ -625,4 +623,4 @@ Homebrew tap.
 
 ---
 
-_This project is not affiliated with SomaFM. All content and station streams are provided by [somafm.com](https://somafm.com/)._
+_This project is not affiliated with SomaFM. All content and station streams are provided by [somafm.com](https://somafm.com/). It was vibe-coded._
