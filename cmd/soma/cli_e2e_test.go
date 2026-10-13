@@ -522,6 +522,19 @@ func TestRunHistory_NoEntries(t *testing.T) {
 	assert.Contains(t, out, "No history yet.")
 }
 
+func TestRunHistory_NoServerDoesNotSpawnOne(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "absent.sock")
+	setEndpoint(t, client.UnixEndpoint(socket))
+
+	out := captureStdout(t, func() { runHistory(nil) })
+	assert.Contains(t, out, "No history yet.")
+
+	out = captureStdout(t, func() { runHistory([]string{"--json"}) })
+	assert.JSONEq(t, "[]", out)
+
+	assert.NoFileExists(t, socket, "a fresh daemon has no history to show, so none may be spawned")
+}
+
 func TestRunHistory_ResolvesChannelAndPassesLimit(t *testing.T) {
 	d := startFakeDaemon(t)
 

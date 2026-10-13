@@ -802,7 +802,19 @@ func runHistory(args []string) {
 		fail("%v", err)
 	}
 
-	c := ensureServer()
+	// The history lives in the daemon's memory. Without a channel there is
+	// nothing to backfill from SomaFM, so a daemon spawned now would have
+	// nothing to show: say so instead of starting one that keeps running.
+	var c *client.Client
+	if len(rest) == 0 {
+		var running bool
+		if c, _, running = dialServer(); !running {
+			printHistory(jsonOut, []protocol.HistoryEntry{})
+			return
+		}
+	} else {
+		c = ensureServer()
+	}
 	defer func() { _ = c.Close() }()
 
 	var channelID string
@@ -819,6 +831,12 @@ func runHistory(args []string) {
 	if err != nil {
 		fail("%v", err)
 	}
+	printHistory(jsonOut, entries)
+}
+
+// printHistory prints entries as JSON with --json, else as formatHistory's
+// table.
+func printHistory(jsonOut bool, entries []protocol.HistoryEntry) {
 	if jsonOut {
 		printJSON(entries)
 		return
