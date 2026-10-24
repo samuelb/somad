@@ -215,7 +215,7 @@ check: lint test vet
 # vendor sync check, race tests gated at 60% total coverage, and a
 # vulnerability scan with the govulncheck version CI pins (keep the two in
 # step). Unlike CI, a sync failure leaves the tidied files in place to commit.
-GOVULNCHECK_VERSION=v1.7.0
+GOVULNCHECK_VERSION=v1.9.0
 .PHONY: ci
 ci: lint
 	@echo "Checking go.mod, go.sum and vendor/ are in sync..."
