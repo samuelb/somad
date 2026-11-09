@@ -21,6 +21,11 @@ on:
       - "demo.gif"
       - "demo.tape"
       - ".github/workflows/website.yml"
+  # Weekly as well: a vulnerability published against the pinned toolchain
+  # or a dependency, or a runner image that no longer builds the project,
+  # then fails here even when nothing was pushed (ADR-0025).
+  schedule:
+    - cron: "17 5 * * 1"
 
 # No job publishes anything; ADR-0027 gives non-publishing jobs read-only
 # tokens.

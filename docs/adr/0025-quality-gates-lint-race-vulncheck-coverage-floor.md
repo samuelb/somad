@@ -28,6 +28,10 @@ the `go.mod` floor toolchain, whose stdlib carried already-fixed CVEs.
     `go` directive; the `go` line stays the minimum for source builds.
     govulncheck runs against that pinned toolchain, so a standard-library
     fix it lacks fails CI and prompts the bump, and `check-latest` is gone.
+  - *Amendment 2026-11-09.* CI ran only on pushes and pull requests, and
+    skips pushes that touch nothing but docs or the website, so an advisory
+    published during a quiet spell went unseen until the next code change.
+    The workflow now also runs every Monday on a schedule.
 - Test speed is a design concern: fsync-heavy persistence is injectable so
   the suite runs in well under a second where it took 29 s.
 

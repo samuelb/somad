@@ -37,7 +37,8 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   frameworks.
 - lefthook (`lefthook.yml`) runs lint and race tests on pre-commit and
   pre-push. CI (`.github/workflows/ci.yml`) additionally runs `govulncheck`
-  and fails below 60 % total coverage on the Linux job.
+  and fails below 60 % total coverage on the Linux job. It also runs every
+  Monday on a schedule, so a new advisory fails it without a push.
   It skips pushes that touch only `site/`, `docs/`, Markdown, the demo
   recording, or the Website workflow (`paths-ignore`), so docs-only commits
   do not run the Go gates; keep that list in step with what feeds the build.
