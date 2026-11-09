@@ -165,6 +165,12 @@ type Server struct {
 	// spectrumRunning is true while spectrumLoop runs; see spectrum.go.
 	spectrumRunning bool
 
+	// stateRev is the revision of lastSnap, the last playback snapshot
+	// handed out (kept without its revision); snapshotLocked moves both on
+	// when the state has changed. See protocol.PlaybackState.Revision.
+	stateRev uint64
+	lastSnap protocol.PlaybackState
+
 	// mirrorRotation is which of a playlist's mirrors the next connect
 	// starts on (modulo how many there are): a committed stream leaves it
 	// at its own mirror and every scheduled reconnect moves it one on.
@@ -524,6 +530,16 @@ func (s *Server) snapshotLocked() protocol.PlaybackState {
 	if !s.stopAt.IsZero() {
 		ps.StopAt = s.stopAt.Format(time.RFC3339)
 	}
+	// Numbered here, against the last snapshot handed out, rather than
+	// wherever the state is changed: each snapshot then carries the
+	// revision of exactly the state it shows, and no change can be made
+	// without one. The first differs from the zero value, so a revision is
+	// never 0.
+	if ps != s.lastSnap {
+		s.lastSnap = ps
+		s.stateRev++
+	}
+	ps.Revision = s.stateRev
 	return ps
 }
 

@@ -28,6 +28,22 @@ type PlaybackState struct {
 	// StopAt is when a pending sleep-timer stop (armed by StopParams.In) will
 	// fire, as an RFC 3339 timestamp; empty when none is pending.
 	StopAt string `json:"stopAt,omitempty"`
+	// Revision orders the snapshots of one daemon process: it grows with
+	// every change of the state, so the snapshot with the lower revision
+	// shows the older state. A daemon counts from 1, and one that predates
+	// the field sends none, so 0 says nothing about order; see OlderThan.
+	Revision uint64 `json:"revision,omitempty"`
+}
+
+// OlderThan reports whether st is known to show an older state than held,
+// the snapshot a client has. Replies and events reach a client by different
+// paths, so the reply to a request can arrive after an event for a later
+// state, and a client that installed it would show the old state until the
+// next change. Snapshots without a revision (see Revision) are never older.
+// The comparison holds within one daemon process only: a client forgets
+// the revision it holds when it reconnects.
+func (st PlaybackState) OlderThan(held PlaybackState) bool {
+	return st.Revision != 0 && st.Revision < held.Revision
 }
 
 // ChannelsPayload carries the full channel catalog together with the

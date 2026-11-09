@@ -794,6 +794,92 @@ func TestUpdate_ServerStateMsg_AppliesSnapshot(t *testing.T) {
 	assert.Empty(t, m.PlayingID, "the playing marker only shows for actually playing channels")
 }
 
+// The reply to a request can arrive after an event for a later state: a
+// volume change answers once it is saved, and a title change broadcast
+// meanwhile gets here first. The reply must not put the old title back.
+func TestUpdate_ServerStateMsg_OlderRevisionDoesNotReplaceANewerOne(t *testing.T) {
+	m := newTestModel(t)
+	event := protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", TrackTitle: "New - Song", Volume: 0.5, Revision: 8}
+	reply := protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", TrackTitle: "Old - Song", Volume: 0.5, Revision: 7}
+
+	m.Update(ServerStateMsg{State: event})
+	m.Update(ServerStateMsg{State: reply})
+
+	assert.Equal(t, event, m.Snapshot)
+
+	next := event
+	next.TrackTitle, next.Revision = "Next - Song", 9
+	m.Update(ServerStateMsg{State: next})
+	assert.Equal(t, "Next - Song", m.Snapshot.TrackTitle, "a newer one still applies")
+}
+
+// The same race through the volume keys, whose reply takes its own path
+// into the model.
+func TestUpdate_VolumeReplyOlderThanTheSnapshotIsDropped(t *testing.T) {
+	m := newTestModel(t)
+	backend(m).status = protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", TrackTitle: "Old - Song", Volume: 1, Revision: 7}
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}})
+	reply := cmd() // answered for revision 7, but an event overtakes it
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", TrackTitle: "New - Song", Volume: 0.95, Revision: 8,
+	}})
+	m.Update(reply)
+
+	assert.Equal(t, "New - Song", m.Snapshot.TrackTitle)
+	assert.False(t, m.volumeBusy, "the reply still ends the volume change")
+}
+
+// A daemon that predates revisions sends none, and its snapshots apply in
+// the order they arrive, as they always did.
+func TestUpdate_ServerStateMsg_WithoutRevisionAlwaysApplies(t *testing.T) {
+	m := newTestModel(t)
+	titled := func(title string) ServerStateMsg {
+		return ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", TrackTitle: title, Volume: 1}}
+	}
+
+	m.Update(titled("First"))
+	m.Update(titled("Second"))
+	assert.Equal(t, "Second", m.Snapshot.TrackTitle)
+
+	m.Snapshot.Revision = 5
+	m.Update(titled("Third"))
+	assert.Equal(t, "Third", m.Snapshot.TrackTitle, "0 is no revision, not the oldest one")
+}
+
+// A reconnect may reach a new daemon process, which counts from 1 again.
+func TestUpdate_ServerReconnected_ForgetsTheHeldRevision(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1, Revision: 500}})
+
+	fresh := newFakeBackend()
+	fresh.status.Revision = 1
+	m.Update(ServerLostMsg{})
+	_, cmd := m.Update(ServerReconnectedMsg{Backend: fresh})
+	m.Update(msgOf[ServerStateMsg](t, cmd))
+
+	assert.Equal(t, protocol.StatusStopped, m.Snapshot.Status)
+	assert.Equal(t, uint64(1), m.Snapshot.Revision)
+}
+
+// A reply the old daemon gave but the model only gets after the reconnect
+// carries a revision the new daemon will not reach for a long time. Taken
+// in, it would shut out every snapshot the new one sends.
+func TestUpdate_ServerStateMsg_ReplyFromAReplacedBackendIsDropped(t *testing.T) {
+	m := newTestModel(t)
+	backend(m).status = protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1, Revision: 500}
+	late := m.fetchStatus()() // answered by the old daemon, not delivered yet
+
+	fresh := newFakeBackend()
+	fresh.status.Revision = 1
+	_, cmd := m.Update(ServerReconnectedMsg{Backend: fresh})
+	m.Update(late)
+	m.Update(msgOf[ServerStateMsg](t, cmd))
+
+	assert.Equal(t, protocol.StatusStopped, m.Snapshot.Status)
+	assert.Equal(t, uint64(1), m.Snapshot.Revision)
+}
+
 // sleepTimerState returns a playing snapshot with a sleep timer due in d.
 func sleepTimerState(d time.Duration) ServerStateMsg {
 	return ServerStateMsg{State: protocol.PlaybackState{

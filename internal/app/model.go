@@ -227,8 +227,15 @@ func (m *Model) playingOrConnecting(id string) bool {
 }
 
 // applySnapshot installs a playback snapshot and derives the delegate's
-// playing marker from it.
+// playing marker from it. A snapshot older than the one held is dropped
+// whole: a reply can arrive after an event for a later state (a volume
+// change answers once it is saved, and a title change broadcast meanwhile
+// gets here first), and installing it showed the old title until the next
+// change, often the rest of the track.
 func (m *Model) applySnapshot(st protocol.PlaybackState) {
+	if st.OlderThan(m.Snapshot) {
+		return
+	}
 	m.Snapshot = st
 	m.RequestErr = ""
 	m.requestedID = ""

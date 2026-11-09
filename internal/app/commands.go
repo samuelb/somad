@@ -40,9 +40,13 @@ type Backend interface {
 }
 
 // ServerStateMsg carries a playback snapshot, either pushed by the server or
-// returned by a request. Snapshots are authoritative and idempotent.
+// returned by a request. Snapshots are authoritative and idempotent, and
+// ordered by their revision (applySnapshot).
 type ServerStateMsg struct {
 	State protocol.PlaybackState
+	// from is the backend that answered, when the snapshot is a reply; nil
+	// for a pushed event, which the bridge never delivers after a reconnect.
+	from Backend
 }
 
 // ServerChannelsMsg carries the channel catalog with favorites and the
@@ -147,7 +151,7 @@ func (m *Model) stateCmd(op string, call func(Backend) (protocol.PlaybackState, 
 		if err != nil {
 			return requestErr(op, err)
 		}
-		return ServerStateMsg{State: st}
+		return ServerStateMsg{State: st, from: b}
 	}
 }
 
@@ -222,9 +226,10 @@ func (m *Model) stopCmd() tea.Cmd {
 
 // volumeSetMsg is the reply to a volume change sent by sendVolume.
 type volumeSetMsg struct {
-	volume float64 // what it asked for
-	state  protocol.PlaybackState
-	err    error
+	backend Backend // that answered
+	volume  float64 // what it asked for
+	state   protocol.PlaybackState
+	err     error
 }
 
 // stepVolume moves the volume by delta, from where earlier presses still in
@@ -253,7 +258,7 @@ func (m *Model) sendVolume() tea.Cmd {
 	b, v := m.Backend, m.volumeTarget
 	return func() tea.Msg {
 		st, err := b.SetVolume(v)
-		return volumeSetMsg{volume: v, state: st, err: err}
+		return volumeSetMsg{backend: b, volume: v, state: st, err: err}
 	}
 }
 
@@ -269,7 +274,7 @@ func (m *Model) volumeSet(msg volumeSetMsg) tea.Cmd {
 		}
 		return nil
 	}
-	cmd := m.update(ServerStateMsg{State: msg.state})
+	cmd := m.update(ServerStateMsg{State: msg.state, from: msg.backend})
 	if m.volumeTarget != msg.volume {
 		return tea.Batch(cmd, m.sendVolume())
 	}

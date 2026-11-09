@@ -203,7 +203,11 @@ domain socket (`SocketPath()` in `socket.go`) or, when configured, TCP with
 optional TLS and pre-shared-key auth. Clients send `Request`s; the server
 replies with ID-correlated `Response`s and pushes `Event`s carrying full
 state snapshots (spectrum events, to subscribers only, carry a frame of
-levels instead). `auth.go` holds the HMAC challenge–response used for PSK
+levels instead). A playback snapshot carries a `Revision` that grows with
+every change of the state (`snapshotLocked` in `internal/server`), because
+a reply can reach a client after an event for a later state; a client drops
+a snapshot older than the one it holds (`PlaybackState.OlderThan`).
+`auth.go` holds the HMAC challenge–response used for PSK
 auth on TCP only; the Unix socket is guarded by file permissions.
 
 **Daemon** (`internal/server`): owns audio playback, the channel catalog,
@@ -254,7 +258,9 @@ running as another user is refused with `ErrForeignDaemon` (ADR-0007).
 
 **TUI** (`internal/app` + `internal/ui`): Bubble Tea Elm architecture
 (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no
-playback state; it renders the latest server snapshot and sends commands
+playback state; it renders the latest server snapshot (by revision:
+`applySnapshot` drops an older one, and `applyReconnect` forgets the
+revision held, since a new daemon counts afresh) and sends commands
 through its `Backend` interface (`commands.go`). `internal/ui` has the list
 delegate, the lipgloss styles, and the widgets the view is built from
 (`widgets.go`: `Card`, the spinner, the volume gauge, `ShortHelp`). One

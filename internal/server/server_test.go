@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -711,6 +712,57 @@ func TestSetVolume_ClampsAndPersists(t *testing.T) {
 	persisted, err := state.LoadState()
 	require.NoError(t, err)
 	assert.InDelta(t, 0.4, persisted.GetVolume(), 1e-9)
+}
+
+func TestSnapshot_RevisionGrowsWithTheState(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+
+	first := s.Snapshot()
+	require.NotZero(t, first.Revision, "0 is what a daemon without revisions sends")
+	assert.Equal(t, first.Revision, s.Snapshot().Revision, "the same state keeps its revision")
+
+	quieter := s.SetVolume(0.5)
+	assert.Greater(t, quieter.Revision, first.Revision)
+	playing, err := s.Play("groovesalad")
+	require.NoError(t, err)
+	assert.Greater(t, playing.Revision, quieter.Revision)
+	assert.Equal(t, playing, s.Snapshot())
+	stopped := s.Stop()
+	assert.Greater(t, stopped.Revision, playing.Revision)
+}
+
+// A volume change answers only once it is saved. A title change broadcast
+// meanwhile reaches the client first, and the reply that follows shows the
+// state before it: its revision has to say so.
+func TestSetVolume_ReplyOvertakenByAnEventHasTheOlderRevision(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	var block atomic.Bool
+	saving, release := make(chan struct{}, 1), make(chan struct{})
+	s.persist = func(*state.State) error {
+		if block.Load() {
+			saving <- struct{}{}
+			<-release
+		}
+		return nil
+	}
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	player.trackChan <- audio.TrackInfo{Title: "Old - Song", Gen: player.currentGen()}
+	c.waitState("old title", func(st protocol.PlaybackState) bool { return st.TrackTitle == "Old - Song" })
+
+	block.Store(true)
+	reply := make(chan protocol.Response, 1)
+	go func() { reply <- c.call(protocol.MethodSetVolume, protocol.SetVolumeParams{Volume: 0.5}) }()
+	<-saving // the volume is set and broadcast; the reply waits for the save
+	player.trackChan <- audio.TrackInfo{Title: "New - Song", Gen: player.currentGen()}
+	event := c.waitState("new title", func(st protocol.PlaybackState) bool { return st.TrackTitle == "New - Song" })
+	close(release)
+	answer := decodeState(t, <-reply)
+
+	assert.Equal(t, "Old - Song", answer.TrackTitle, "the reply shows the state the request left")
+	assert.Less(t, answer.Revision, event.Revision, "so it must be told apart from the newer event")
 }
 
 // TestSetVolume_NonFiniteIsClamped covers MPRIS, whose D-Bus doubles can

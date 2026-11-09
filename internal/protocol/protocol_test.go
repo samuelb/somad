@@ -52,6 +52,26 @@ func TestServerMessage_DemuxResponse(t *testing.T) {
 	assert.InDelta(t, 0.8, st.Volume, 1e-9)
 }
 
+func TestPlaybackState_OlderThan(t *testing.T) {
+	at := func(revision uint64) PlaybackState { return PlaybackState{Revision: revision} }
+
+	assert.True(t, at(7).OlderThan(at(8)))
+	assert.False(t, at(8).OlderThan(at(8)), "the same state")
+	assert.False(t, at(9).OlderThan(at(8)))
+	assert.False(t, at(0).OlderThan(at(8)), "a daemon without revisions sends 0, which is not the oldest revision")
+	assert.False(t, at(7).OlderThan(at(0)), "nothing held to be older than")
+}
+
+func TestPlaybackState_NoRevisionIsLeftOutOfTheJSON(t *testing.T) {
+	out, err := json.Marshal(PlaybackState{Status: StatusStopped, Volume: 1})
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), "revision")
+
+	var st PlaybackState
+	require.NoError(t, json.Unmarshal([]byte(`{"status":"stopped","volume":1}`), &st))
+	assert.Zero(t, st.Revision, "what a daemon that predates the field sends")
+}
+
 func TestServerMessage_DemuxEvent(t *testing.T) {
 	var buf bytes.Buffer
 	data, err := json.Marshal(PlaybackState{Status: StatusStopped, Volume: 1})

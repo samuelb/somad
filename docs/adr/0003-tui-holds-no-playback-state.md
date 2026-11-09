@@ -1,6 +1,6 @@
 # ADR-0003: The TUI holds no playback state of its own
 
-- **Status:** Accepted (amended 2026-10-13: requests in flight may leave a note)
+- **Status:** Accepted (amended 2026-10-13: requests in flight may leave a note; amended 2026-11-09: the latest snapshot is the one with the highest revision)
 - **Date:** 2026-07-05
 - **Sources:** 95fb723, f9445e6; `internal/app/model.go`, `commands.go`
 
@@ -22,6 +22,11 @@ playing.
   all from the snapshot, which over a slow link lost most of them. The
   volume goes one change at a time, since the daemon may handle a
   connection's requests out of order (ADR-0018).
+  - *Amendment 2026-11-09.* The latest snapshot is the one with the
+    highest revision, not the last to arrive: `applySnapshot` drops one
+    older than the snapshot it holds, since a reply can come in after an
+    event for a later state (ADR-0002). The revision is forgotten on a
+    reconnect, and a reply from the connection it replaced is not taken.
 - All blocking work happens in the daemon. Play and stop are asynchronous
   from the UI's point of view; the last user action wins via generation
   counters (ADR-0014).

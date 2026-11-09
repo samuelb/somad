@@ -49,6 +49,13 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.updateMouse(msg)
 
 	case ServerStateMsg:
+		if msg.from != nil && msg.from != m.Backend {
+			// Answered over a connection a reconnect has replaced since,
+			// maybe by a daemon that is gone: its revision says nothing
+			// here, and a high one would shut out the new daemon's
+			// snapshots. The reconnect asks for the state afresh.
+			return nil
+		}
 		m.applySnapshot(msg.State)
 		return tea.Batch(m.syncSleepTick(), m.syncAnim())
 
@@ -307,6 +314,9 @@ func (m *Model) applyReconnect(msg ServerReconnectedMsg) tea.Cmd {
 	m.ServerLost = false
 	m.Backend = msg.Backend
 	m.ServerVersion = msg.ServerVersion
+	// It may be a new daemon process, whose revisions start over: measured
+	// against the one held, its snapshots would all look old.
+	m.Snapshot.Revision = 0
 	m.vizBands = 0 // a new connection starts unsubscribed
 	resubscribe := m.syncSpectrum()
 	// A channel change queued before a version-upgrade restart plays now
