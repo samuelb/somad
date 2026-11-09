@@ -54,6 +54,15 @@ it. No release artifact carried build provenance.
     failure in any of those no longer leaves an orphan tag that blocks both
     a re-run and a fresh dispatch. The tag step is idempotent: a re-run
     finds its own tag at the release commit and carries on.
+  - *Amendment 2026-11-09.* `verify` ran on Linux only, so the darwin-only
+    code (the AAC decoder, peer credentials, the tray) went into a release
+    untested whenever the dispatched commit's CI run had failed or been
+    skipped; a `verify-macos` job now runs the tests there, and `prepare`
+    needs both. Each build job also runs the binary it built (`soma
+    version`) and stops the release unless it reports the tag. That check
+    lives in the build jobs because their token is read-only: the `release`
+    job can mint an OIDC token, so nothing built from vendored code runs
+    there.
 
 ## Consequences
 

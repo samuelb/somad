@@ -57,10 +57,30 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
 
+  # The AAC decoder, the peer-credential check and the tray have darwin-only
+  # code that the Linux run above never compiles, and a release can be
+  # dispatched on a commit whose CI run failed or was skipped.
+  verify-macos:
+    name: Verify (macOS)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test -v -race ./...
+
   # ---------------------------------------------------------------- Prepare
   prepare:
     name: Prepare release
-    needs: verify
+    needs: [verify, verify-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -168,6 +188,20 @@ jobs:
         run: |
           go build -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.tag }} -X main.commit=${RELEASE_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o soma_${{ matrix.goos }}_${{ matrix.goarch }} ./cmd/soma
 
+      - name: Smoke-test the binary
+        # A binary that does not start, or that is stamped with anything but
+        # the tag, stops the release here, before it is packaged. This job's
+        # token is read-only, unlike the publishing job's (ADR-0027).
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          out="$(./soma_${{ matrix.goos }}_${{ matrix.goarch }} version)"
+          echo "$out"
+          case "$out" in
+            "soma $TAG "*) ;;
+            *) echo "::error::expected the binary to report version $TAG"; exit 1 ;;
+          esac
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: soma-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -211,6 +245,20 @@ jobs:
           mkdir -p dist
           lipo -create -output dist/soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
           lipo -info dist/soma_darwin_universal
+
+      - name: Smoke-test the binary
+        # As in the Linux job. The runner executes the arm64 slice; the
+        # amd64 one is only checked for being present.
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          lipo dist/soma_darwin_universal -verify_arch x86_64 arm64
+          out="$(dist/soma_darwin_universal version)"
+          echo "$out"
+          case "$out" in
+            "soma $TAG "*) ;;
+            *) echo "::error::expected the binary to report version $TAG"; exit 1 ;;
+          esac
 
       - name: Import the Developer ID certificate
         if: env.HAS_SIGNING == 'true'
