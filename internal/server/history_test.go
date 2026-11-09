@@ -80,6 +80,72 @@ func TestHistory_SkipsDuplicateOfLastEntry(t *testing.T) {
 	assert.Equal(t, 1, entries, "a repeated title must not be recorded twice in a row")
 }
 
+// channelHistory returns the history the daemon reports for channelID,
+// newest first.
+func channelHistory(t *testing.T, c *tclient, channelID string) []string {
+	t.Helper()
+	resp := c.call(protocol.MethodHistory, protocol.HistoryParams{ChannelID: channelID})
+	require.Empty(t, resp.Error)
+	var result protocol.HistoryResult
+	require.NoError(t, json.Unmarshal(resp.Result, &result))
+	titles := make([]string, len(result.Entries))
+	for i, e := range result.Entries {
+		titles[i] = e.Title
+	}
+	return titles
+}
+
+// Switching to another channel and back reconnects, and the stream reports
+// the song that is still running there once more. It is one play.
+func TestHistory_ChannelRoundTripDoesNotListThePlayTwice(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+	play := func(channelID, title string) {
+		t.Helper()
+		decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: channelID}))
+		pushTitle(t, player, c, title)
+	}
+
+	play("groovesalad", "Boards of Canada - Dayvan Cowboy")
+	play("dronezone", "Stars of the Lid - Requiem for Dying Mothers")
+	play("groovesalad", "Boards of Canada - Dayvan Cowboy")
+
+	assert.Equal(t, []string{"Boards of Canada - Dayvan Cowboy"}, channelHistory(t, c, "groovesalad"))
+
+	// The next song there is listed as usual, and so is the first one when
+	// it comes round again after something else.
+	pushTitle(t, player, c, "Tycho - A Walk")
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	assert.Equal(t, []string{
+		"Boards of Canada - Dayvan Cowboy",
+		"Tycho - A Walk",
+		"Boards of Canada - Dayvan Cowboy",
+	}, channelHistory(t, c, "groovesalad"))
+}
+
+// The same title on the same channel much later is the song played again,
+// not the play that was interrupted.
+func TestHistory_SameTitleMuchLaterIsANewEntry(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	go s.watchTrackUpdates()
+	c := connect(t, s)
+	c.hello()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+	decodeState(t, c.call(protocol.MethodStop, nil))
+	s.mu.Lock()
+	s.history[0].time = time.Now().Add(-lastfmSameTrackWindow)
+	s.mu.Unlock()
+
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	pushTitle(t, player, c, "Boards of Canada - Dayvan Cowboy")
+
+	assert.Len(t, channelHistory(t, c, "groovesalad"), 2)
+}
+
 func TestHistory_FiltersByChannel(t *testing.T) {
 	s, player := newTestServer(t, Config{})
 	go s.watchTrackUpdates()

@@ -46,7 +46,8 @@ var lastfmShutdownWait = 3 * time.Second
 // counts as the same play (see lastfmTrack). Radio tracks rarely run past
 // an hour; two hours leaves room for the longest ambient sets while a
 // genuine replay of the same track later in the day is still scrobbled
-// again. A variable so tests can shrink it.
+// again. The history ring tells one play from two the same way
+// (recordHistoryLocked). A variable so tests can shrink it.
 var lastfmSameTrackWindow = 2 * time.Hour
 
 // lastfmTrack is one play of a track on a channel, from when its title was

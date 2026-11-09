@@ -35,18 +35,28 @@ type historyEntry struct {
 	time         time.Time
 }
 
-// recordHistoryLocked appends a title change to the ring, skipping an exact
-// repeat of the last entry (ICY metadata sometimes resends the same title,
-// e.g. across a reconnect). Caller holds s.mu.
+// recordHistoryLocked appends a title change to the ring, unless it is the
+// play the ring already lists last for that channel: every fresh connection
+// reports the title of the song still running, so a reconnect, an unpause,
+// or a switch to another channel and back would list one play twice. Only
+// the channel's own last entry counts (comparing with the last entry of all
+// missed the round trip, where the other channel's titles lie in between),
+// and only within lastfmSameTrackWindow of when it was first seen, the same
+// rule that keeps such a play from being scrobbled twice: later than that
+// it is the song played again. Caller holds s.mu.
 func (s *Server) recordHistoryLocked(channelID, channelTitle, title string) {
 	if title == "" {
 		return
 	}
-	if n := len(s.history); n > 0 {
-		last := s.history[n-1]
-		if last.channelID == channelID && last.title == title {
+	for i := len(s.history) - 1; i >= 0; i-- {
+		last := s.history[i]
+		if last.channelID != channelID {
+			continue
+		}
+		if last.title == title && time.Since(last.time) < lastfmSameTrackWindow {
 			return
 		}
+		break
 	}
 	s.history = append(s.history, historyEntry{
 		channelID:    channelID,

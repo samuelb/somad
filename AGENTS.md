@@ -223,7 +223,10 @@ ends a connection at its first line that is not a JSON request, so an HTTP
 request from a browser cannot carry requests in (ADR-0007).
 `history.go` keeps an in-memory ring (default 50) of now-playing titles
 across the daemon's lifetime, appended on every ICY title change
-(`handleTrackUpdate` in `playback.go`); a `history` request for one channel
+(`handleTrackUpdate` in `playback.go`), except a title that is already the
+channel's last entry and comes again within `lastfmSameTrackWindow` (a
+reconnect, unpause, or channel round trip re-reports the song still
+running); a `history` request for one channel
 backfills short results from `https://somafm.com/songs/<channel>.json`
 (cached a few minutes per channel), best-effort — a failed backfill never
 fails the request. `lastfm.go` (opt-in, `Config.Scrobbler`) sends a Last.fm
