@@ -135,7 +135,9 @@ or after its arguments (`parseFlags`); a command line soma cannot parse
 exits 2 (`failUsage`), a command that ran and failed 1 (`fail`). `stop` also takes `--in <duration>` (arm
 a sleep timer instead of stopping now, replacing any timer already
 pending) and `--cancel` (drop a pending timer without stopping); the two are
-mutually exclusive.
+mutually exclusive. The daemon's timer goes by the wall clock as well as its
+own (`armStopTimerLocked` in `internal/server/playback.go`), so a suspend
+does not postpone the stop.
 
 **Environment**: `SOMAD_SOCKET` (socket path), `SOMAD_SERVER` (host:port,
 like `--server`), `XDG_CONFIG_HOME` / `XDG_STATE_HOME` / `XDG_CACHE_HOME`

@@ -188,8 +188,9 @@ type Server struct {
 	connectErr   error
 	connectTitle string
 
-	// stopTimer is the pending sleep-timer stop armed by StopIn, if any;
-	// stopAt is when it will fire (zero when none is pending). stopGen is
+	// stopTimer is the pending sleep-timer stop armed by StopIn, if any
+	// (re-armed every sleepTimerCheck, see armStopTimerLocked); stopAt is
+	// when playback stops (zero when none is pending). stopGen is
 	// bumped whenever the pending timer is armed or canceled, so a timer
 	// that already fired its AfterFunc backs out instead of stopping a
 	// session it no longer owns.

@@ -462,6 +462,69 @@ func TestStopIn_FiresAfterDelayWithoutStoppingNow(t *testing.T) {
 	player.mu.Unlock()
 }
 
+// suspendPastSleepTimer leaves the server as a suspend that outlasted its
+// sleep timer does: the timer still has its time to run, since timers stand
+// still while the machine sleeps, but the time it was set for has passed.
+func suspendPastSleepTimer(s *Server) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopAt = time.Now().Add(-time.Minute).Round(0)
+}
+
+func TestStopIn_PastItsTimeAtAReconnectStopsInsteadOfReconnecting(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	drop, reconnect := manualReconnects(t, s, "dronezone")
+	_, err := s.Play("dronezone")
+	require.NoError(t, err)
+	s.StopIn(time.Hour)
+
+	// The lid closes, and opens again after the hour: the stream is gone.
+	suspendPastSleepTimer(s)
+	drop()
+	reconnect()
+
+	snap := s.Snapshot()
+	assert.Equal(t, protocol.StatusStopped, snap.Status, "the music must not come back after the time shown")
+	assert.Empty(t, snap.StopAt)
+	assert.Len(t, player.attemptedURLs(), 1, "no reconnect")
+}
+
+func TestStopIn_GoesByTheWallClockWhileItWaits(t *testing.T) {
+	prev := sleepTimerCheck
+	sleepTimerCheck = 10 * time.Millisecond
+	t.Cleanup(func() { sleepTimerCheck = prev })
+	s, _ := newTestServer(t, Config{})
+	c := connect(t, s)
+	c.hello()
+	decodeState(t, c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"}))
+	decodeState(t, c.call(protocol.MethodStop, protocol.StopParams{In: "1h"}))
+
+	// A suspend the stream survived, so that nothing reconnects: the timer
+	// has to notice by itself that its time has passed.
+	suspendPastSleepTimer(s)
+
+	c.waitState("stopped by the sleep timer", func(st protocol.PlaybackState) bool {
+		return st.Status == protocol.StatusStopped
+	})
+}
+
+func TestStopIn_LongTimerKeepsWaiting(t *testing.T) {
+	prev := sleepTimerCheck
+	sleepTimerCheck = 5 * time.Millisecond
+	t.Cleanup(func() { sleepTimerCheck = prev })
+	s, _ := newTestServer(t, Config{})
+	_, err := s.Play("groovesalad")
+	require.NoError(t, err)
+
+	// Longer than the interval between looks at the clock: none of them
+	// may stop playback early, and the stop still comes at its time.
+	s.StopIn(60 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+	assert.Equal(t, protocol.StatusPlaying, s.Snapshot().Status)
+	require.Eventually(t, func() bool { return s.Snapshot().Status == protocol.StatusStopped },
+		2*time.Second, 5*time.Millisecond)
+}
+
 func TestStopIn_ExplicitStopCancelsPendingTimer(t *testing.T) {
 	s, _ := newTestServer(t, Config{})
 	c := connect(t, s)

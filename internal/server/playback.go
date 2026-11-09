@@ -123,6 +123,14 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 		// landing in that gap was overridden and playback restarted.
 		return nil, s.snapshotLocked(), nil
 	}
+	if !userInitiated && s.sleepTimerDueLocked() {
+		// The sleep timer's time has passed, but its timer has not got
+		// there yet: the machine was suspended meanwhile (see
+		// armStopTimerLocked). Waking up drops the stream, which makes
+		// this reconnect the first thing to run, so stop here rather than
+		// bring the music back for the timer to end a moment later.
+		return nil, s.stopLocked(), nil
+	}
 	ch, ok := s.findChannelLocked(channelID)
 	if !ok {
 		err := fmt.Errorf("unknown channel: %s", channelID)
@@ -472,8 +480,9 @@ func (s *Server) Stop() protocol.PlaybackState {
 }
 
 // stopLocked is Stop's implementation, for callers that already hold s.mu
-// (namely the StopIn sleep-timer callback, which must check stopGen and act
-// on it in the same critical section — see StopIn). Caller holds s.mu.
+// (the sleep-timer callback, which must check stopGen and act on it in the
+// same critical section — see armStopTimerLocked — and a reconnect that
+// finds the sleep timer's time has passed). Caller holds s.mu.
 func (s *Server) stopLocked() protocol.PlaybackState {
 	gen := s.abandonSessionLocked(true)
 	s.player.Stop(gen)
@@ -506,6 +515,11 @@ func (s *Server) abandonSessionLocked(cancelSleepTimer bool) uint64 {
 	return s.playGen
 }
 
+// sleepTimerCheck is the longest a pending sleep timer waits before it
+// looks at the clock again; see armStopTimerLocked. A variable so tests can
+// shrink it.
+var sleepTimerCheck = 10 * time.Second
+
 // StopIn arms (or replaces) a sleep timer that stops playback after d. It
 // does not stop now — a play already underway, or one started before the
 // timer fires, keeps playing until it does; that is the point of a sleep
@@ -515,9 +529,22 @@ func (s *Server) StopIn(d time.Duration) protocol.PlaybackState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cancelStopTimerLocked()
-	gen := s.stopGen
 	s.stopAt = time.Now().Add(d)
-	s.stopTimer = time.AfterFunc(d, func() {
+	s.armStopTimerLocked()
+	return s.broadcastStateLocked()
+}
+
+// armStopTimerLocked starts the timer for the pending sleep-timer stop, or
+// for the next stretch of a long one. A Go timer runs on the monotonic
+// clock, which stands still while the machine is suspended: one armed for
+// the whole duration fired that much late, long after the time shown to the
+// user (stopAt, as wall-clock time) had passed. So it never waits longer
+// than sleepTimerCheck before it compares both clocks again, which bounds
+// how far past its time the music can play after a wake-up. Caller holds
+// s.mu.
+func (s *Server) armStopTimerLocked() {
+	gen := s.stopGen
+	s.stopTimer = time.AfterFunc(min(sleepTimerLeft(s.stopAt), sleepTimerCheck), func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		// The stale check and the stop happen in one critical section: were
@@ -528,9 +555,27 @@ func (s *Server) StopIn(d time.Duration) protocol.PlaybackState {
 		if s.stopGen != gen {
 			return
 		}
+		if !s.sleepTimerDueLocked() {
+			s.armStopTimerLocked()
+			return
+		}
 		s.stopLocked()
 	})
-	return s.broadcastStateLocked()
+}
+
+// sleepTimerDueLocked reports whether a sleep timer is pending and its time
+// has come. Caller holds s.mu.
+func (s *Server) sleepTimerDueLocked() bool {
+	return !s.stopAt.IsZero() && sleepTimerLeft(s.stopAt) <= 0
+}
+
+// sleepTimerLeft is how long a sleep timer set for at still has to run: the
+// shorter of what the monotonic clock says (the time the daemon was awake
+// since) and what the wall clock says (Round(0) strips the monotonic
+// reading, so the difference is taken on the wall). The two differ after a
+// suspend, and after the wall clock was set.
+func sleepTimerLeft(at time.Time) time.Duration {
+	return min(time.Until(at), at.Round(0).Sub(time.Now().Round(0)))
 }
 
 // CancelPendingStop cancels a pending sleep-timer stop without stopping
