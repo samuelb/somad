@@ -291,8 +291,10 @@ changes must keep `nowPlayingIndex` and `cardContentX` in step.
   `aac_other.go`; AAC-LC, HE-AAC and HE-AAC v2, told apart by the system
   ADTS parser since only the payload signals SBR and parametric stereo),
   format preference in `PreferredFormats`, ICY metadata, jitter buffer,
-  stall watchdog, reconnection; `spectrum.go` taps the decoded PCM and
-  runs the visualizer's FFT
+  stall watchdog, reconnection; a device oto reports as failed for good
+  is `ErrAudioDeviceLost`, which the playing session reports, `Play`
+  returns before connecting, and `DeviceErr` keeps (ADR-0017);
+  `spectrum.go` taps the decoded PCM and runs the visualizer's FFT
 - `internal/channels` — SomaFM catalog fetch/cache, selection by ID or name
 - `internal/state` — persisted user state; atomic writes, corrupt-file
   quarantine; `lastfm.go` persists the Last.fm session key the same way, in

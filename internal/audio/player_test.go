@@ -45,6 +45,7 @@ func newTestPlayer() *AudioPlayer {
 		connectTimeout: streamConnectTimeout,
 		prefillWait:    streamBufferPrefillWait,
 		readyTimeout:   audioReadyTimeout,
+		devicePoll:     devicePollInterval,
 	}
 }
 
@@ -121,6 +122,9 @@ type fakeAudioContext struct {
 
 	mu        sync.Mutex
 	resumeErr error
+	// fatal is the context's fatal error once fail has set one: Err returns
+	// it from then on, and Suspend and Resume fail with it, as oto's do.
+	fatal error
 }
 
 func (c *fakeAudioContext) NewPlayer(r io.Reader) outputPlayer {
@@ -138,17 +142,31 @@ func (c *fakeAudioContext) NewPlayer(r io.Reader) outputPlayer {
 
 func (c *fakeAudioContext) Suspend() error {
 	c.suspends.Add(1)
-	return nil
+	return c.Err()
 }
 
 func (c *fakeAudioContext) Resume() error {
 	c.resumes.Add(1)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.fatal != nil {
+		return c.fatal
+	}
 	return c.resumeErr
 }
 
-func (c *fakeAudioContext) Err() error { return nil }
+func (c *fakeAudioContext) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.fatal
+}
+
+// fail makes the device fail for good, like a sound server going away.
+func (c *fakeAudioContext) fail(err error) {
+	c.mu.Lock()
+	c.fatal = err
+	c.mu.Unlock()
+}
 
 func (c *fakeAudioContext) setResumeError(err error) {
 	c.mu.Lock()
@@ -176,8 +194,18 @@ func newLifecycleTestPlayer(t *testing.T) (*AudioPlayer, *fakeAudioContext, *ato
 
 func newStreamingTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	server, _ := newCountingStreamServer(t)
+	return server
+}
+
+// newCountingStreamServer is newStreamingTestServer with a count of the
+// requests that reached it.
+func newCountingStreamServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
 	securitytest.AllowTestHosts(t)
+	requests := &atomic.Int32{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		_, _ = w.Write(silentMP3Frames(30))
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
@@ -185,7 +213,7 @@ func newStreamingTestServer(t *testing.T) *httptest.Server {
 		<-r.Context().Done()
 	}))
 	t.Cleanup(server.Close)
-	return server
+	return server, requests
 }
 
 func TestNewPlayer_DoesNotOpenAudioDevice(t *testing.T) {
@@ -230,6 +258,11 @@ func TestEnsureContext_RecoversAfterReadyTimeout(t *testing.T) {
 	err := p.ensureContext(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "audio device not ready")
+	// Slow is not lost: the device may still come up, so the caller may
+	// try again, and nothing is held against a later Play.
+	assert.ErrorIs(t, err, ErrAudioDevice)
+	assert.NotErrorIs(t, err, ErrAudioDeviceLost)
+	assert.NoError(t, p.DeviceErr())
 
 	close(ready)
 	require.Eventually(t, func() bool {
@@ -330,6 +363,139 @@ func TestPlay_DeviceFailureIsMarked(t *testing.T) {
 	err := playNext(p, server.URL, FormatMP3)
 	require.ErrorIs(t, err, ErrAudioDevice)
 	assert.Contains(t, err.Error(), "no audio hardware")
+	// oto creates one context per process, so there is no second try.
+	assert.ErrorIs(t, err, ErrAudioDeviceLost)
+	assert.ErrorIs(t, p.DeviceErr(), ErrAudioDeviceLost)
+}
+
+func TestPlay_DeviceLostWhilePlayingIsReportedOnce(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	p.devicePoll = 20 * time.Millisecond
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	gen := testGen.Add(1)
+	require.NoError(t, p.Play(server.URL, FormatMP3, gen))
+	require.NoError(t, p.DeviceErr())
+
+	// The sound server goes away under a playing session. The stream is
+	// healthy and nothing reads the device's error but the session's poll;
+	// without it playback would go on in silence under a "playing" status.
+	ctx.fail(errors.New("connection closed"))
+
+	select {
+	case err := <-p.Errors():
+		assert.ErrorIs(t, err, ErrAudioDeviceLost)
+		assert.ErrorIs(t, err, ErrAudioDevice, "a lost device is a device error too")
+		assert.EqualError(t, err, "audio device failed: connection closed")
+		var se *StreamError
+		require.ErrorAs(t, err, &se)
+		assert.Equal(t, gen, se.Gen, "reported for the session that was playing")
+	case <-time.After(fadeInDuration + time.Second):
+		t.Fatal("the device failure was never reported")
+	}
+
+	// The session lives on until the caller stops it, and must not report
+	// the same failure at every poll.
+	select {
+	case err := <-p.Errors():
+		t.Fatalf("the device failure was reported again: %v", err)
+	case <-time.After(10 * p.devicePoll):
+	}
+	assert.ErrorIs(t, p.DeviceErr(), ErrAudioDeviceLost)
+}
+
+func TestPlay_LostDeviceFailsBeforeConnecting(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server, requests := newCountingStreamServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	require.EqualValues(t, 1, requests.Load())
+	ctx.fail(errors.New("connection closed"))
+
+	// No stream can play on a device that is gone, so Play says so without
+	// connecting to one, and words it as a device that failed: it had
+	// initialized fine.
+	for range 2 {
+		err := playNext(p, server.URL, FormatMP3)
+		require.ErrorIs(t, err, ErrAudioDeviceLost)
+		assert.ErrorIs(t, err, ErrAudioDevice)
+		assert.EqualError(t, err, "audio device failed: connection closed")
+	}
+	assert.EqualValues(t, 1, requests.Load(), "Play connected to a stream it could not play")
+	assert.EqualValues(t, 1, ctx.players.Load())
+}
+
+func TestPlay_DeviceThatFailsToInitializeIsLost(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server, requests := newCountingStreamServer(t)
+	// The context is ready, with an error: no sound server to talk to.
+	ctx.fail(errors.New("no sound server"))
+
+	// The device is opened by the first Play, which has connected by then;
+	// from the second on the failure is known beforehand.
+	for range 2 {
+		err := playNext(p, server.URL, FormatMP3)
+		require.ErrorIs(t, err, ErrAudioDeviceLost)
+		assert.EqualError(t, err, "failed to initialize audio device: no sound server")
+	}
+	assert.EqualValues(t, 1, requests.Load())
+	assert.Zero(t, ctx.players.Load())
+}
+
+// resumeKillsDevice is a device that fails for good when it is resumed:
+// the failure falls between Play's last look at the device and the resume.
+type resumeKillsDevice struct{ *fakeAudioContext }
+
+func (c resumeKillsDevice) Resume() error {
+	c.fail(errors.New("connection closed"))
+	return c.fakeAudioContext.Resume()
+}
+
+func TestPlay_ResumeFailingForGoodIsDeviceLost(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+	ready := make(chan struct{})
+	close(ready)
+	p.newContext = func() (audioContext, <-chan struct{}, error) {
+		return resumeKillsDevice{ctx}, ready, nil
+	}
+
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	stopNext(p)
+	require.Eventually(t, func() bool {
+		return ctx.suspends.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	// A resume that fails with the device's fatal error is not the kind a
+	// later Play gets past.
+	err := playNext(p, server.URL, FormatMP3)
+	require.ErrorIs(t, err, ErrAudioDeviceLost)
+	assert.EqualError(t, err, "audio device failed: connection closed")
+	assert.EqualValues(t, 1, ctx.players.Load())
+}
+
+func TestStop_SuspendFailingForGoodIsKept(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	server := newStreamingTestServer(t)
+
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	ctx.fail(errors.New("connection closed"))
+	stopNext(p)
+	require.Eventually(t, func() bool {
+		return ctx.suspends.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+
+	// The session ended before its poll came round, and the suspend that
+	// followed failed with the device's fatal error. That is the last the
+	// player hears of the device until the next Play, so it must keep it.
+	require.Eventually(t, func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return errors.Is(p.deviceErr, ErrAudioDeviceLost)
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestPlaySwitch_DoesNotSuspendReplacementSession(t *testing.T) {

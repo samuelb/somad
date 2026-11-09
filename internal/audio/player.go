@@ -66,15 +66,35 @@ var ErrSuperseded = errors.New("playback superseded by a newer request")
 // stop at the first such error.
 var ErrAudioDevice = errors.New("audio device error")
 
-// deviceError tags an audio-device failure as ErrAudioDevice while keeping
-// its own message.
-type deviceError struct{ err error }
+// ErrAudioDeviceLost marks an audio-device failure that is final for this
+// process: the device's context could not be created, failed to initialize,
+// or failed after it had worked (the sound server went away, a write to the
+// device failed). oto calls such an error fatal and allows one context per
+// process, so nothing the player does brings the device back; only a new
+// process can. Play returns it without connecting to the stream, a session
+// playing when the device fails reports it once on Errors, and DeviceErr
+// returns it from then on.
+//
+// It is a kind of ErrAudioDevice: errors.Is matches both, so a caller that
+// tells them apart asks for this one first. An ErrAudioDevice that is not
+// ErrAudioDeviceLost (the device was not ready in time) may be gone on a
+// later Play.
+var ErrAudioDeviceLost = errors.New("audio device lost")
+
+// deviceError tags an audio-device failure as ErrAudioDevice, and a final
+// one as ErrAudioDeviceLost too, while keeping its own message.
+type deviceError struct {
+	err  error
+	lost bool
+}
 
 func (e deviceError) Error() string { return e.err.Error() }
 
 func (e deviceError) Unwrap() error { return e.err }
 
-func (e deviceError) Is(target error) bool { return target == ErrAudioDevice }
+func (e deviceError) Is(target error) bool {
+	return target == ErrAudioDevice || (e.lost && target == ErrAudioDeviceLost)
+}
 
 // Player is the interface for audio playback operations.
 // This allows mocking the player in tests.
@@ -154,6 +174,7 @@ func (c *otoContext) NewPlayer(r io.Reader) outputPlayer {
 // one oto player. After creation, only its managing goroutine (runSession)
 // touches the oto player, which keeps volume changes free of data races.
 type session struct {
+	gen      uint64 // the generation Play committed it with
 	player   outputPlayer
 	tap      *pcmTap // the decoded PCM the player pulls, for Spectrum
 	stream   io.Closer
@@ -224,8 +245,7 @@ type AudioPlayer struct {
 	trackChan chan TrackInfo
 
 	contextOnce     sync.Once
-	contextErr      error // context creation errors are permanent in oto
-	ctx             audioContext
+	ctx             audioContext // set once, under mu; nil if it could not be created
 	contextReady    <-chan struct{}
 	lateSuspendOnce sync.Once
 	newContext      func() (audioContext, <-chan struct{}, error)
@@ -240,6 +260,12 @@ type AudioPlayer struct {
 	sessions   int          // committed sessions still fading or playing, guarded by mu
 	playGen    uint64       // newest generation seen from Play/Stop; stale ones never commit
 	volume     float64      // target volume in [0, 1], guarded by mu
+	// deviceErr is the device's fatal error, an ErrAudioDeviceLost, once
+	// deviceErrLocked has found one; it stays for the life of the process.
+	// deviceUp records that the device initialized, which decides how a
+	// failure is worded. Both guarded by mu.
+	deviceErr error
+	deviceUp  bool
 
 	spectrumMu      sync.Mutex
 	spectrumScratch *spectrumScratch // Spectrum's working memory, guarded by spectrumMu
@@ -251,6 +277,7 @@ type AudioPlayer struct {
 	connectTimeout time.Duration // streamConnectTimeout
 	prefillWait    time.Duration // streamBufferPrefillWait
 	readyTimeout   time.Duration // audioReadyTimeout
+	devicePoll     time.Duration // devicePollInterval
 }
 
 // audioReadyTimeout bounds how long the first Play waits for the audio device.
@@ -258,6 +285,14 @@ type AudioPlayer struct {
 // would block playback forever instead of failing with a message. The default
 // for AudioPlayer.readyTimeout.
 const audioReadyTimeout = 15 * time.Second
+
+// devicePollInterval is how often a playing session asks the audio device
+// for a fatal error. Nothing else would notice one: a device that has
+// failed stops pulling PCM, the buffers fill up behind it, the fetch parks
+// on the full jitter buffer, and the stall watchdog, which then cancels the
+// request, has no reader left to hand its error to. The default for
+// AudioPlayer.devicePoll.
+const devicePollInterval = 2 * time.Second
 
 // NewPlayer initializes an audio player without opening the audio device. The
 // process-global oto context is created lazily by the first Play call.
@@ -272,6 +307,7 @@ func NewPlayer(userAgent string) *AudioPlayer {
 		connectTimeout: streamConnectTimeout,
 		prefillWait:    streamBufferPrefillWait,
 		readyTimeout:   audioReadyTimeout,
+		devicePoll:     devicePollInterval,
 		newContext: func() (audioContext, <-chan struct{}, error) {
 			op := &oto.NewContextOptions{
 				SampleRate:   sampleRate,
@@ -293,19 +329,23 @@ func NewPlayer(userAgent string) *AudioPlayer {
 // device is ready, or until ctx, the play attempt's, is cancelled: a Stop or a
 // newer Play must not have to wait out the device's timeout. Neither ending is
 // sticky: oto initialization carries on, and a subsequent Play can then use
-// the recovered device.
+// the recovered device. A context that cannot be created, or that holds a
+// fatal error once it is ready, is sticky: see ErrAudioDeviceLost. Apart
+// from ctx's own error, every failure is an ErrAudioDevice.
 func (p *AudioPlayer) ensureContext(ctx context.Context) error {
 	p.contextOnce.Do(func() {
 		device, ready, err := p.newContext()
+		p.mu.Lock()
+		defer p.mu.Unlock()
 		if err != nil {
-			p.contextErr = fmt.Errorf("failed to create oto context: %w", err)
+			p.deviceErr = deviceError{err: fmt.Errorf("failed to create oto context: %w", err), lost: true}
 			return
 		}
 		p.ctx = device
 		p.contextReady = ready
 	})
-	if p.contextErr != nil {
-		return p.contextErr
+	if err := p.DeviceErr(); err != nil {
+		return err
 	}
 
 	select {
@@ -315,12 +355,54 @@ func (p *AudioPlayer) ensureContext(ctx context.Context) error {
 		return ctx.Err()
 	case <-time.After(p.readyTimeout):
 		p.suspendWhenReady()
-		return fmt.Errorf("audio device not ready after %s", p.readyTimeout)
+		return deviceError{err: fmt.Errorf("audio device not ready after %s", p.readyTimeout)}
 	}
-	if err := p.ctx.Err(); err != nil {
-		return fmt.Errorf("failed to initialize audio device: %w", err)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.deviceStartedLocked()
+}
+
+// DeviceErr returns the audio device's fatal error, an ErrAudioDeviceLost,
+// or nil while the device works or has not been opened yet. Once it is not
+// nil it never is again in this process, and every Play fails with it, so
+// a caller can refuse to play without calling Play.
+func (p *AudioPlayer) DeviceErr() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.deviceErrLocked()
+}
+
+// deviceErrLocked returns the device's fatal error, asking the context for
+// one unless an earlier call has kept it already. oto never clears such an
+// error and allows one context per process, so the first one found stays.
+// mu must be held.
+func (p *AudioPlayer) deviceErrLocked() error {
+	if p.deviceErr != nil || p.ctx == nil {
+		return p.deviceErr
 	}
-	return nil
+	err := p.ctx.Err()
+	if err == nil {
+		return nil
+	}
+	if p.deviceUp {
+		err = fmt.Errorf("audio device failed: %w", err)
+	} else {
+		err = fmt.Errorf("failed to initialize audio device: %w", err)
+	}
+	p.deviceErr = deviceError{err: err, lost: true}
+	return p.deviceErr
+}
+
+// deviceStartedLocked is called once the context is ready, which is when it
+// can first tell whether the device initialized: it returns the error if it
+// did not, and otherwise notes that the device came up, so that a fatal
+// error from here on reads as a device that failed. mu must be held.
+func (p *AudioPlayer) deviceStartedLocked() error {
+	err := p.deviceErrLocked()
+	if err == nil {
+		p.deviceUp = true
+	}
+	return err
 }
 
 // suspendWhenReady stops the device's render loop once it is ready, unless
@@ -334,7 +416,9 @@ func (p *AudioPlayer) suspendWhenReady() {
 			<-p.contextReady
 			p.deviceMu.Lock()
 			p.mu.Lock()
-			p.suspendIfIdleLocked()
+			if p.deviceStartedLocked() == nil {
+				p.suspendIfIdleLocked()
+			}
 			p.mu.Unlock()
 			p.deviceMu.Unlock()
 		}()
@@ -350,6 +434,9 @@ func (p *AudioPlayer) suspendWhenReady() {
 // ErrSuperseded without touching the audio state. The same generation may be
 // retried (the caller falling back to another stream candidate) but never an
 // older one.
+//
+// A device that has failed for good (ErrAudioDeviceLost) fails every stream,
+// so Play then returns that error at once, without connecting to this one.
 func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 	// Create a pipe to connect the HTTP stream to the decoder.
 	pr, pw := io.Pipe()
@@ -367,6 +454,14 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 	// rather than left to finish its connect only to be refused at commit.
 	if p.connecting != nil {
 		p.connecting.abort(ErrSuperseded)
+		p.connecting = nil
+	}
+	// A device that has failed for good is known before the stream is: say
+	// so now, not after connecting to a stream that could never play.
+	if err := p.deviceErrLocked(); err != nil {
+		p.mu.Unlock()
+		cancel()
+		return err
 	}
 	p.connecting = attempt
 	p.mu.Unlock()
@@ -400,7 +495,7 @@ func (p *AudioPlayer) Play(url, format string, gen uint64) error {
 	// p.readyTimeout. A Stop or newer Play meanwhile ends the wait, and
 	// discard then returns the abort's reason, not the device error.
 	if err := p.ensureContext(ctx); err != nil {
-		return discard(deviceError{err})
+		return discard(err)
 	}
 
 	s, old, err := p.commitSession(gen, attempt, newPCMTap(decodedStream), pr)
@@ -492,7 +587,12 @@ func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, tap *pcmTa
 	}
 	if p.deviceSuspended {
 		if err := p.ctx.Resume(); err != nil {
-			return nil, nil, deviceError{fmt.Errorf("failed to resume audio device: %w", err)}
+			// oto's Resume fails only with the context's fatal error, and
+			// then the device is not coming back.
+			if lost := p.deviceErrLocked(); lost != nil {
+				return nil, nil, lost
+			}
+			return nil, nil, deviceError{err: fmt.Errorf("failed to resume audio device: %w", err)}
 		}
 		p.deviceSuspended = false
 	}
@@ -502,6 +602,7 @@ func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, tap *pcmTa
 	player.Play()
 
 	s = &session{
+		gen:      gen,
 		player:   player,
 		tap:      tap,
 		stream:   pr,
@@ -725,14 +826,28 @@ func (p *AudioPlayer) runSession(s *session) {
 	p.fadeOutAndClose(s)
 }
 
-// holdSession applies volume changes until a stop is requested.
+// holdSession applies volume changes until a stop is requested. Meanwhile
+// it asks the audio device for a fatal error every p.devicePoll and reports
+// one the way a stream error is reported: nothing else would notice (see
+// devicePollInterval), and playback would go on in silence under a
+// "playing" status. It reports once and then waits for the stop the caller
+// answers with; no later session reports it again, since Play refuses to
+// start one.
 func (p *AudioPlayer) holdSession(s *session) {
+	ticker := time.NewTicker(p.devicePoll)
+	defer ticker.Stop()
+	poll := ticker.C
 	for {
 		select {
 		case <-s.stop:
 			return
 		case v := <-s.volumeCh:
 			s.player.SetVolume(v)
+		case <-poll:
+			if err := p.DeviceErr(); err != nil {
+				p.reportError(context.Background(), s.gen, err)
+				poll = nil
+			}
 		}
 	}
 }
@@ -835,9 +950,14 @@ func (p *AudioPlayer) fadeOutAndClose(s *session) {
 // commit a new session between the idle check and Suspend.
 func (p *AudioPlayer) suspendIfIdleLocked() {
 	if p.current == nil && p.sessions == 0 && p.ctx != nil && !p.deviceSuspended {
-		if err := p.ctx.Suspend(); err == nil {
-			p.deviceSuspended = true
+		if err := p.ctx.Suspend(); err != nil {
+			// oto's Suspend fails only with the context's fatal error. No
+			// session is left to report it, so it is kept for DeviceErr
+			// and the next Play.
+			_ = p.deviceErrLocked()
+			return
 		}
+		p.deviceSuspended = true
 	}
 }
 
