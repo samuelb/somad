@@ -9,8 +9,8 @@ import (
 	"somad/internal/lastfm"
 )
 
-// Scrobbler is the Last.fm now-playing/scrobble sink (TODO.md "Last.fm
-// scrobbling"); internal/lastfm.Client implements it against the real API.
+// Scrobbler is the Last.fm now-playing/scrobble sink (ADR-0031);
+// internal/lastfm.Client implements it against the real API.
 // A nil Scrobbler (the default) disables the feature until a reloadLastfm
 // finds it configured (Server.ReloadLastfm).
 type Scrobbler interface {

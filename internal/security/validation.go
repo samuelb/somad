@@ -14,10 +14,10 @@ import (
 const allowedHostSuffix = ".somafm.com"
 
 // lastfmHosts are the Last.fm API hosts allowed for the scrobbling
-// integration (TODO.md "Last.fm scrobbling"). They are a second, explicit
-// allowlist rather than a widening of the SomaFM rule above (ADR-0010): a
-// bug in the somafm.com check must not accidentally also open the door to
-// an unrelated host. Unlike SomaFM's allowlist, these hosts are https-only —
+// integration (ADR-0031). They are a second, explicit allowlist rather
+// than a widening of the SomaFM rule above (ADR-0010): a bug in the
+// somafm.com check must not accidentally also open the door to an
+// unrelated host. Unlike SomaFM's allowlist, these hosts are https-only —
 // there is no legacy plain-http use case here, and the API carries session
 // keys.
 var lastfmHosts = []string{"ws.audioscrobbler.com"}

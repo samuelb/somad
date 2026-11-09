@@ -1,11 +1,11 @@
 // Package lastfm implements enough of the Last.fm API 2.0
 // (https://www.last.fm/api) for the desktop auth flow, now-playing
-// updates, and scrobbling (TODO.md "Last.fm scrobbling"): auth.getToken,
-// auth.getSession, track.updateNowPlaying, and track.scrobble. Every
-// request goes through security.NewFormRequest / security.HTTPClient, so
-// it is bound by the same host allowlist as every other outbound call this
-// daemon makes (internal/security, ADR-0010): only https://ws.audioscrobbler.com
-// is reachable.
+// updates, and scrobbling (ADR-0031): auth.getToken, auth.getSession,
+// track.updateNowPlaying, and track.scrobble. Every request goes through
+// security.NewFormRequest / security.HTTPClient, so it is bound by the
+// same host allowlist as every other outbound call this daemon makes
+// (internal/security, ADR-0010): only https://ws.audioscrobbler.com is
+// reachable.
 package lastfm
 
 import (
