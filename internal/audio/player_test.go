@@ -407,8 +407,8 @@ func TestReportError_NilError(t *testing.T) {
 	p.reportError(context.Background(), 1, nil)
 
 	select {
-	case <-p.errChan:
-		t.Fatal("nil error should not be sent")
+	case err := <-p.errChan:
+		t.Fatalf("nil error should not be sent, got: %v", err)
 	default:
 	}
 }
@@ -421,8 +421,8 @@ func TestReportError_CancelledContext(t *testing.T) {
 	p.reportError(ctx, 1, errors.New("boom"))
 
 	select {
-	case <-p.errChan:
-		t.Fatal("error should be suppressed when context is cancelled")
+	case err := <-p.errChan:
+		t.Fatalf("error should be suppressed when context is cancelled, got: %v", err)
 	default:
 	}
 }
