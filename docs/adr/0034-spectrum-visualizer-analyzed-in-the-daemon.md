@@ -1,6 +1,6 @@
 # ADR-0034: The TUI's spectrum visualizer is analyzed in the daemon and drawn into the view's blank cells
 
-- **Status:** Accepted (amended 2026-10-06: styles cycled by `v`, remembered across restarts; amended 2026-10-13: the waterfall draws a frame per half line)
+- **Status:** Accepted (amended 2026-10-06: styles cycled by `v`, remembered across restarts; amended 2026-10-13: the waterfall draws a frame per half line; amended 2026-11-09: bars fall by the clock, so dropped frames leave no stubs)
 - **Date:** 2026-10-06
 - **Sources:** `internal/audio/spectrum.go`, `internal/server/spectrum.go`, `internal/ui/visualizer.go`, `internal/app/commands.go` (`syncSpectrum`), `internal/app/view.go` (`View`)
 
@@ -72,6 +72,25 @@ speakers (ADR-0007), so the samples exist only in the daemon.
   and subscribes afresh after a reconnect. Bars rise quickly and fall
   under their own gravity, smoothed in the TUI from the frames as they
   come; no tick of its own (ADR-0033's chain is untouched).
+  - *Amendment 2026-11-09.* The fall goes by the clock, not by the
+    frame. Frames are latest-wins on both ends, so a slow terminal (SSH,
+    the waterfall's large frames) drops some, and a bar that lost 17 % a
+    frame then fell slower and stopped short of zero at the end of the
+    tail: a full bar needed all 25 silent frames to get under its floor
+    (0.83^25 < 0.01 < 0.83^24), so one missing frame left stubs along the
+    bottom and the waterfall's rows frozen until the music played again.
+    A frame now takes the bars down by the whole frame intervals (40 ms)
+    since the last one, the remainder carried over to the next, and by
+    one at least. The floor is 0.02, the wave's, which a full bar reaches
+    in 21 intervals: the TUI's clock reads when a frame is handled, not
+    when it was sent, so a stall that holds up the last frame of music
+    makes the tail look shorter than it was, and the four intervals to
+    spare are for that (a stall of some 200 ms). Settling whatever
+    happens would take a timer in the TUI, which this record keeps out.
+    The waterfall still adds a row per frame that arrives, not per
+    interval: rows made up for dropped frames would make it jump lines,
+    the choppy look rejected below, so under load it scrolls slower
+    instead.
 - **Behind the view, not over it.** The rendered view is composited: a
   bar draws its glyphs into blank cells and carries on behind anything
   drawn as the cells' background, blended 40 % towards the terminal's

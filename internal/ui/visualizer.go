@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -67,6 +68,14 @@ type Visualizer struct {
 	levels  []float64   // smoothed levels in [0, 1], lowest band first
 	history [][]float64 // waterfall rows, a frame each, oldest first
 	paint   *vizPaint   // the SGR sequences it draws with, made for the terminal at the first draw
+
+	// last is when the previous frame came, zero before the first, and
+	// owed the part of a frame interval since then that has not counted
+	// as fall yet; see fallFrames. now is the clock, time.Now unless a
+	// test sets it.
+	last time.Time
+	owed float64
+	now  func() time.Time
 }
 
 const (
@@ -74,14 +83,21 @@ const (
 	vizBarWidth = 2
 	vizGap      = 1
 	// vizAttack is how far a bar moves towards a higher level per frame,
-	// and vizDecay how much of its height it keeps per frame while the
-	// level is lower: at 25 frames a second it falls to a tenth in about
-	// half a second.
+	// and vizDecay how much of its height it keeps per frame interval
+	// while the level is lower: it falls to a tenth in about half a
+	// second.
 	vizAttack = 0.7
 	vizDecay  = 0.83
-	// vizFloor is where a falling bar drops to zero: within the daemon's
-	// tail of silent frames even from full height (0.83^25 < 0.01).
-	vizFloor = 0.01
+	// vizFrameInterval is the time between the daemon's frames, 25 a
+	// second (spectrumInterval in internal/server): the unit bars fall by.
+	vizFrameInterval = 40 * time.Millisecond
+	// vizFloor is where a falling bar drops to zero, and vizFallFrames how
+	// many frame intervals that takes from full height (0.83^21 < 0.02):
+	// four fewer than the daemon's tail of 25 silent frames lasts, so the
+	// bars settle even when the tail looks a little short by the TUI's
+	// clock.
+	vizFloor      = 0.02
+	vizFallFrames = 21
 	// The waterfall adds a row every frame and draws two to a line, so at
 	// 25 frames a second it moves half a line at a time, twelve lines a
 	// second; it keeps vizHistory rows, enough for a tall screen.
@@ -106,18 +122,25 @@ func VisualizerBands(width int) int {
 	return max((width+vizGap)/(vizBarWidth+vizGap), 0)
 }
 
-// Update takes the next frame of levels (0–255 per band).
+// Update takes the next frame of levels (0–255 per band). A bar falls by
+// the time since the last frame, not by the frame: frames are dropped when
+// the terminal is slow (they are latest-wins on the way here, ADR-0034),
+// and a fall counted in frames would then slow down, and stop short of
+// zero when part of the daemon's tail of silent frames is missing. The
+// waterfall still takes a row per frame that comes, so it moves half a
+// line at a time however few arrive.
 func (v *Visualizer) Update(levels []byte) {
 	if len(v.levels) != len(levels) {
 		v.levels, v.history = make([]float64, len(levels)), nil
 	}
+	decay := math.Pow(vizDecay, float64(v.fallFrames()))
 	row := make([]float64, len(levels))
 	silent := true
 	for i, b := range levels {
 		target, cur := float64(b)/255, v.levels[i]
 		if target > cur {
 			cur += (target - cur) * vizAttack
-		} else if cur = max(target, cur*vizDecay); cur < vizFloor {
+		} else if cur = max(target, cur*decay); cur < vizFloor {
 			cur = 0 // settled: no stub left standing once the frames stop
 		}
 		v.levels[i], row[i] = cur, target
@@ -128,15 +151,47 @@ func (v *Visualizer) Update(levels []byte) {
 		v.history = v.history[len(v.history)-vizHistory:]
 	}
 	if silent {
-		// The last frame of the daemon's silent tail: nothing left that
+		// The daemon's silent tail has settled the bars: nothing left that
 		// would move the waterfall's older rows off the screen.
 		v.history = nil
 	}
 }
 
+// fallFrames is how many frame intervals the bars fall by for the frame
+// coming in now: the time since the last one in whole intervals, so the
+// frames dropped in between count too. What is left of an interval is
+// owed to the next frame, so frames that keep coming slower than they are
+// sent lose nothing to the rounding. A frame counts for one interval at
+// least, however close on the last it comes, and for no more than a full
+// bar takes to fall, which is all a longer gap (playback stopped and
+// started again) can do.
+func (v *Visualizer) fallFrames() int {
+	now := time.Now()
+	if v.now != nil {
+		now = v.now()
+	}
+	last := v.last
+	v.last = now
+	if last.IsZero() {
+		v.owed = 0
+		return 1
+	}
+	due := float64(now.Sub(last))/float64(vizFrameInterval) + v.owed
+	n := int(math.Floor(min(due, vizFallFrames) + 0.5))
+	switch {
+	case n < 1:
+		n, v.owed = 1, 0
+	case n >= vizFallFrames:
+		n, v.owed = vizFallFrames, 0
+	default:
+		v.owed = due - float64(n)
+	}
+	return n
+}
+
 // Reset flattens the visualizer.
 func (v *Visualizer) Reset() {
-	*v = Visualizer{}
+	*v = Visualizer{now: v.now}
 }
 
 // Underlay draws the visualizer in style mode beneath view, which fills a

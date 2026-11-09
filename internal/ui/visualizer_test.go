@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"math"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -32,15 +35,37 @@ func TestVisualizerBands(t *testing.T) {
 	assert.Equal(t, 27, VisualizerBands(80))
 }
 
+// vizClock is the clock of a visualizer under test, moved by hand.
+type vizClock struct{ at time.Time }
+
+// clocked returns a visualizer on a clock of its own, and the clock.
+func clocked() (*Visualizer, *vizClock) {
+	c := &vizClock{at: time.Unix(1_000_000, 0)}
+	return &Visualizer{now: func() time.Time { return c.at }}, c
+}
+
+// frame moves the clock on by d and hands v a frame of levels then.
+func (c *vizClock) frame(v *Visualizer, d time.Duration, levels ...byte) {
+	c.at = c.at.Add(d)
+	v.Update(levels)
+}
+
+// playing brings v's two bands to the top, a frame every interval.
+func (c *vizClock) playing(v *Visualizer) {
+	for range 20 {
+		c.frame(v, vizFrameInterval, 255, 255)
+	}
+}
+
 func TestVisualizerUpdate_RisesFastFallsUnderGravity(t *testing.T) {
-	v := &Visualizer{}
-	v.Update([]byte{255})
+	v, clock := clocked()
+	clock.frame(v, vizFrameInterval, 255)
 	assert.InDelta(t, vizAttack, v.levels[0], 1e-9)
-	v.Update([]byte{255})
+	clock.frame(v, vizFrameInterval, 255)
 	high := v.levels[0]
-	v.Update([]byte{0})
+	clock.frame(v, vizFrameInterval, 0)
 	assert.InDelta(t, high*vizDecay, v.levels[0], 1e-9, "a fall is gradual")
-	v.Update([]byte{255, 255})
+	clock.frame(v, vizFrameInterval, 255, 255)
 	assert.Len(t, v.levels, 2, "a new band count starts over")
 }
 
@@ -51,6 +76,107 @@ func TestVisualizerUpdate_TheSilentTailSettlesBarsToZero(t *testing.T) {
 	}
 	assert.Equal(t, []float64{0, 0}, v.levels)
 	assert.Equal(t, "\n", v.Underlay("\n", VisualizerBars, 5, 40), "no stub left on a tall screen")
+}
+
+// vizTail is the daemon's tail of silent frames after playback stops
+// (spectrumTail in internal/server).
+const vizTail = 25
+
+func TestVisualizer_AFullBarFallsWithinTheTailWithFramesToSpare(t *testing.T) {
+	assert.Less(t, math.Pow(vizDecay, vizFallFrames), vizFloor, "vizFallFrames intervals take a full bar under the floor")
+	assert.GreaterOrEqual(t, math.Pow(vizDecay, vizFallFrames-1), vizFloor, "and no fewer do")
+	assert.LessOrEqual(t, vizFallFrames, vizTail-4)
+}
+
+// Spectrum frames are latest-wins on both ends (ADR-0034), so a slow
+// terminal drops some, of the silent tail too; only the last always
+// arrives. Whichever are missing, the bars must end at zero and the
+// waterfall empty: no frame follows that could clear what is left.
+func TestVisualizerUpdate_TheSilentTailSettlesWithFramesDropped(t *testing.T) {
+	for name, dropped := range map[string][]int{
+		"none":             nil,
+		"one":              {12},
+		"the first":        {0},
+		"two":              {3, 20},
+		"two in a row":     {22, 23},
+		"five":             {1, 6, 11, 16, 21},
+		"five in a row":    {19, 20, 21, 22, 23},
+		"all but the last": {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v, clock := clocked()
+			clock.playing(v)
+			require.InDelta(t, 1, v.levels[0], 1e-6)
+			gap := vizFrameInterval
+			for i := range vizTail {
+				if slices.Contains(dropped, i) {
+					gap += vizFrameInterval
+					continue
+				}
+				clock.frame(v, gap, 0, 0)
+				gap = vizFrameInterval
+			}
+			assert.Equal(t, []float64{0, 0}, v.levels)
+			assert.Equal(t, "\n", v.Underlay("\n", VisualizerBars, 5, 40), "no stub left on a tall screen")
+			assert.Empty(t, v.history)
+			assert.Equal(t, "\n", v.Underlay("\n", VisualizerWaterfall, 5, 40), "no rows left frozen")
+		})
+	}
+}
+
+func TestVisualizerUpdate_TheFallKeepsItsPaceWhateverTheFrameRate(t *testing.T) {
+	every, everyThird, slow := &Visualizer{}, &Visualizer{}, &Visualizer{}
+	clocks := map[*Visualizer]*vizClock{}
+	for _, v := range []**Visualizer{&every, &everyThird, &slow} {
+		var c *vizClock
+		*v, c = clocked()
+		c.playing(*v)
+		clocks[*v] = c
+	}
+	// 12 intervals of silence in 12 frames, in 4, and in 8 frames 59 ms
+	// apart (472 ms), a gap no whole number of intervals fits.
+	for range 12 {
+		clocks[every].frame(every, vizFrameInterval, 0, 0)
+	}
+	for range 4 {
+		clocks[everyThird].frame(everyThird, 3*vizFrameInterval, 0, 0)
+	}
+	for range 8 {
+		clocks[slow].frame(slow, 59*time.Millisecond, 0, 0)
+	}
+	want := math.Pow(vizDecay, 12)
+	assert.InDelta(t, want, every.levels[0], 1e-9)
+	assert.InDelta(t, want, everyThird.levels[0], 1e-9, "dropped frames cost no fall")
+	assert.InDelta(t, want, slow.levels[0], 1e-9, "and rounding each gap to whole intervals loses none")
+}
+
+func TestVisualizerUpdate_AFrameCountsForOneIntervalHoweverEarly(t *testing.T) {
+	// A whole tail delivered in a burst still settles the bars.
+	v, clock := clocked()
+	clock.playing(v)
+	for range vizTail {
+		clock.frame(v, time.Millisecond, 0, 0)
+	}
+	assert.Equal(t, []float64{0, 0}, v.levels)
+}
+
+func TestVisualizerUpdate_ALongGapFallsAFullBarAndNoFurther(t *testing.T) {
+	v, clock := clocked()
+	clock.playing(v)
+	clock.frame(v, time.Hour, 128, 0)
+	assert.InDelta(t, 128.0/255, v.levels[0], 1e-9, "down to the level playing now")
+	assert.Zero(t, v.levels[1])
+	assert.Len(t, v.history, 21, "a row for the frame, none for the gap")
+}
+
+func TestVisualizerReset_KeepsTheClock(t *testing.T) {
+	v, clock := clocked()
+	clock.playing(v)
+	v.Reset()
+	assert.Empty(t, v.levels)
+	clock.frame(v, vizFrameInterval, 255)
+	clock.frame(v, 3*vizFrameInterval, 0)
+	assert.InDelta(t, vizAttack*vizDecay*vizDecay*vizDecay, v.levels[0], 1e-9)
 }
 
 func TestUnderlay_FillsBlankCellsAndShadesAroundText(t *testing.T) {
