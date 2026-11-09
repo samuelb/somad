@@ -71,13 +71,18 @@ type Model struct {
 	ShowAbout  bool
 	About      AboutInfo
 	// ShowHistory toggles the now-playing history overlay. HistoryChannelID
-	// and HistoryChannelTitle are the channel it was opened for; History
+	// and HistoryChannelTitle are the channel it shows: the one playing
+	// when it was opened, then whichever plays (see followHistory); History
 	// holds the last fetch's entries and HistoryErr its error, if any.
+	// historyBusy is true while a fetch is in flight, and historyStale
+	// when another is wanted once it returns; see fetchHistory.
 	ShowHistory         bool
 	HistoryChannelID    string
 	HistoryChannelTitle string
 	History             []protocol.HistoryEntry
 	HistoryErr          error
+	historyBusy         bool
+	historyStale        bool
 	Width               int
 	Height              int
 	// ShutdownOnExit asks the server to stop playback and exit when the TUI

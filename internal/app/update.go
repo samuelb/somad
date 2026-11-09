@@ -56,8 +56,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			// snapshots. The reconnect asks for the state afresh.
 			return nil
 		}
+		prev := m.Snapshot
 		m.applySnapshot(msg.State)
-		return tea.Batch(m.syncSleepTick(), m.syncAnim())
+		return tea.Batch(m.syncSleepTick(), m.syncAnim(), m.followHistory(prev))
 
 	case volumeSetMsg:
 		return m.volumeSet(msg)
@@ -87,14 +88,20 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 
 	case HistoryMsg:
+		m.historyBusy = false
 		// Drop a result for a fetch that started for a channel the overlay
-		// has since moved on from (closed, or reopened for another channel);
+		// has since moved on from (closed, or showing another channel);
 		// applying it would clobber the current, still-loading or already
 		// populated, view with a stale answer.
 		if m.ShowHistory && msg.ChannelID == m.HistoryChannelID {
 			m.History = msg.Entries
 			m.HistoryErr = msg.Err
 		}
+		if m.historyStale && m.ShowHistory && m.HistoryChannelID != "" {
+			// What plays moved on while this fetch was out.
+			return m.fetchHistory()
+		}
+		m.historyStale = false
 		return nil
 
 	case RequestErrorMsg:
@@ -305,6 +312,44 @@ func (m *Model) toggleHistory() tea.Cmd {
 		m.History = nil
 		return nil
 	}
+	return m.fetchHistory()
+}
+
+// followHistory keeps the open history card on what plays: called after a
+// snapshot replaced prev, it fetches again when the track changed, and
+// moves the card to the new channel when that did. The card stays open
+// while the list is used (ADR-0033), so without this it showed the tracks
+// of the moment h was pressed, under the name of a channel long left.
+// When playback stops, the card keeps the last channel's history.
+func (m *Model) followHistory(prev protocol.PlaybackState) tea.Cmd {
+	cur := m.Snapshot
+	if !m.ShowHistory || cur.ChannelID == "" {
+		return nil
+	}
+	if cur.ChannelID != m.HistoryChannelID {
+		// Another channel: its entries replace these, which are not its
+		// own, once they are here.
+		m.HistoryChannelID, m.HistoryChannelTitle = cur.ChannelID, cur.ChannelTitle
+		m.History, m.HistoryErr = nil, nil
+		return m.fetchHistory()
+	}
+	if cur.ChannelID == prev.ChannelID && (cur.TrackTitle == prev.TrackTitle || cur.TrackTitle == "") {
+		return nil // the same track, or its title gone with a reconnect
+	}
+	return m.fetchHistory()
+}
+
+// fetchHistory returns the fetch that fills the history card for
+// HistoryChannelID. One is in flight at a time: the daemon may answer a
+// connection's requests out of order (ADR-0018), and an older answer
+// landing last would leave the card without the newest track. A fetch
+// wanted meanwhile follows the reply instead (historyStale).
+func (m *Model) fetchHistory() tea.Cmd {
+	if m.historyBusy {
+		m.historyStale = true
+		return nil
+	}
+	m.historyBusy, m.historyStale = true, false
 	return m.historyCmd(m.HistoryChannelID)
 }
 

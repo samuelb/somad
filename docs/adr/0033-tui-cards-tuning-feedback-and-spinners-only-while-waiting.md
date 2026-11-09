@@ -1,7 +1,8 @@
 # ADR-0033: The TUI frames the list with cards, marks a channel tuning in at once, and animates only while waiting
 
 - **Status:** Accepted (amended 2026-10-06: an equalizer ahead of the
-  playing track in the now-playing card)
+  playing track in the now-playing card; amended 2026-11-09: the history
+  card follows what plays)
 - **Date:** 2026-09-29
 - **Sources:** `internal/ui/widgets.go`, `internal/ui/delegate.go`, `internal/app/view.go`, `internal/app/model.go` (`tuningID`), `internal/app/commands.go` (`syncAnim`)
 
@@ -23,6 +24,15 @@ the list only marked a channel once it was playing.
   rounded boxes with their title set into the top border (`ui.Card`); the
   now-playing border takes the state's color (teal playing, gold
   connecting, gray stopped, red disconnected).
+  - *Amendment 2026-11-09.* The history card follows what plays while it
+    is open (`followHistory`): a new track fetches it again, and a new
+    channel takes over its title and entries. It is not modal (see the
+    rejected overlays below), so it stays open while the list is used,
+    and it showed the tracks of the moment `h` was pressed, under the
+    name of a channel long left. When playback stops it keeps the last
+    channel's history. One fetch is in flight at a time and a newer one
+    follows its reply, as with the volume (ADR-0003): the daemon may
+    answer out of order, and reads the history before a slow backfill.
 - **Rows** add the genre after the title, a static ▶ and a colored heart
   ahead of it for the playing and favorite channels, the listener count
   alone in its column, and the search match highlighted: always in the

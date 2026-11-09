@@ -253,7 +253,7 @@ Every command works without the TUI, which makes them handy for scripts, keybind
 | <kbd>n</kbd> / <kbd>N</kbd> | Next / previous search match |
 | <kbd>c</kbd> | Clear the search |
 | <kbd>a</kbd> | About |
-| <kbd>h</kbd> | Show recent now-playing history for the playing channel |
+| <kbd>h</kbd> | Show recent now-playing history for the playing channel (it follows the music while open) |
 | <kbd>v</kbd> | Cycle the spectrum visualizer behind the channel list: bars, mirror, wave, mirror wave, waterfall, off (remembered) |
 | <kbd>?</kbd> | Show every key (press again to hide) |
 | <kbd>Esc</kbd> | Close the about screen / history overlay, else cancel or clear the search (never quits) |

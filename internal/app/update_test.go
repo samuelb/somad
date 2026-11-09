@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -275,6 +276,139 @@ func TestUpdate_HistoryMsg_IgnoresResultAfterOverlayClosed(t *testing.T) {
 
 	assert.Equal(t, []protocol.HistoryEntry{{Title: "Current"}}, m.History,
 		"a fetch that lands after the overlay closed must not repopulate it")
+}
+
+// nowPlaying is a snapshot of channel id playing track.
+func nowPlaying(id, title, track string) ServerStateMsg {
+	return ServerStateMsg{State: protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: id, ChannelTitle: title, TrackTitle: track, Volume: 1,
+	}}
+}
+
+// historyModel returns a model playing a track on Groove Salad with the
+// history card open and filled. Its animation chain counts as running, so
+// the commands under test carry no tick to wait out.
+func historyModel(t *testing.T) *Model {
+	t.Helper()
+	m := newTestModel(t)
+	m.animating = true
+	m.Update(nowPlaying("groovesalad", "Groove Salad", "Artist - One"))
+	backend(m).history = []protocol.HistoryEntry{{ChannelID: "groovesalad", Title: "Artist - One"}}
+	_, cmd := sendKey(m, 'h')
+	answer := msgOrNil[HistoryMsg](cmd)
+	require.NotNil(t, answer)
+	m.Update(*answer)
+	require.Len(t, m.History, 1)
+	return m
+}
+
+func TestUpdate_HistoryFollowsTheTrack(t *testing.T) {
+	m := historyModel(t)
+	two := []protocol.HistoryEntry{{ChannelID: "groovesalad", Title: "Artist - Two"}, {ChannelID: "groovesalad", Title: "Artist - One"}}
+	backend(m).history = two
+
+	_, cmd := m.Update(nowPlaying("groovesalad", "Groove Salad", "Artist - Two"))
+	answer := msgOrNil[HistoryMsg](cmd)
+	require.NotNil(t, answer, "a new track fetches the history again")
+	assert.Len(t, m.History, 1, "the entries stay until the new ones are here")
+	m.Update(*answer)
+
+	assert.Equal(t, two, m.History)
+	assert.Equal(t, "Groove Salad", m.HistoryChannelTitle)
+	require.Len(t, backend(m).historyCalls, 2)
+	assert.Equal(t, "groovesalad", backend(m).historyCalls[1].channelID)
+
+	// A snapshot with the same track (the volume changed) fetches nothing.
+	quieter := nowPlaying("groovesalad", "Groove Salad", "Artist - Two")
+	quieter.State.Volume = 0.5
+	_, cmd = m.Update(quieter)
+	assert.Nil(t, msgOrNil[HistoryMsg](cmd))
+	assert.Len(t, backend(m).historyCalls, 2)
+}
+
+func TestUpdate_HistoryFollowsTheChannel(t *testing.T) {
+	m := historyModel(t)
+	drone := []protocol.HistoryEntry{{ChannelID: "dronezone", Title: "Drone - Hum"}}
+	backend(m).history = drone
+
+	_, cmd := m.Update(ServerStateMsg{State: protocol.PlaybackState{
+		Status: protocol.StatusConnecting, ChannelID: "dronezone", ChannelTitle: "Drone Zone", Volume: 1,
+	}})
+
+	assert.Equal(t, "dronezone", m.HistoryChannelID)
+	assert.Equal(t, "Drone Zone", m.HistoryChannelTitle)
+	assert.Empty(t, m.History, "the channel left takes its entries with it")
+	card := ansi.Strip(m.RenderHistory())
+	assert.Contains(t, card, "History · Drone Zone")
+	assert.NotContains(t, card, "One")
+
+	answer := msgOrNil[HistoryMsg](cmd)
+	require.NotNil(t, answer, "a new channel fetches its history")
+	assert.Equal(t, "dronezone", answer.ChannelID)
+	m.Update(*answer)
+	assert.Equal(t, drone, m.History)
+}
+
+func TestUpdate_HistoryDropsAnAnswerForTheChannelLeft(t *testing.T) {
+	m := historyModel(t)
+
+	// A track change sends a fetch; the channel changes before its answer.
+	backend(m).history = []protocol.HistoryEntry{{ChannelID: "groovesalad", Title: "Artist - Two"}}
+	_, inFlight := m.Update(nowPlaying("groovesalad", "Groove Salad", "Artist - Two"))
+	late := msgOrNil[HistoryMsg](inFlight)
+	require.NotNil(t, late)
+	_, cmd := m.Update(nowPlaying("dronezone", "Drone Zone", ""))
+	assert.Nil(t, msgOrNil[HistoryMsg](cmd), "one fetch at a time: the daemon may answer out of order")
+
+	drone := []protocol.HistoryEntry{{ChannelID: "dronezone", Title: "Drone - Hum"}}
+	backend(m).history = drone
+	_, cmd = m.Update(*late)
+	assert.Empty(t, m.History, "an answer for the channel left is dropped")
+
+	answer := msgOrNil[HistoryMsg](cmd)
+	require.NotNil(t, answer, "and the fetch for the new channel follows it")
+	assert.Equal(t, "dronezone", answer.ChannelID)
+	_, cmd = m.Update(*answer)
+	assert.Equal(t, drone, m.History)
+	assert.Nil(t, cmd, "nothing more to fetch")
+}
+
+func TestUpdate_HistoryKeepsTheLastChannelWhenPlaybackStops(t *testing.T) {
+	m := historyModel(t)
+	entries := m.History
+
+	_, cmd := m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1}})
+
+	assert.Nil(t, msgOrNil[HistoryMsg](cmd))
+	assert.Equal(t, "groovesalad", m.HistoryChannelID)
+	assert.Equal(t, entries, m.History)
+	assert.Contains(t, ansi.Strip(m.RenderHistory()), "History · Groove Salad")
+
+	// Playing on brings the card up to date.
+	_, cmd = m.Update(nowPlaying("groovesalad", "Groove Salad", "Artist - One"))
+	assert.NotNil(t, msgOrNil[HistoryMsg](cmd))
+}
+
+func TestUpdate_HistoryOpenedWhileStoppedPicksUpWhatPlaysNext(t *testing.T) {
+	m := newTestModel(t)
+	m.animating = true
+	sendKey(m, 'h')
+	require.Contains(t, ansi.Strip(m.RenderHistory()), "Nothing is playing.")
+
+	_, cmd := m.Update(nowPlaying("groovesalad", "Groove Salad", ""))
+
+	assert.Equal(t, "groovesalad", m.HistoryChannelID)
+	assert.NotNil(t, msgOrNil[HistoryMsg](cmd))
+}
+
+func TestUpdate_HistoryClosedFetchesNothing(t *testing.T) {
+	m := historyModel(t)
+	sendKey(m, 'h') // close
+
+	_, cmd := m.Update(nowPlaying("dronezone", "Drone Zone", "Drone - Hum"))
+
+	assert.Nil(t, msgOrNil[HistoryMsg](cmd))
+	assert.Len(t, backend(m).historyCalls, 1)
 }
 
 func TestUpdate_SearchModeEnter(t *testing.T) {
