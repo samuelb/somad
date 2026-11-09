@@ -41,6 +41,12 @@ specific binaries.
   every push and PR too, not only on release day: `ci.yml`'s
   `build-linux-arm64` and `build-darwin-universal` jobs mirror the build
   steps `release.yml` runs, without the packaging around them.
+  - *Amendment 2026-11-09.* The flake was the one install path nothing
+    built: it could break (a moved completion file, a Go requirement ahead
+    of nixpkgs) without anyone noticing. `ci.yml`'s `build-nix` job now
+    builds it and runs the result. Without a `flake.lock` it builds against
+    the day's nixos-unstable, as `nix run` does for a user, so it can fail
+    with no change in this repository; that failure is the signal.
 - Signing and notarization are wired into the release workflow and switch
   on once the Developer ID secrets exist (ADR-0029); until then the
   binary ships unsigned.

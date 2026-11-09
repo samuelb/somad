@@ -164,3 +164,22 @@ jobs:
           GOARCH=amd64 CC="clang -arch x86_64" go build -trimpath -o soma_darwin_amd64 ./cmd/soma
           lipo -create -output soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
           lipo -info soma_darwin_universal
+
+  # The flake is an install path the README offers (`nix run`), and nothing
+  # else evaluates it: a renamed completion file, or a Go requirement that
+  # nixpkgs has not caught up with, would break it unseen. There is no
+  # flake.lock, so this builds against today's nixos-unstable, exactly as a
+  # user's `nix run` does; a failure with no change on our side means that
+  # users are affected too.
+  build-nix:
+    name: Build Nix flake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+
+      - name: Build and run
+        run: |
+          nix build --print-build-logs .#
+          ./result/bin/soma version
