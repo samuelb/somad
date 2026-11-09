@@ -262,6 +262,11 @@ PID read from the socket's peer credentials (`peercred_darwin.go` /
 `ProtocolSkewError`. Remote endpoints are never spawned, restarted, or
 signalled. The same credentials guard every Unix-socket dial: a peer
 running as another user is refused with `ErrForeignDaemon` (ADR-0007).
+Only a dial that fails means "no daemon" (spawn one locally, "cannot
+reach" remotely, stopped for `status --json`). A daemon that accepted the
+connection and then failed the TLS handshake, the PSK exchange or hello is
+a `*client.HandshakeError`, whose hint names the likely cause when the two
+ends disagree about TLS.
 
 **TUI** (`internal/app` + `internal/ui`): Bubble Tea Elm architecture
 (`model.go`, `update.go`, `view.go`, `commands.go`). The model holds no

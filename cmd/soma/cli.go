@@ -113,13 +113,17 @@ func (e noServerError) Error() string { return e.err.Error() }
 func (e noServerError) Unwrap() error { return e.err }
 
 // tryDialServer dials and greets a running server, without spawning one and
-// without exiting on failure. A dial failure is a noServerError, unless what
-// answered is another user's (client.ErrForeignDaemon), which is no reason
-// to report playback as stopped; a local server that speaks another
-// protocol version is a *client.ProtocolSkewError.
+// without exiting on failure. A dial failure is a noServerError. A server
+// that accepted the connection and then failed the TLS handshake, the
+// authentication or hello is not (it is a *client.HandshakeError): it runs,
+// so it is no reason to report playback as stopped. Nor is another user's
+// daemon on the local socket (client.ErrForeignDaemon, also one). A local
+// server that speaks another protocol version is a
+// *client.ProtocolSkewError.
 func tryDialServer() (*client.Client, protocol.HelloResult, error) {
 	c, err := client.DialEndpoint(endpoint)
-	if errors.Is(err, client.ErrForeignDaemon) {
+	var answered *client.HandshakeError
+	if errors.As(err, &answered) {
 		return nil, protocol.HelloResult{}, err
 	}
 	if err != nil {
@@ -709,7 +713,8 @@ func sleepTimerLine(stopAt string) string {
 // that is not running or cannot be reached is not an error: a polling status
 // bar needs parseable output on every tick, not exit 1 with a message on
 // stderr. One that answers but fails the handshake is, though: a daemon from
-// an incompatible soma version may well be playing, and reporting it as
+// an incompatible soma version, or a remote one that turns this client away
+// over TLS or the pre-shared key, may well be playing, and reporting it as
 // stopped would be wrong.
 func statusSnapshot() (protocol.PlaybackState, error) {
 	c, _, err := tryDialServer()

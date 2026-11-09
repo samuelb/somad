@@ -191,11 +191,14 @@ func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.He
 func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
 	c, err := DialEndpoint(ep)
 	if err != nil {
-		// Something answers, just not ours: a spawn could not take the
-		// socket over (the directory or the lock file next to it belongs
-		// to that other user too) and would only bury this error under its
-		// own failure to start.
-		if errors.Is(err, ErrForeignDaemon) {
+		// Something answers, and the error says what is wrong with it. For
+		// a remote daemon that is a pairing mistake (TLS on one side only,
+		// the wrong certificate or key), not a daemon to go and start. For
+		// a local one it is another user's (ErrForeignDaemon): a spawn
+		// could not take the socket over (the directory or the lock file
+		// next to it belongs to that other user too) and would only bury
+		// this error under its own failure to start.
+		if answered(err) {
 			return nil, protocol.HelloResult{}, err
 		}
 		if !ep.IsLocal() {
@@ -217,7 +220,7 @@ func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloR
 			if err == nil {
 				break
 			}
-			if errors.Is(err, ErrForeignDaemon) {
+			if answered(err) {
 				return nil, protocol.HelloResult{}, err
 			}
 			if running {
@@ -253,6 +256,14 @@ func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloR
 	return c, hr, nil
 }
 
+// answered reports whether a DialEndpoint error came from a daemon that
+// accepted the connection (a *HandshakeError), as opposed to nothing being
+// reachable at the endpoint.
+func answered(err error) bool {
+	var he *HandshakeError
+	return errors.As(err, &he)
+}
+
 // protocolMismatchText is how every soma daemon since the client-server
 // split words its hello rejection of a client speaking another protocol
 // version. Matching on it is safe because the daemons that need recognizing
@@ -286,7 +297,8 @@ func (e *ProtocolSkewError) Unwrap() error { return e.Err }
 
 // Handshake performs the hello handshake on a freshly dialed connection,
 // closing it on failure. A local daemon that rejects our protocol version
-// comes back as a *ProtocolSkewError.
+// comes back as a *ProtocolSkewError, any other failure as a
+// *HandshakeError.
 func Handshake(c *Client, ep Endpoint, clientVersion string) (protocol.HelloResult, error) {
 	hr, err := c.Hello(clientVersion)
 	if err == nil {
@@ -297,7 +309,8 @@ func Handshake(c *Client, ep Endpoint, clientVersion string) (protocol.HelloResu
 		pid, pidErr := peerPID(c.nc)
 		return hr, &ProtocolSkewError{PID: pid, PIDErr: pidErr, Err: err}
 	}
-	return hr, fmt.Errorf("handshake with soma daemon failed: %w", err)
+	// Without a pre-shared key, hello is the connection's first round trip.
+	return hr, &HandshakeError{Op: "handshake with soma daemon failed", Err: err, Hint: plaintextHint(ep, err)}
 }
 
 // terminateProcess sends pid SIGTERM, which a soma daemon handles like a

@@ -89,8 +89,72 @@ func (e Endpoint) String() string {
 }
 
 // dialTimeout bounds connecting (and, over TLS, the handshake). Generous
-// because remote endpoints cross real networks.
-const dialTimeout = 5 * time.Second
+// because remote endpoints cross real networks. A variable so tests can
+// shrink it.
+var dialTimeout = 5 * time.Second
+
+// HandshakeError reports a daemon that accepted the connection and then
+// could not be talked to: the socket's peer check, the TLS handshake or the
+// pre-shared-key authentication failed (DialEndpoint), or the hello exchange
+// did (Handshake). Something is listening at the endpoint, so unlike a
+// failed dial this never means "no daemon running": spawning one would not
+// help, and reporting playback as stopped would be a guess. A local daemon
+// that speaks another protocol version is a *ProtocolSkewError instead.
+type HandshakeError struct {
+	// Op is what failed and leads the message ("TLS handshake with
+	// tcp://host:5454 failed"); empty when Err says it all.
+	Op string
+	// Err is the failure itself.
+	Err error
+	// Hint names the likely cause where a failure has a typical one (the
+	// two ends disagreeing about TLS); empty otherwise.
+	Hint string
+}
+
+func (e *HandshakeError) Error() string {
+	msg := e.Err.Error()
+	if e.Op != "" {
+		msg = e.Op + ": " + msg
+	}
+	if e.Hint != "" {
+		msg += " (" + e.Hint + ")"
+	}
+	return msg
+}
+
+func (e *HandshakeError) Unwrap() error { return e.Err }
+
+// The hints for the two ways a client and a daemon can disagree about TLS.
+// Neither failure says so itself: a daemon serving TLS drops a plaintext
+// client without a word, and one serving plaintext answers a TLS hello with
+// JSON or not at all.
+const (
+	hintDaemonWantsTLS = "the daemon may require TLS: connect with --tls or --tls-fingerprint, " +
+		"or set client.tls or client.tls_fingerprint in the config"
+	hintDaemonLacksTLS = "the daemon may not be using TLS: start it with soma daemon --tls, or connect without " +
+		"--tls, --tls-ca and --tls-fingerprint, and without client.tls, client.tls_ca and client.tls_fingerprint in the config"
+)
+
+// plaintextHint returns the hint for a first round trip that failed with
+// err: over plaintext TCP, a connection closed before any answer is how a
+// daemon serving TLS treats a client that does not speak it.
+func plaintextHint(ep Endpoint, err error) string {
+	if !ep.IsLocal() && ep.TLS == nil && errors.Is(err, ErrDisconnected) {
+		return hintDaemonWantsTLS
+	}
+	return ""
+}
+
+// tlsHandshakeHint returns the hint for a TLS handshake that failed with
+// err: one that timed out, or was answered with something other than TLS,
+// probably reached a daemon serving plaintext.
+func tlsHandshakeHint(err error) string {
+	var notTLS tls.RecordHeaderError
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &notTLS) {
+		return hintDaemonLacksTLS
+	}
+	return ""
+}
 
 // Dial connects to the local server socket. It does not spawn a server and
 // does not perform the hello handshake.
@@ -103,6 +167,9 @@ func Dial(socketPath string) (*Client, error) {
 // spawn a server and does not perform the hello handshake. A local socket
 // served by another user fails with ErrForeignDaemon before anything is
 // sent.
+//
+// A failure after the endpoint accepted the connection is a *HandshakeError;
+// any other error means nothing could be reached there.
 func DialEndpoint(ep Endpoint) (*Client, error) {
 	dialer := net.Dialer{Timeout: dialTimeout}
 	nc, err := dialer.DialContext(context.Background(), ep.Network, ep.Address)
@@ -114,7 +181,7 @@ func DialEndpoint(ep Endpoint) (*Client, error) {
 	if ep.IsLocal() {
 		if err := verifyPeerOwner(nc, ep); err != nil {
 			_ = nc.Close()
-			return nil, err
+			return nil, &HandshakeError{Err: err}
 		}
 	}
 	if ep.TLS != nil {
@@ -126,7 +193,11 @@ func DialEndpoint(ep Endpoint) (*Client, error) {
 		cancel()
 		if err != nil {
 			_ = nc.Close()
-			return nil, fmt.Errorf("TLS handshake with %s failed: %w", ep, tlsutil.ExplainHostnameMismatch(err))
+			return nil, &HandshakeError{
+				Op:   fmt.Sprintf("TLS handshake with %s failed", ep),
+				Err:  tlsutil.ExplainHostnameMismatch(err),
+				Hint: tlsHandshakeHint(err),
+			}
 		}
 		nc = tc
 	}
@@ -145,7 +216,11 @@ func DialEndpoint(ep Endpoint) (*Client, error) {
 	if ep.PSK != "" {
 		if err := c.authenticate(ep.PSK); err != nil {
 			_ = c.Close()
-			return nil, fmt.Errorf("authenticating with %s: %w", ep, err)
+			return nil, &HandshakeError{
+				Op:   fmt.Sprintf("authenticating with %s", ep),
+				Err:  err,
+				Hint: plaintextHint(ep, err),
+			}
 		}
 	}
 	return c, nil
