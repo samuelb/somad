@@ -1,6 +1,7 @@
 # ADR-0006: Restart a version-skewed daemon only at moments that already interrupt playback
 
-- **Status:** Accepted (amended 2026-09-25: a daemon speaking another protocol version)
+- **Status:** Accepted (amended 2026-09-25: a daemon speaking another
+  protocol version; 2026-11-09: `play` picks its channel before restarting)
 - **Date:** 2026-07-05 (refined 2026-07-12, dev exemption added 2026-09-03)
 - **Sources:** e5620c4, 9936858, 59fccbd, a396db0; `internal/client/spawn.go`,
   `internal/client/version.go`, `internal/client/peercred*.go`; rejection of
@@ -27,6 +28,17 @@ be neither used nor stopped: even `soma daemon stop` failed, and
   change, pause, stop) interrupts the stream regardless. A restart that
   times out falls back to whatever answers: "the user's command outranks
   the upgrade."
+  - *Amendment 2026-11-09.* `soma play` restarts it only once it knows
+    which channel to play. It used to restart first, so after an upgrade
+    `soma play typo`, an ambiguous name, or a bare `soma play` with no
+    last channel stopped the old daemon's music and then failed. It now
+    connects without restarting (`client.Connect`), picks the channel from
+    the running daemon's catalog, and restarts after that. A daemon that
+    speaks another protocol version cannot be asked for its catalog, so
+    the argument is checked against the cached one (the one completion
+    reads, ADR-0021) before the daemon is signalled. With no cache there
+    is nothing to check against, and the fresh daemon judges the argument
+    as before.
 - Remote (`--server`) endpoints are never spawned and never restarted; an
   unreachable one is an error and a skewed one is left alone.
 - Skew is plain string inequality (`client.VersionSkewed`, one exported

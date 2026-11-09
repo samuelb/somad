@@ -212,9 +212,11 @@ func runPlay(args []string) {
 	if len(args) > 1 {
 		failUsage("usage: soma play [--json] [channel-id-or-name]")
 	}
-	c := ensureServerForPlayback()
+	c, serverVersion := connectForPlay(args)
 	defer func() { _ = c.Close() }()
 
+	// The channel is picked before an out-of-date server is restarted: a
+	// name that matches nothing must not cost the music that is playing.
 	payload := waitForCatalog(c)
 	var ch channels.Channel
 	if len(args) == 0 {
@@ -235,11 +237,46 @@ func runPlay(args []string) {
 		}
 	}
 
+	// Playing interrupts the stream anyway, so upgrade an out-of-date server
+	// now. The fresh one may still be loading the catalog it plays from.
+	if client.NeedsRestart(endpoint, version, serverVersion) {
+		c = restartForUpgrade(c, serverVersion)
+		waitForCatalog(c)
+	}
+
 	st, err := c.Play(ch.ID)
 	if err != nil {
 		fail("%v", err)
 	}
 	printState(jsonOut, st, playingLine(st))
+}
+
+// connectForPlay connects soma play to the server, spawning one if needed,
+// and returns the version it runs. An out-of-date server is left as it is:
+// runPlay restarts it only once it knows which channel to play.
+//
+// A server that speaks another protocol version cannot be asked for its
+// catalog, and replacing it stops its music, so the channel argument is
+// first held against the cached catalog (the one completion reads), which
+// costs nothing. Without a cache there is nothing to check against, and the
+// fresh server gets to judge the argument.
+func connectForPlay(args []string) (*client.Client, string) {
+	c, hr, err := client.Connect(endpoint, version)
+	var skew *client.ProtocolSkewError
+	if errors.As(err, &skew) {
+		if len(args) == 1 {
+			if cached, cacheErr := channels.PeekChannelsFromCache(); cacheErr == nil && len(cached.Channels) > 0 {
+				if _, err := resolveChannel(cached.Channels, args[0]); err != nil {
+					fail("%v", err)
+				}
+			}
+		}
+		c, hr, err = client.RestartIncompatible(skew, endpoint, version)
+	}
+	if err != nil {
+		fail("%v", err)
+	}
+	return c, hr.ServerVersion
 }
 
 // parseJSONFlag parses a client command's arguments, which may carry

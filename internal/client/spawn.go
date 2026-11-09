@@ -124,6 +124,16 @@ func EnsureServerForPlayback(ep Endpoint, clientVersion string) (*Client, protoc
 	return ensureServer(ep, clientVersion, true)
 }
 
+// Connect returns a connected, hello-verified client, spawning the server
+// when none is running, and leaves a version-skewed one exactly as it is,
+// playing or idle. It is for a caller that restarts such a server itself
+// (NeedsRestart, Restart), but only once it knows that the command about to
+// interrupt playback will go ahead. A local server that speaks another
+// protocol version comes back as a *ProtocolSkewError, as from EnsureServer.
+func Connect(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	return connectOrSpawn(ep, clientVersion)
+}
+
 func ensureServer(ep Endpoint, clientVersion string, restartWhilePlaying bool) (*Client, protocol.HelloResult, error) {
 	c, hr, err := connectOrSpawn(ep, clientVersion)
 	var skew *ProtocolSkewError

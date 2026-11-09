@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"io"
@@ -39,6 +40,8 @@ type fakeDaemon struct {
 	lastfmReloads int
 	conns         []net.Conn // every connection served, for push and dropConns
 	onHello       func()     // when set, runs (under mu) before each hello is answered
+	serverVersion string     // reported in hello; empty means the client's own version
+	methods       []string   // every request's method, in arrival order
 }
 
 func startFakeDaemon(t *testing.T) *fakeDaemon {
@@ -98,12 +101,13 @@ func (d *fakeDaemon) serve(nc net.Conn) {
 func (d *fakeDaemon) handle(req protocol.Request) any {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.methods = append(d.methods, req.Method)
 	switch req.Method {
 	case protocol.MethodHello:
 		if d.onHello != nil {
 			d.onHello()
 		}
-		return protocol.HelloResult{ServerVersion: version, ProtocolVersion: protocol.Version}
+		return protocol.HelloResult{ServerVersion: cmp.Or(d.serverVersion, version), ProtocolVersion: protocol.Version}
 	case protocol.MethodStatus:
 		return d.status
 	case protocol.MethodChannels:

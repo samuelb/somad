@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,8 +17,24 @@ import (
 // exit status a command line ends with.
 const mainArgsEnv = "SOMA_TEST_MAIN_ARGS"
 
+// mainVersionEnv, when set along with mainArgsEnv, is the version that run
+// of main reports, for the commands that treat a daemon of another version
+// differently: the test binary is otherwise "dev", which never counts as
+// skewed.
+const mainVersionEnv = "SOMA_TEST_MAIN_VERSION"
+
 func TestMain(m *testing.M) {
+	// A client that finds no daemon spawns one by running its own executable
+	// as `<exe> daemon`, which here is this test binary: it would run every
+	// test again, each of which may spawn in turn. No test means to.
+	if len(os.Args) > 1 && os.Args[1] == "daemon" {
+		fmt.Fprintln(os.Stderr, "the test binary was spawned as a soma daemon")
+		os.Exit(3)
+	}
 	if args, ok := os.LookupEnv(mainArgsEnv); ok {
+		if v, ok := os.LookupEnv(mainVersionEnv); ok {
+			version = v
+		}
 		os.Args = append([]string{"soma"}, strings.Split(args, "\x1f")...)
 		main()
 		os.Exit(0)
@@ -25,14 +42,34 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// runSoma runs the test binary as soma with args, its config, state, cache
+// and socket confined to dir, and returns its combined output and exit
+// status. env entries ("KEY=value") are added last, so they win.
+func runSoma(t *testing.T, dir string, env []string, args ...string) (string, int) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), os.Args[0]) // #nosec G204 G702 -- the test binary itself
+	cmd.Env = append(os.Environ(),
+		mainArgsEnv+"="+strings.Join(args, "\x1f"),
+		"XDG_CONFIG_HOME="+dir, "XDG_STATE_HOME="+dir, "XDG_CACHE_HOME="+dir,
+		"SOMAD_SOCKET="+dir+"/s.sock", "SOMAD_SERVER=",
+	)
+	cmd.Env = append(cmd.Env, env...)
+	out, err := cmd.CombinedOutput()
+	status := 0
+	if exitErr := (*exec.ExitError)(nil); errors.As(err, &exitErr) {
+		status = exitErr.ExitCode()
+	} else {
+		require.NoError(t, err)
+	}
+	return string(out), status
+}
+
 // TestExitStatus pins the scripting contract: 0 for success, 1 for a
 // command that ran and failed, 2 for a command line soma cannot make sense
 // of. None of the commands here may spawn a daemon: that would run this
 // test binary as one.
 func TestExitStatus(t *testing.T) {
-	dir, err := os.MkdirTemp("", "sx") // short: a socket path has a length limit
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	dir := shortTempDir(t) // short: a socket path has a length limit
 
 	tests := []struct {
 		args []string
@@ -52,19 +89,7 @@ func TestExitStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
-			cmd := exec.CommandContext(t.Context(), os.Args[0]) // #nosec G204 G702 -- the test binary itself
-			cmd.Env = append(os.Environ(),
-				mainArgsEnv+"="+strings.Join(tt.args, "\x1f"),
-				"XDG_CONFIG_HOME="+dir, "XDG_STATE_HOME="+dir, "XDG_CACHE_HOME="+dir,
-				"SOMAD_SOCKET="+dir+"/s.sock", "SOMAD_SERVER=",
-			)
-			out, err := cmd.CombinedOutput()
-			status := 0
-			if exitErr := (*exec.ExitError)(nil); errors.As(err, &exitErr) {
-				status = exitErr.ExitCode()
-			} else {
-				require.NoError(t, err)
-			}
+			out, status := runSoma(t, dir, nil, tt.args...)
 			assert.Equal(t, tt.want, status, "output: %s", out)
 		})
 	}

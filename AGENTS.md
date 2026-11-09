@@ -252,7 +252,9 @@ resolved in `cmd/soma/endpoint.go` from flags, `$SOMAD_SERVER`, and the
 config file. `spawn.go` auto-spawns a local daemon when none is running and
 handles version skew: a daemon whose version differs from the client's is
 restarted onto the new binary only at a moment that already interrupts
-playback (channel change, pause, stop), never mid-song. One that speaks
+playback (channel change, pause, stop), never mid-song; `soma play` picks
+its channel first (`client.Connect` never restarts), so an argument that
+matches nothing leaves the daemon playing. One that speaks
 another protocol version refuses every request, `shutdown` included, so at
 those moments (and on `soma daemon stop`) it is sent SIGTERM instead, its
 PID read from the socket's peer credentials (`peercred_darwin.go` /
