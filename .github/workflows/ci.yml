@@ -139,7 +139,7 @@ jobs:
           CGO_ENABLED: "1"
           GOOS: linux
           GOARCH: arm64
-        run: go build -o soma_linux_arm64 ./cmd/soma
+        run: go build -trimpath -o soma_linux_arm64 ./cmd/soma
 
   build-darwin-universal:
     name: Build darwin universal (compile only)
@@ -160,7 +160,7 @@ jobs:
           CGO_ENABLED: 1
           GOOS: darwin
         run: |
-          GOARCH=arm64 CC="clang -arch arm64" go build -o soma_darwin_arm64 ./cmd/soma
-          GOARCH=amd64 CC="clang -arch x86_64" go build -o soma_darwin_amd64 ./cmd/soma
+          GOARCH=arm64 CC="clang -arch arm64" go build -trimpath -o soma_darwin_arm64 ./cmd/soma
+          GOARCH=amd64 CC="clang -arch x86_64" go build -trimpath -o soma_darwin_amd64 ./cmd/soma
           lipo -create -output soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
           lipo -info soma_darwin_universal

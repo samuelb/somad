@@ -180,13 +180,14 @@ jobs:
       - name: Build
         # The tag points at the bump commit prepare pushed, not at the
         # workflow-trigger commit in GITHUB_SHA, so stamp that one.
+        # -trimpath keeps the runner's directories out of the binary.
         env:
           CGO_ENABLED: "1"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
-          go build -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.tag }} -X main.commit=${RELEASE_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o soma_${{ matrix.goos }}_${{ matrix.goarch }} ./cmd/soma
+          go build -trimpath -ldflags "-s -w -X main.version=${{ needs.prepare.outputs.tag }} -X main.commit=${RELEASE_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o soma_${{ matrix.goos }}_${{ matrix.goarch }} ./cmd/soma
 
       - name: Smoke-test the binary
         # A binary that does not start, or that is stamped with anything but
@@ -240,8 +241,8 @@ jobs:
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           LDFLAGS="-s -w -X main.version=${{ needs.prepare.outputs.tag }} -X main.commit=${RELEASE_SHA::7} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          GOARCH=arm64 CC="clang -arch arm64" go build -ldflags "$LDFLAGS" -o soma_darwin_arm64 ./cmd/soma
-          GOARCH=amd64 CC="clang -arch x86_64" go build -ldflags "$LDFLAGS" -o soma_darwin_amd64 ./cmd/soma
+          GOARCH=arm64 CC="clang -arch arm64" go build -trimpath -ldflags "$LDFLAGS" -o soma_darwin_arm64 ./cmd/soma
+          GOARCH=amd64 CC="clang -arch x86_64" go build -trimpath -ldflags "$LDFLAGS" -o soma_darwin_amd64 ./cmd/soma
           mkdir -p dist
           lipo -create -output dist/soma_darwin_universal soma_darwin_amd64 soma_darwin_arm64
           lipo -info dist/soma_darwin_universal

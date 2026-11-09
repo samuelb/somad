@@ -28,6 +28,12 @@ specific binaries.
 - macOS ships one universal binary merged with `lipo`, inside a DMG that
   carries the raw binary plus docs rather than an `.app` bundle, because
   soma is a CLI-first tool that users copy onto their `PATH`.
+  - *Amendment 2026-11-09.* The release binaries and the PKGBUILD build
+    with `-trimpath`: the binaries carried the build machine's absolute
+    source paths, which show in every panic trace, and two builds of one
+    commit differed by the directory they ran in. The Nix build already
+    trims. The build date is still stamped, so releases are not yet
+    byte-for-byte reproducible.
 
 ## Consequences
 
