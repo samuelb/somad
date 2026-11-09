@@ -423,8 +423,11 @@ A listener reachable from other machines requires both TLS and a PSK — anyone
 who can reach an unprotected port could control your radio (and shut the
 daemon down), so the daemon refuses to start without them. To run one open
 anyway, e.g. on a trusted isolated network, pass `--insecure` (or set
-`server.insecure` in the config file). Listeners bound to localhost only log
-a warning, since they are no more exposed than the Unix socket.
+`server.insecure` in the config file). A listener bound to localhost starts
+without them and only logs a warning. It is still more exposed than the Unix
+socket, which only your own user can open: without a PSK, every user and
+every program on the machine can connect to the port and control the daemon.
+Set a PSK there too unless the machine is yours alone.
 
 Two things work differently with a remote server: the client never
 auto-starts one (start `soma daemon` on the server yourself, e.g. under a

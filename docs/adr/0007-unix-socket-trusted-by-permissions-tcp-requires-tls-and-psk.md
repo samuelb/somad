@@ -1,7 +1,8 @@
 # ADR-0007: The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK
 
 - **Status:** Accepted (amended 2026-10-13: clients check the socket
-  peer's user)
+  peer's user; amended 2026-11-09: a line that is not a request ends the
+  connection, and a loopback port is not as private as the socket)
 - **Date:** 2026-07-11 (tightened 2026-07-12, resource limits 2026-09-03)
 - **Sources:** a396db0, 890fd5f; `internal/server/conn.go`, `cmd/soma/main.go` `checkTCPSecurity`, `internal/protocol/auth.go`,
   `internal/protocol/socket.go`, `internal/client/peercred*.go`
@@ -41,10 +42,28 @@ only the handshake, so an on-path attacker could hijack the session.
   startup warnings.
 - Loopback TCP binds only warn: "the machine boundary already limits
   exposure, like the Unix socket."
+  - *Amendment 2026-11-09.* The comparison does not hold, and the README
+    no longer makes it. The socket is private to its owner; a loopback
+    port without a PSK answers every user and every program on the
+    machine. It still only warns, because the listener is opt-in and a
+    single-user machine is the common case, but a PSK is what makes it as
+    private as the socket.
 - Unauthenticated connections stay unregistered: they receive no state
   broadcasts and never hold off the idle exit (ADR-0005). The auth success
   response is sent only after the connection is registered, so a client
   acting on it cannot miss a broadcast.
+- A line that does not parse as a JSON request ends the connection, on
+  every transport, after one error reply (*Amendment 2026-11-09*). Such a
+  line used to be answered and skipped, which made the loopback case worse
+  than "every local program": a web page can have the browser send a
+  `text/plain` POST to `127.0.0.1:<port>` without a preflight, the request
+  line and headers were each skipped as bad requests, and JSON lines in
+  the body then ran, `hello`, `setVolume`, `play` and `shutdown` included.
+  An HTTP request line always comes first and is never JSON, so the
+  connection now ends there. No client of ours sends such a line, and a
+  retry only opens a connection that ends the same way. This closes the
+  browser as a way in; it does not authenticate anyone, so a listener
+  without a PSK stays open to whatever can speak the protocol to it.
 - TCP connections are resource-bounded; the Unix socket is not, since its
   directory already restricts it to the owning user:
   - a 10 s handshake deadline covers the lazy TLS handshake, the PSK
@@ -53,7 +72,10 @@ only the handshake, so an on-path attacker could hijack the session.
     hours, and dead peers are reaped by TCP keepalive, which the listener
     enables by default;
   - every write carries a 30 s deadline, so a peer that stops reading is
-    dropped instead of parking the writer on the write mutex;
+    dropped instead of parking the writer on the write mutex. Before
+    hello a write ends with the handshake deadline when that comes first
+    (*Amendment 2026-11-09*): a peer that sent requests and never read
+    the answers held its slot for 30 s, not the 10 s stated below;
   - the server reads requests with a 64 KiB line cap
     (`protocol.MaxRequestBytes`); the 4 MiB budget is only needed for the
     server-to-client catalog event and stays on the client's scanner;

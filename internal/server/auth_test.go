@@ -6,6 +6,9 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"path/filepath"
 	"testing"
@@ -304,4 +307,85 @@ func TestConn_WriteDeadlineDropsPeerThatStopsReading(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("server kept the connection despite the stuck write")
 	}
+}
+
+// A peer that sends requests and never reads the answers parks the server
+// in a write. Before hello that must end with the handshake deadline, not
+// with the three times longer write timeout.
+func TestConn_HandshakeDeadlineBoundsWritesBeforeHello(t *testing.T) {
+	shrinkHandshakeTimeout(t, 50*time.Millisecond)
+	s, _ := newTestServer(t, Config{PSK: "secret"})
+
+	clientSide, serverSide := net.Pipe()
+	t.Cleanup(func() { _ = clientSide.Close() })
+	done := make(chan struct{})
+	go func() {
+		s.serveConn(serverSide)
+		close(done)
+	}()
+
+	require.NoError(t, protocol.WriteLine(clientSide, protocol.Request{ID: 1, Method: protocol.MethodAuthChallenge}))
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server kept the connection past the handshake deadline on a stuck write")
+	}
+}
+
+// A browser will POST to a loopback port for any page that asks. The request
+// line and headers used to be skipped as bad requests, leaving the JSON
+// lines in the body to run; the connection must end at the request line.
+func TestConn_HTTPRequestIsDroppedAtItsFirstLine(t *testing.T) {
+	s, _ := newTestServer(t, Config{}) // a loopback listener with no PSK
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() { _ = s.acceptLoop(ln) }()
+	before := s.Snapshot().Volume
+	require.NotEqual(t, 0.25, before)
+
+	nc, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", ln.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = nc.Close() })
+
+	var body bytes.Buffer
+	require.NoError(t, protocol.WriteLine(&body, protocol.Request{
+		ID: 1, Method: protocol.MethodHello,
+		Params: json.RawMessage(fmt.Sprintf(`{"clientVersion":"web","protocolVersion":%d}`, protocol.Version)),
+	}))
+	require.NoError(t, protocol.WriteLine(&body, protocol.Request{
+		ID: 2, Method: protocol.MethodSetVolume, Params: json.RawMessage(`{"volume":0.25}`),
+	}))
+	_, err = fmt.Fprintf(nc, "POST / HTTP/1.1\r\nHost: %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+		ln.Addr(), body.Len(), body.String())
+	require.NoError(t, err)
+
+	// The server hangs up. A reset (it closed with the rest of the request
+	// unread) is as good as an EOF; only a timeout means it is still there.
+	require.NoError(t, nc.SetReadDeadline(time.Now().Add(2*time.Second)))
+	reply, err := io.ReadAll(nc)
+	var netErr net.Error
+	require.False(t, errors.As(err, &netErr) && netErr.Timeout(), "connection still open, read %q", reply)
+	assert.NotContains(t, string(reply), `"result"`, "no request in the body may be answered")
+	assert.Equal(t, before, s.Snapshot().Volume, "the setVolume in the body must not run")
+}
+
+func TestConn_MalformedLineIsAnsweredOnceThenDropped(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	clientSide, serverSide := net.Pipe()
+	t.Cleanup(func() { _ = clientSide.Close() })
+	go s.serveConn(serverSide)
+	require.NoError(t, clientSide.SetDeadline(time.Now().Add(2*time.Second)))
+
+	// The pipe is unbuffered and the server stops reading after the first
+	// line, so the second is written from its own goroutine.
+	_, err := clientSide.Write([]byte("GET / HTTP/1.1\r\n"))
+	require.NoError(t, err)
+	go func() { _, _ = clientSide.Write([]byte("Host: localhost\r\n")) }()
+
+	sc := protocol.NewScanner(clientSide)
+	require.True(t, sc.Scan(), "the one error reply")
+	assert.Contains(t, sc.Text(), "malformed request")
+	assert.False(t, sc.Scan(), "the connection ends after it, got %q", sc.Text())
+	assert.NoError(t, sc.Err(), "closed by the server, not timed out")
 }

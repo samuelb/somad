@@ -36,6 +36,7 @@ const maxConcurrentRequests = 32
 //
 // writeTimeout bounds each write so a peer that stops reading cannot park
 // the writer holding writeMu forever; the connection is dropped instead.
+// Before hello a write ends with the handshake deadline if that comes first.
 var (
 	handshakeTimeout = newDurationAtomic(10 * time.Second)
 	writeTimeout     = newDurationAtomic(30 * time.Second)
@@ -60,7 +61,11 @@ type conn struct {
 	remote bool
 
 	writeMu sync.Mutex
-	sem     chan struct{}
+	// handshakeBy is when a remote connection must have said hello; zero
+	// once it has, and on the Unix socket. Guarded by writeMu: the read
+	// loop sets it and every write before hello is cut off at it.
+	handshakeBy time.Time
+	sem         chan struct{}
 
 	stateCh    chan protocol.Event
 	channelsCh chan protocol.Event
@@ -125,8 +130,15 @@ func (s *Server) serveConn(nc net.Conn) {
 	for sc.Scan() {
 		var req protocol.Request
 		if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
+			// Whatever sent this is not a soma client, so hang up rather
+			// than read on. Skipping such lines made any protocol that
+			// opens with text of its own a carrier for requests: a web
+			// page can have the browser POST to a loopback listener, the
+			// request line and headers were each answered as malformed,
+			// and the JSON lines in the body then ran (ADR-0007). The one
+			// answer is for a person typing requests by hand.
 			c.respondError(req.ID, fmt.Errorf("malformed request: %w", err))
-			continue
+			return
 		}
 		if !c.dispatch(req) {
 			return
@@ -134,10 +146,19 @@ func (s *Server) serveConn(nc net.Conn) {
 	}
 }
 
-// armHandshakeDeadline (re)starts the pre-hello read deadline on a remote
+// armHandshakeDeadline (re)starts the pre-hello deadline on a remote
 // connection.
 func (c *conn) armHandshakeDeadline() {
-	_ = c.nc.SetReadDeadline(time.Now().Add(time.Duration(handshakeTimeout.Load())))
+	c.setHandshakeDeadline(time.Now().Add(time.Duration(handshakeTimeout.Load())))
+}
+
+// setHandshakeDeadline moves a remote connection's pre-hello deadline to by,
+// or lifts it with the zero time once hello has succeeded.
+func (c *conn) setHandshakeDeadline(by time.Time) {
+	c.writeMu.Lock()
+	c.handshakeBy = by
+	c.writeMu.Unlock()
+	_ = c.nc.SetReadDeadline(by)
 }
 
 // register adds the connection to the server's broadcast set. It reports
@@ -174,7 +195,7 @@ func (c *conn) dispatch(req protocol.Request) bool {
 		}
 		c.saidHello = c.handleHello(req)
 		if c.saidHello && c.remote {
-			_ = c.nc.SetReadDeadline(time.Time{})
+			c.setHandshakeDeadline(time.Time{})
 		}
 		return true
 	default:
@@ -478,7 +499,15 @@ func (c *conn) writeLoop() {
 func (c *conn) write(v any) {
 	c.writeMu.Lock()
 	if c.remote {
-		_ = c.nc.SetWriteDeadline(time.Now().Add(time.Duration(writeTimeout.Load())))
+		deadline := time.Now().Add(time.Duration(writeTimeout.Load()))
+		// Until hello the peer gets no longer than the handshake allows:
+		// with the full write timeout, one that sends requests and never
+		// reads the answers would keep its connection slot for three times
+		// handshakeTimeout.
+		if !c.handshakeBy.IsZero() && c.handshakeBy.Before(deadline) {
+			deadline = c.handshakeBy
+		}
+		_ = c.nc.SetWriteDeadline(deadline)
 	}
 	err := protocol.WriteLine(c.nc, v)
 	c.writeMu.Unlock()

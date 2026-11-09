@@ -212,7 +212,9 @@ instance. It runs until stopped explicitly unless `--idle-timeout` /
 `server.idle_timeout` is set. `Run` accepts multiple listeners and waits
 out failed Accepts (EMFILE and the like) with a backoff, since a listener
 that ends takes the daemon down; `conn.go`
-gates non-local connections behind auth when a PSK is configured.
+gates non-local connections behind auth when a PSK is configured, and
+ends a connection at its first line that is not a JSON request, so an HTTP
+request from a browser cannot carry requests in (ADR-0007).
 `history.go` keeps an in-memory ring (default 50) of now-playing titles
 across the daemon's lifetime, appended on every ICY title change
 (`handleTrackUpdate` in `playback.go`); a `history` request for one channel
