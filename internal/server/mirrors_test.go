@@ -142,6 +142,114 @@ func TestReconnect_StartsOnTheNextMirror(t *testing.T) {
 	}, player.attemptedURLs())
 }
 
+// manualReconnects keeps the reconnect timer from ever firing and returns
+// the two halves of a reconnect for the test to run itself, so no state in
+// between is missed: drop fails the playing stream, reconnect is the
+// timer's play.
+func manualReconnects(t *testing.T, s *Server, channelID string) (drop, reconnect func()) {
+	t.Helper()
+	prev := reconnectBaseDelay
+	reconnectBaseDelay = time.Hour
+	t.Cleanup(func() { reconnectBaseDelay = prev })
+	drop = func() {
+		t.Helper()
+		s.handleStreamError(errors.New("stream read error"))
+		require.Equal(t, protocol.StatusReconnecting, s.Snapshot().Status)
+	}
+	reconnect = func() {
+		s.mu.Lock()
+		gen := s.playGen
+		s.mu.Unlock()
+		s.reconnectChannel(channelID, gen)
+	}
+	return drop, reconnect
+}
+
+func TestReconnect_StartsOnTheNextMirrorAfterEveryDrop(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	withMirrors(t, 3)
+	drop, reconnect := manualReconnects(t, s, "dronezone")
+	_, err := s.Play("dronezone")
+	require.NoError(t, err)
+
+	// Every reconnect succeeds, on a relay that then drops the stream again.
+	for range 4 {
+		drop()
+		reconnect()
+		require.Equal(t, protocol.StatusPlaying, s.Snapshot().Status)
+	}
+
+	// Never the host that just dropped the stream, however often it happens.
+	assert.Equal(t, []string{
+		"http://somafm.com/dronezone.pls#m1",
+		"http://somafm.com/dronezone.pls#m2",
+		"http://somafm.com/dronezone.pls#m3",
+		"http://somafm.com/dronezone.pls#m1",
+		"http://somafm.com/dronezone.pls#m2",
+	}, player.attemptedURLs())
+}
+
+func TestReconnect_AfterAFailoverStartsBehindTheMirrorThatPlayed(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	withMirrors(t, 3)
+	player.mu.Lock()
+	player.failURLs = map[string]bool{"http://somafm.com/dronezone.pls#m1": true}
+	player.mu.Unlock()
+	drop, reconnect := manualReconnects(t, s, "dronezone")
+	_, err := s.Play("dronezone")
+	require.NoError(t, err)
+
+	drop()
+	reconnect()
+
+	// The play fell through to the second mirror, so that is the one that
+	// dropped: the reconnect starts on the third.
+	assert.Equal(t, []string{
+		"http://somafm.com/dronezone.pls#m1",
+		"http://somafm.com/dronezone.pls#m2",
+		"http://somafm.com/dronezone.pls#m3",
+	}, player.attemptedURLs())
+}
+
+func TestPlay_ByTheUserStartsOnTheFirstMirrorAgain(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	withMirrors(t, 3)
+	drop, reconnect := manualReconnects(t, s, "dronezone")
+	_, err := s.Play("dronezone")
+	require.NoError(t, err)
+	drop()
+	reconnect()
+
+	_, err = s.Play("groovesalad")
+	require.NoError(t, err)
+
+	attempts := player.attemptedURLs()
+	assert.Equal(t, "http://somafm.com/groovesalad.pls#m1", attempts[len(attempts)-1])
+}
+
+func TestReconnect_BackoffGrowsUntilAStreamStaysUp(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	drop, reconnect := manualReconnects(t, s, "dronezone")
+	_, err := s.Play("dronezone")
+	require.NoError(t, err)
+
+	// Each reconnect gets a stream that drops again at once: connecting is
+	// not recovering, so the attempts keep counting and the waits growing.
+	for attempt := 1; attempt <= 3; attempt++ {
+		drop()
+		assert.Equal(t, attempt, s.Snapshot().ReconnectAttempt)
+		reconnect()
+		require.Equal(t, protocol.StatusPlaying, s.Snapshot().Status)
+	}
+
+	// This one lasts. When it drops, the backoff starts over.
+	s.mu.Lock()
+	s.playingSince = s.playingSince.Add(-reconnectStableAfter)
+	s.mu.Unlock()
+	drop()
+	assert.Equal(t, 1, s.Snapshot().ReconnectAttempt)
+}
+
 func TestPlay_MirrorFailoverOverHTTP(t *testing.T) {
 	securitytest.AllowTestHosts(t)
 	// Three mirrors behind a real playlist: one host refuses connections,

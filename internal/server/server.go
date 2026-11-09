@@ -165,6 +165,15 @@ type Server struct {
 	// spectrumRunning is true while spectrumLoop runs; see spectrum.go.
 	spectrumRunning bool
 
+	// mirrorRotation is which of a playlist's mirrors the next connect
+	// starts on (modulo how many there are): a committed stream leaves it
+	// at its own mirror and every scheduled reconnect moves it one on.
+	// Only a play the user asked for takes it back to the first mirror.
+	// playingSince is when the current stream was committed, zero while
+	// none is; see reconnectStableAfter.
+	mirrorRotation int
+	playingSince   time.Time
+
 	// connectErr and connectTitle hold what the player reported for the
 	// current generation while the server still said connecting: a session
 	// can fail, or deliver its first title, between player.Play returning

@@ -26,7 +26,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0010](0010-outbound-http-restricted-to-somafm.md) | All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped | Accepted (amended) |
 | [0011](0011-strict-config-file-supplies-flag-defaults.md) | The config file is strict, supplies flag defaults, and ships fully commented out | Accepted |
 | [0012](0012-persisted-state-atomic-writes-and-corrupt-file-quarantine.md) | Persisted state uses atomic writes, quarantines corrupt files, and orders saves by sequence | Accepted |
-| [0013](0013-stream-resilience-jitter-buffer-watchdog-reconnect-forever.md) | Stream resilience: jitter buffer, stall watchdog, clean EOF is an error, reconnect forever | Accepted |
+| [0013](0013-stream-resilience-jitter-buffer-watchdog-reconnect-forever.md) | Stream resilience: jitter buffer, stall watchdog, clean EOF is an error, reconnect forever | Accepted (amended) |
 | [0014](0014-session-owned-playback-with-generation-counters.md) | One goroutine owns each playback session; the newest Play or Stop always wins | Accepted |
 | [0015](0015-icy-metadata-demuxed-from-the-playback-connection.md) | Track titles are demuxed from the playback connection, not fetched separately | Accepted |
 | [0016](0016-stream-format-selection-aac-where-decodable-mp3-otherwise.md) | Prefer AAC where the platform decodes it, MP3 elsewhere, at the configured quality; no Linux AAC decoder | Accepted (amended) |

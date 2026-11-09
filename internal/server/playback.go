@@ -24,6 +24,13 @@ const reconnectMaxDelay = time.Minute
 // reconnectBaseDelay is a variable so tests can shrink the backoff.
 var reconnectBaseDelay = 2 * time.Second
 
+// reconnectStableAfter is how long a stream must have played before its
+// drop starts the backoff over. Connecting alone does not: a relay that
+// accepts, streams for a moment and hangs up would otherwise be retried
+// every reconnectBaseDelay for as long as it keeps doing that. A variable
+// so tests can shrink it.
+var reconnectStableAfter = 30 * time.Second
+
 // reconnectDelay returns the backoff delay before the given attempt
 // (1-based): it doubles with every attempt (2s, 4s, ...) and is capped at
 // reconnectMaxDelay.
@@ -157,6 +164,7 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 	save := func() {}
 	if userInitiated {
 		s.reconnectAttempt = 0
+		s.mirrorRotation = 0
 		s.st.LastSelectedChannelID = ch.ID
 		save = s.stageSaveLocked()
 	}
@@ -167,9 +175,11 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 // order (AAC before MP3 where this build decodes it), and each playlist's
 // mirrors in turn: a stream that fails to connect or decode falls back to
 // the same format on the next mirror, then to the next format. The first
-// mirror tried rotates with the reconnect attempt, so a reconnect after a
-// drop starts on a different host than the one that dropped. It runs off
-// the lock because resolving and connecting block on the network.
+// mirror tried is the one after the mirror that last played or was last
+// started on (mirrorRotation), so a reconnect after a drop starts on a
+// different host than the one that dropped, every time and not only after
+// the first drop. It runs off the lock because resolving and connecting
+// block on the network.
 //
 // Worst case before the attempt gives up: per candidate, the 15 s playlist
 // fetch plus maxStreamMirrors connects of at most 10 s each (the player's
@@ -186,7 +196,7 @@ func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, erro
 			a.ch.Title, strings.Join(formats, ", ")), false)
 	}
 	s.mu.Lock()
-	rotation := s.reconnectAttempt
+	rotation := s.mirrorRotation
 	s.mu.Unlock()
 
 	var lastErr error
@@ -207,14 +217,14 @@ func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, erro
 			continue
 		}
 
-		for _, streamURL := range rotateMirrors(mirrors, rotation) {
+		for i, streamURL := range rotateMirrors(mirrors, rotation) {
 			if s.superseded(a.gen) {
 				return s.Snapshot(), audio.ErrSuperseded
 			}
 			err := s.player.Play(streamURL, cand.Format, a.gen)
 			if err == nil {
 				log.Printf("playing %s (%s from %s)", a.ch.Title, cand.Format, streamURL)
-				return s.commitPlay(a.gen)
+				return s.commitPlay(a.gen, rotation+i)
 			}
 			if errors.Is(err, audio.ErrSuperseded) {
 				// A newer play/stop request won; it owns the state now.
@@ -267,8 +277,10 @@ func (s *Server) superseded(gen uint64) bool {
 }
 
 // commitPlay records that the player is streaming the attempt identified by
-// gen, unless a newer play or stop has taken over meanwhile.
-func (s *Server) commitPlay(gen uint64) (protocol.PlaybackState, error) {
+// gen, unless a newer play or stop has taken over meanwhile. mirror is the
+// rotation that puts the mirror now playing first, which is not the one the
+// attempt started on when that one failed.
+func (s *Server) commitPlay(gen uint64, mirror int) (protocol.PlaybackState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if gen != s.playGen {
@@ -278,6 +290,9 @@ func (s *Server) commitPlay(gen uint64) (protocol.PlaybackState, error) {
 		// would hit the newer, legitimate session.
 		return s.snapshotLocked(), audio.ErrSuperseded
 	}
+	// Before the check below: a session that has failed already was on this
+	// mirror too, and its reconnect must start behind it.
+	s.mirrorRotation = mirror
 	if err := s.connectErr; err != nil {
 		// The committed session already failed while this commit waited
 		// for the lock (handleStreamError left the error here): going to
@@ -285,7 +300,9 @@ func (s *Server) commitPlay(gen uint64) (protocol.PlaybackState, error) {
 		return s.failStreamLocked(gen, err, true), err
 	}
 	s.status = protocol.StatusPlaying
-	s.reconnectAttempt = 0 // connected: a later drop starts a fresh backoff
+	// reconnectAttempt stays as it is: whether this connect ended the outage
+	// shows only in how long the stream lasts (scheduleReconnectOrStopLocked).
+	s.playingSince = time.Now()
 	if title := s.connectTitle; title != "" {
 		// Its first title arrived in the same window; publishing it also
 		// mirrors the playing state to MPRIS and broadcasts it.
@@ -356,10 +373,18 @@ func (s *Server) handleStreamError(err error) {
 // scheduleReconnectOrStopLocked moves to reconnecting with capped
 // exponential backoff when the error is retryable, and to stopped otherwise.
 // Reconnecting never gives up on its own; only an explicit stop or a new
-// play ends it.
+// play ends it. The backoff starts over when the stream that just failed
+// had played for reconnectStableAfter; one that dropped sooner, or never
+// connected, is one more failed attempt.
 func (s *Server) scheduleReconnectOrStopLocked(retry bool) {
+	stable := !s.playingSince.IsZero() && time.Since(s.playingSince) >= reconnectStableAfter
+	s.playingSince = time.Time{}
 	if retry {
+		if stable {
+			s.reconnectAttempt = 0
+		}
 		s.reconnectAttempt++
+		s.mirrorRotation++
 		s.status = protocol.StatusReconnecting
 		gen := s.playGen
 		channelID := s.channelID
@@ -475,6 +500,7 @@ func (s *Server) abandonSessionLocked(cancelSleepTimer bool) uint64 {
 	s.playGen++
 	s.connectErr = nil
 	s.connectTitle = ""
+	s.playingSince = time.Time{}
 	s.cancelReconnectLocked()
 	s.endLastfmTrackLocked()
 	return s.playGen

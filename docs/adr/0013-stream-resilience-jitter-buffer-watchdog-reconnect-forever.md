@@ -1,6 +1,6 @@
 # ADR-0013: Stream resilience: jitter buffer, stall watchdog, clean EOF is an error, reconnect forever
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-11-09: every reconnect moves to the next mirror; the backoff starts over only after a stream that lasted)
 - **Date:** 2026-07-05 (jitter buffer 2026-09-01; connect deadline to first decoded frame and mirror failover 2026-09-25)
 - **Sources:** eead2e1, d39497b, de8dd79, f062394, 1f9dec1; `internal/audio/player.go`, `buffer.go`; earlier ae9f67c, 4ee15a3, 4f3332d; rejection of watchdog re-arm on 2026-09-03
 
@@ -34,6 +34,15 @@ hiccup longer than the audio device's own small buffer was audible.
   playlist is never retried, because reconnecting cannot conjure one up;
   nor is a channel a catalog refresh dropped meanwhile, which stops with
   the error shown (2026-09-25).
+  - *Amendment 2026-11-09.* The backoff started over with every connect
+    that succeeded, so the cap only ever applied to connects that failed:
+    a stream that connected and dropped again within seconds was retried
+    every two seconds for as long as that went on. It now starts over
+    only when the stream that dropped had played for 30 s
+    (`reconnectStableAfter`); one that dropped sooner is one more failed
+    attempt, and the attempt number clients show keeps counting. On a
+    line that drops every few seconds the gaps therefore grow to a
+    minute, where the short gap bought little music anyway.
 - **2026-09-25:** every SomaFM playlist lists the same stream on three
   mirror hosts, in the same host order for every format, and only the
   first was ever used, so one dead host failed every format and every
@@ -43,6 +52,15 @@ hiccup longer than the audio device's own small buffer was audible.
   format (15 s playlist fetch plus three 10 s connect deadlines) plus one
   audio-device wait; an audio-device failure ends the attempt at once,
   since every other stream would wait for the device again.
+  - *Amendment 2026-11-09.* The rotation was the backoff counter, which
+    a successful connect reset, so only the first reconnect moved on:
+    from the second drop every reconnect started on the mirror that had
+    just dropped, and a relay that accepted, streamed briefly and hung up
+    was retried first for good. The rotation is a counter of its own now
+    (`mirrorRotation`): a committed stream leaves it on the mirror that
+    plays, also when the attempt had to fall through to it, each
+    scheduled reconnect moves it one on, and only a play the user asked
+    for goes back to the playlist's first mirror.
 - Each failure has exactly one reporting path, and the errors channel is
   lossy by design: it signals "currently unhealthy", it is not a log.
 
