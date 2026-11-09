@@ -18,6 +18,7 @@ make test               # go test -race ./...  (~10 s with a warm build cache)
 make lint               # golangci-lint run ./...  (config: .golangci.yml, gosec enabled)
 make check              # lint + test + vet — run before committing
 go test -race ./internal/server/ -run TestName   # single test
+make fuzz               # fuzz every Fuzz* target for FUZZTIME (default 30s) each
 make fmt                # gofmt -s (+ goimports if installed)
 make site               # build the website (Zola project in site/) into dist/site; brew install zola
 make site-serve         # serve it with live reload on http://127.0.0.1:1111
@@ -38,7 +39,8 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
 - lefthook (`lefthook.yml`) runs lint and race tests on pre-commit and
   pre-push. CI (`.github/workflows/ci.yml`) additionally runs `govulncheck`
   and fails below 60 % total coverage on the Linux job. It also runs every
-  Monday on a schedule, so a new advisory fails it without a push.
+  Monday on a schedule, so a new advisory fails it without a push; only
+  that run fuzzes (`make fuzz`), since `go test` just replays the seeds.
   It skips pushes that touch only `site/`, `docs/`, Markdown, the demo
   recording, or the Website workflow (`paths-ignore`), so docs-only commits
   do not run the Go gates; keep that list in step with what feeds the build.

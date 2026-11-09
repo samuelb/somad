@@ -73,6 +73,21 @@ benchmark:
 	@echo "Running benchmarks..."
 	$(GOTEST) -bench=. -benchmem ./...
 
+# Fuzz every Fuzz* target for FUZZTIME each (go test takes one target per
+# run). `make test` only replays the seed corpus; CI runs this weekly. An
+# input that fails is written to the package's testdata/fuzz directory:
+# commit it, and it becomes a regression seed.
+FUZZTIME?=30s
+FUZZDIRS=$(shell git ls-files -- '*_test.go' ':!:vendor/' | xargs grep -l '^func Fuzz' | xargs -n1 dirname | sort -u)
+.PHONY: fuzz
+fuzz:
+	@for dir in $(FUZZDIRS); do \
+		for target in $$(grep -h -o '^func Fuzz[A-Za-z0-9_]*' $$dir/*_test.go | sed 's/^func //'); do \
+			echo "Fuzzing $$target in ./$$dir for $(FUZZTIME)..."; \
+			$(GOTEST) ./$$dir -run '^$$' -fuzz "^$$target\$$" -fuzztime $(FUZZTIME) || exit 1; \
+		done; \
+	done
+
 # Run linter
 .PHONY: lint
 lint:
@@ -263,6 +278,7 @@ help:
 	@echo "  test-coverage     Run tests with coverage report"
 	@echo "  test-coverage-html Run tests and generate HTML coverage report"
 	@echo "  benchmark         Run benchmarks"
+	@echo "  fuzz              Fuzz every Fuzz* target for FUZZTIME each"
 	@echo "  lint              Run linter (golangci-lint)"
 	@echo "  lint-fix          Run linter with auto-fix"
 	@echo "  clean             Remove build artifacts"
@@ -287,3 +303,4 @@ help:
 	@echo "  COMMIT            Set commit hash (default: git sha or 'none')"
 	@echo "  DATE              Set build date (default: current UTC time)"
 	@echo "  DEB_ARCH          Debian architecture for package-deb (default: amd64)"
+	@echo "  FUZZTIME          How long 'make fuzz' fuzzes each target (default: 30s)"

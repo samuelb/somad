@@ -32,6 +32,11 @@ the `go.mod` floor toolchain, whose stdlib carried already-fixed CVEs.
     skips pushes that touch nothing but docs or the website, so an advisory
     published during a quiet spell went unseen until the next code change.
     The workflow now also runs every Monday on a schedule.
+  - *Amendment 2026-11-09.* The fuzz targets for the parsers of network
+    data only ever replayed their seed corpus, as part of `go test`. The
+    scheduled run now fuzzes each target for 30 s (`make fuzz`) and uploads
+    an input that fails. Pushes do not fuzz: a random failure there would
+    block an unrelated change.
 - Test speed is a design concern: fsync-heavy persistence is injectable so
   the suite runs in well under a second where it took 29 s.
 

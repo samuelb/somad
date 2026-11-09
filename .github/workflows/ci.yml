@@ -90,6 +90,31 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
 
+  # `go test` only replays each fuzz target's seed corpus. The weekly run
+  # gives every target a short budget of fresh inputs; one that fails is
+  # uploaded, to be committed under testdata/fuzz as a regression seed.
+  fuzz:
+    name: Fuzz
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - name: Fuzz each target
+        run: make fuzz
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: failure()
+        with:
+          name: fuzz-failures
+          path: "**/testdata/fuzz/"
+          if-no-files-found: ignore
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
