@@ -311,8 +311,8 @@ play/pause, next, previous, and stop controls, and a "★ Favorite" checkbox tha
 marks or unmarks the playing channel, plus a "Quit" item that shuts the server
 down. Pass `soma daemon --no-tray` (or set `server.tray: false` in
 the [configuration file](#configuration)) to run without it. On a headless
-host (no display or GUI session) the tray is skipped automatically and the
-server, CLI, and TUI all keep working.
+host (no D-Bus session bus on Linux, no GUI session on macOS) the tray is
+skipped automatically and the server, CLI, and TUI all keep working.
 
 Each channel offers a few stream qualities; the server picks the best one by
 default. Pass `soma daemon --quality <highest|high|low>` (or set

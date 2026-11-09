@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-02-05 (moved into the daemon 2026-07-05, tray 2026-07-07,
-  volume writes queued 2026-09-25)
+  volume writes queued 2026-09-25, Linux tray check 2026-11-09)
 - **Sources:** d0a22e0, 95fb723, d1d33df, be4000e, a6f0d6f; `internal/platform`, `internal/server/mpris.go`
 
 ## Context
@@ -21,6 +21,21 @@ closed, which after ADR-0001 means they must belong to the daemon.
   tray on the main goroutine. `--no-tray` and a headless check (CGSession
   on macOS, display/bus environment on Linux) skip it so the daemon runs
   anywhere.
+  - *Amendment 2026-11-09.* On Linux the check is whether the session bus
+    answers, not whether `DISPLAY`, `WAYLAND_DISPLAY` or
+    `DBUS_SESSION_BUS_ADDRESS` is set. The tray there is a
+    StatusNotifierItem, D-Bus and nothing else, so a display is neither
+    needed nor enough: with one set and no bus to reach (an X-forwarded
+    container, WSLg without systemd, `startx` without a user bus) the old
+    check passed, the vendored systray started without a connection, and
+    at shutdown it closed that nil connection, a panic on the main
+    goroutine in the middle of `Shutdown`. `tray.Available` dials a
+    private connection and closes it: the shared one (`dbus.SessionBus`)
+    is the one systray takes and closes at quit. It does not start a bus
+    (`dbus-launch`), which would have no tray host on it. `Tray.Run` also
+    recovers a panic from the tray's loop and logs it, since systray's
+    other failed starts leave the connection nil too; a tray is never
+    worth the daemon going down over.
 - Play-ish commands are dispatched off the D-Bus goroutine because they
   block on the network; Shutdown likewise, to avoid deadlocking the
   dispatcher. MPRIS `Quit` performs a real shutdown since `CanQuit` is

@@ -7,6 +7,7 @@ package tray
 
 import (
 	_ "embed"
+	"log"
 	"runtime"
 	"sync"
 
@@ -89,7 +90,18 @@ func (t *Tray) SetOnQuit(fn func()) {
 // Run builds the menu and blocks on the native GUI loop until Quit is called.
 // onReady, if non-nil, runs once the menu is live. Must be called on the main
 // goroutine.
+//
+// A panic in the loop ends the tray, not the process: Run logs it and
+// returns, and Quit stays safe to call. On Linux systray's start returns
+// early when it cannot set itself up on the session bus, leaving its
+// connection nil, and its teardown then closes that nil connection at quit,
+// in the middle of the server's shutdown.
 func (t *Tray) Run(onReady func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("tray: the tray ended with a panic, the server carries on without it: %v", r)
+		}
+	}()
 	systray.Run(func() {
 		t.build()
 		if onReady != nil {
