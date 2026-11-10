@@ -50,6 +50,8 @@ type Client struct {
 	pending   map[int64]chan protocol.Response
 	closed    bool
 	closeOnce sync.Once
+	// hello is what the daemon answered to Hello; zero before. Guarded by mu.
+	hello protocol.HelloResult
 
 	// events carries decoded protocol.PlaybackState and
 	// protocol.ChannelsPayload values, the newest of each only (see
@@ -451,7 +453,20 @@ func (c *Client) Hello(clientVersion string) (protocol.HelloResult, error) {
 		ClientVersion:   clientVersion,
 		ProtocolVersion: protocol.Version,
 	}, &result)
+	if err == nil {
+		c.mu.Lock()
+		c.hello = result
+		c.mu.Unlock()
+	}
 	return result, err
+}
+
+// ServerInfo returns what the daemon said about itself in its answer to
+// Hello: the zero value before a successful one.
+func (c *Client) ServerInfo() protocol.HelloResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hello
 }
 
 // callAs issues method with params and decodes the result as a T.

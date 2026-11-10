@@ -163,12 +163,20 @@ func tryDialServer() (*client.Client, protocol.HelloResult, error) {
 	return c, hr, nil
 }
 
-// restartForUpgrade restarts an out-of-date local server onto our version, for
-// a command that is about to interrupt playback anyway. It returns c unchanged
-// when the server already runs our version, or is remote (see
-// client.NeedsRestart).
+// needsRestart reports whether the local server c is connected to should be
+// replaced by a fresh one before a command that interrupts or starts
+// playback: it runs another version than ours (client.NeedsRestart), or its
+// audio device is lost and it can play nothing (client.DeviceLost).
+func needsRestart(c *client.Client, serverVersion string) bool {
+	return client.NeedsRestart(endpoint, version, serverVersion) || client.DeviceLost(c, endpoint)
+}
+
+// restartForUpgrade restarts an out-of-date local server onto our version, or
+// one whose audio device is lost, for a command that is about to interrupt
+// playback anyway. It returns c unchanged when the server needs neither, or
+// is remote (see needsRestart).
 func restartForUpgrade(c *client.Client, serverVersion string) *client.Client {
-	if !client.NeedsRestart(endpoint, version, serverVersion) {
+	if !needsRestart(c, serverVersion) {
 		return c
 	}
 	nc, _, err := client.Restart(c, endpoint, version)
@@ -269,8 +277,9 @@ func runPlay(args []string) {
 	}
 
 	// Playing interrupts the stream anyway, so upgrade an out-of-date server
-	// now. The fresh one may still be loading the catalog it plays from.
-	if client.NeedsRestart(endpoint, version, serverVersion) {
+	// now, and replace one that has lost its audio device. The fresh one
+	// may still be loading the catalog it plays from.
+	if needsRestart(c, serverVersion) {
 		c = restartForUpgrade(c, serverVersion)
 		waitForCatalog(c)
 	}
@@ -531,7 +540,7 @@ func runPause(args []string) {
 		return
 	}
 
-	if client.NeedsRestart(endpoint, version, serverVersion) {
+	if needsRestart(c, serverVersion) {
 		// Pausing interrupts playback anyway, so upgrade the server now. The
 		// fresh server starts stopped: if music was playing, that stopped state
 		// *is* the pause; if it was already paused, unpausing means resuming the

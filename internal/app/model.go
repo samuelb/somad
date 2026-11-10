@@ -44,9 +44,12 @@ type Model struct {
 	// pendingPlayID is a channel to play once the server has been restarted for
 	// a version upgrade and the reconnect has delivered a fresh backend.
 	// pendingStopAt is the sleep timer the restarted server had pending then
-	// (a snapshot's StopAt), to arm again on the fresh one.
+	// (a snapshot's StopAt), to arm again on the fresh one. pendingResume
+	// stands for the last channel instead, which the fresh server knows:
+	// play/pause on a server that had lost its audio device.
 	pendingPlayID string
 	pendingStopAt string
+	pendingResume bool
 	// requestedID is a channel the user just asked to play, marked as tuning
 	// in the list from the key press on, before the server answers. It is
 	// not playback state: the next snapshot (or a failed request) clears it,
@@ -245,6 +248,16 @@ func (m *Model) tuningID() string {
 // client.NeedsRestart has it for the CLI.
 func (m *Model) skewed() bool {
 	return !m.Remote && m.ServerVersion != "" && client.VersionSkewed(m.About.Version, m.ServerVersion)
+}
+
+// deviceLost reports whether the connected server has lost its audio device
+// for good and is ours to replace (ADR-0037): it plays nothing until a new
+// process takes its place, so the next request to play restarts it first,
+// by the means a skewed server is restarted with. There is no music to
+// spare here, and a stop needs no restart. A remote server is left alone,
+// as for skew; its own error says what it needs.
+func (m *Model) deviceLost() bool {
+	return !m.Remote && m.Snapshot.DeviceLost
 }
 
 // playingOrConnecting reports whether the server is playing, or connecting

@@ -133,7 +133,10 @@ func (d *fakeDaemon) handle(req protocol.Request) any {
 		if d.onHello != nil {
 			d.onHello()
 		}
-		return protocol.HelloResult{ServerVersion: cmp.Or(d.serverVersion, version), ProtocolVersion: protocol.Version}
+		return protocol.HelloResult{
+			ServerVersion: cmp.Or(d.serverVersion, version), ProtocolVersion: protocol.Version,
+			DeviceLost: d.status.DeviceLost,
+		}
 	case protocol.MethodStatus:
 		return d.status
 	case protocol.MethodChannels:

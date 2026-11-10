@@ -127,7 +127,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case RestartFailedMsg:
 		// No reconnect will follow, so a queued channel change would never
 		// play; drop it and tell the user instead of failing silently.
-		m.pendingPlayID, m.pendingStopAt = "", ""
+		m.pendingPlayID, m.pendingStopAt, m.pendingResume = "", "", false
 		m.RequestErr = fmt.Sprintf("server restart failed: %v", msg.Err)
 		return nil
 
@@ -226,6 +226,12 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if m.skewed() && m.Snapshot.Status != protocol.StatusStopped {
 			return m.restartCmd(), true
 		}
+		// A server without its audio device would only refuse: replace it,
+		// and unpause on the fresh one.
+		if m.deviceLost() {
+			m.pendingResume, m.pendingStopAt = true, m.Snapshot.StopAt
+			return m.restartCmd(), true
+		}
 		return m.playPauseCmd(), true
 	case key.Matches(msg, keys.About):
 		// Toggle the inline about footer.
@@ -301,7 +307,9 @@ func (m *Model) playChannel(id string) tea.Cmd {
 	// reconnect delivers a fresh backend. The channel already playing (or
 	// connecting) is the exception: the server keeps it going, so
 	// restarting would cut the music off just to upgrade.
-	if m.skewed() && !m.playingOrConnecting(id) {
+	// A server that has lost its audio device is replaced the same way:
+	// it would refuse to play.
+	if m.deviceLost() || m.skewed() && !m.playingOrConnecting(id) {
 		m.pendingPlayID, m.pendingStopAt = id, m.Snapshot.StopAt
 		return m.restartCmd()
 	}
@@ -382,10 +390,14 @@ func (m *Model) applyReconnect(msg ServerReconnectedMsg) tea.Cmd {
 	// that a fresh backend is here, and a sleep timer the old server had
 	// pending is armed again. A stop or pause that caused the restart
 	// queued neither: it ends the timer along with the music.
-	if m.pendingPlayID != "" {
-		id, stopAt := m.pendingPlayID, m.pendingStopAt
-		m.pendingPlayID, m.pendingStopAt = "", ""
+	id, stopAt, resume := m.pendingPlayID, m.pendingStopAt, m.pendingResume
+	m.pendingPlayID, m.pendingStopAt, m.pendingResume = "", "", false
+	switch {
+	case id != "":
 		return tea.Batch(m.fetchChannels(), m.playCmd(id), m.carrySleepTimerCmd(stopAt), resubscribe)
+	case resume:
+		// The fresh server is stopped, so this plays its last channel.
+		return tea.Batch(m.fetchChannels(), m.playPauseCmd(), m.carrySleepTimerCmd(stopAt), resubscribe)
 	}
 	return tea.Batch(m.fetchChannels(), m.fetchStatus(), resubscribe)
 }

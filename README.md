@@ -293,7 +293,13 @@ next time you change channel, pause, or stop, never mid-song. If the upgrade
 changed the wire protocol, the old server cannot serve the new client at
 all: until then the other commands and the TUI fail with an error saying so
 (the music keeps playing), and `soma daemon stop` stops the old server right
-away.
+away. A sleep timer that is pending carries over to the restarted server.
+
+If the daemon loses its audio device for good (the sound server it was
+connected to was restarted, say), it stops and says so in `soma status` and
+the TUI: only a new process gets a working device. The next `soma play`,
+`soma pause`, or channel you pick in the TUI replaces the daemon with a
+fresh one and plays. A remote daemon has to be restarted where it runs.
 
 To run the daemon as a persistent background service instead of starting it
 by hand, this repo ships a systemd `--user` unit and a macOS LaunchAgent

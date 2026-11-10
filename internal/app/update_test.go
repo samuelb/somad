@@ -705,6 +705,66 @@ func TestUpdate_StopKey_RestartDropsTheSleepTimer(t *testing.T) {
 	assert.Empty(t, fresh.stopIns)
 }
 
+// A server that has lost its audio device plays nothing until a new process
+// takes its place (ADR-0037), so playing restarts it first, as for a server
+// of another version, and plays on the fresh one.
+func TestUpdate_PlayKey_ReplacesAServerWhoseAudioDeviceIsLost(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusStopped, Volume: 1, DeviceLost: true,
+		StreamError: "audio device failed (the soma daemon has to be restarted to play again)",
+	})
+	m.List.Select(1) // dronezone
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(cmd)
+	assert.Equal(t, 1, backend(m).shutdowns)
+	assert.Empty(t, backend(m).playIDs, "the server that cannot play is not asked to")
+
+	fresh := newFakeBackend()
+	_, cmd = m.Update(ServerReconnectedMsg{Backend: fresh})
+	for _, c := range runCmd(cmd).(tea.BatchMsg) {
+		runCmd(c)
+	}
+	assert.Equal(t, []string{"dronezone"}, fresh.playIDs)
+}
+
+func TestUpdate_PlayPauseKey_ReplacesAServerWhoseAudioDeviceIsLost(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1, DeviceLost: true})
+
+	_, cmd := sendKey(m, 'p')
+	runCmd(cmd)
+	assert.Equal(t, 1, backend(m).shutdowns)
+	assert.Zero(t, backend(m).playPauses)
+
+	// Unpausing on the fresh, stopped server plays its last channel.
+	fresh := newFakeBackend()
+	_, cmd = m.Update(ServerReconnectedMsg{Backend: fresh})
+	for _, c := range runCmd(cmd).(tea.BatchMsg) {
+		runCmd(c)
+	}
+	assert.Equal(t, 1, fresh.playPauses)
+}
+
+// Nothing here could start a remote daemon again, so it is asked to play
+// and its refusal shown, and a stop is just a stop.
+func TestUpdate_ARemoteServerWhoseAudioDeviceIsLostIsNeverShutDown(t *testing.T) {
+	m := newTestModel(t)
+	m.Remote = true
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusStopped, Volume: 1, DeviceLost: true})
+	m.List.Select(1)
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(cmd)
+	_, cmd = sendKey(m, 'p')
+	runCmd(cmd)
+
+	assert.Zero(t, backend(m).shutdowns)
+	assert.Equal(t, []string{"dronezone"}, backend(m).playIDs)
+	assert.Equal(t, 1, backend(m).playPauses)
+}
+
 func TestUpdate_StopKey_RestartsSkewedServer(t *testing.T) {
 	m := newTestModel(t)
 	m.About.Version = "new"

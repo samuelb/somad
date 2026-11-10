@@ -277,7 +277,10 @@ playback (channel change, pause, stop), never mid-song; `soma play` picks
 its channel first (`client.Connect` never restarts), so an argument that
 matches nothing leaves the daemon playing. A restart carries a pending
 sleep timer over to the new daemon (`client.Restart`; the TUI's
-`carrySleepTimerCmd`). One that speaks
+`carrySleepTimerCmd`). A local daemon that reports its audio device lost
+(`client.DeviceLost`, from the hello kept in `Client.ServerInfo`) is
+replaced the same way before a command that asks for playback, and by the
+TUI before the next play (`Model.deviceLost`, ADR-0037). One that speaks
 another protocol version refuses every request, `shutdown` included, so at
 those moments (and on `soma daemon stop`) it is sent SIGTERM instead, its
 PID read from the socket's peer credentials (`peercred_darwin.go` /

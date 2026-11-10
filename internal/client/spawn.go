@@ -155,6 +155,11 @@ func ensureServer(ep Endpoint, clientVersion string, restartWhilePlaying bool) (
 	if err != nil {
 		return nil, hr, err
 	}
+	if restartWhilePlaying && DeviceLost(c, ep) {
+		// It can play nothing, so nothing is interrupted, and the caller
+		// is about to ask for playback.
+		return Restart(c, ep, clientVersion)
+	}
 	if !NeedsRestart(ep, clientVersion, hr.ServerVersion) {
 		return c, hr, nil
 	}
@@ -174,6 +179,18 @@ func ensureServer(ep Endpoint, clientVersion string, restartWhilePlaying bool) (
 // hello handshake already checked that it speaks our protocol version).
 func NeedsRestart(ep Endpoint, clientVersion, serverVersion string) bool {
 	return ep.IsLocal() && VersionSkewed(clientVersion, serverVersion)
+}
+
+// DeviceLost reports whether the server c is connected to is a local one
+// whose audio device has failed for good (ADR-0037). Such a daemon plays
+// nothing until it is replaced by a new process, which a client does, with
+// Restart, before a command that asks for playback: like a restart for
+// version skew, but with no music to wait for the end of. A command that
+// only looks (status, list, the TUI starting up) leaves it, so that the
+// reason the music stopped stays to be seen. A remote server is never
+// restarted, whatever its state.
+func DeviceLost(c *Client, ep Endpoint) bool {
+	return ep.IsLocal() && c.ServerInfo().DeviceLost
 }
 
 // Restart shuts the connected server down and returns a client to a fresh spawn
