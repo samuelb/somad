@@ -41,6 +41,13 @@ be neither used nor stopped: even `soma daemon stop` failed, and
     as before.
 - Remote (`--server`) endpoints are never spawned and never restarted; an
   unreachable one is an error and a skewed one is left alone.
+  - *Amendment 2026-11-10.* The TUI did not keep to this. Its model knew
+    the daemon's version but not where the daemon ran, so with a skewed
+    remote daemon the next channel change, pause or stop sent it
+    `shutdown`, and the reconnect that was to bring a fresh one up could
+    only fail: the daemon on the other machine was gone and the TUI ended
+    on its error screen. The model now knows a remote endpoint
+    (`Model.Remote`) and never counts its daemon as skewed.
 - Skew is plain string inequality (`client.VersionSkewed`, one exported
   helper shared by `internal/client/spawn.go`, `cmd/soma/cli.go`, and
   `Model.skewed` in `internal/app/model.go`), with one exemption: `"dev"`

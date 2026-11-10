@@ -27,7 +27,10 @@ func runTUI(shutdownOnExit bool) {
 		Backend: c,
 		// A skewed server keeps playing while the user browses; the next channel
 		// change, pause or stop restarts it onto our version.
-		ServerVersion:  hr.ServerVersion,
+		ServerVersion: hr.ServerVersion,
+		// But never a daemon on another machine, which nothing here could
+		// start again.
+		Remote:         !endpoint.IsLocal(),
 		Loading:        true,
 		ShutdownOnExit: shutdownOnExit,
 		About: app.AboutInfo{

@@ -37,6 +37,10 @@ type Model struct {
 	// from About.Version the server is out of date and the next channel change,
 	// pause or stop restarts it onto ours (see skewed).
 	ServerVersion string
+	// Remote is set when the server runs on another machine (a TCP endpoint).
+	// Such a server is never shut down for a restart: nothing here could
+	// start it again (ADR-0006).
+	Remote bool
 	// pendingPlayID is a channel to play once the server has been restarted for
 	// a version upgrade and the reconnect has delivered a fresh backend.
 	pendingPlayID string
@@ -234,9 +238,10 @@ func (m *Model) tuningID() string {
 
 // skewed reports whether the connected server runs a different version than the
 // client, meaning the next channel change, pause or stop should restart it
-// onto ours.
+// onto ours. A remote server never counts: it is not ours to restart, as
+// client.NeedsRestart has it for the CLI.
 func (m *Model) skewed() bool {
-	return m.ServerVersion != "" && client.VersionSkewed(m.About.Version, m.ServerVersion)
+	return !m.Remote && m.ServerVersion != "" && client.VersionSkewed(m.About.Version, m.ServerVersion)
 }
 
 // playingOrConnecting reports whether the server is playing, or connecting

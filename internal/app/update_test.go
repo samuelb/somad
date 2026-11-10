@@ -616,6 +616,40 @@ func TestUpdate_PlayKey_RestartsSkewedServerThenPlays(t *testing.T) {
 	assert.Equal(t, []string{"dronezone"}, fresh.playIDs, "the queued channel plays on the fresh server")
 }
 
+// A daemon on another machine is never restarted (ADR-0006): nothing here
+// could start it again, so the version it runs is its owner's business.
+func TestUpdate_ARemoteSkewedServerIsNeverShutDown(t *testing.T) {
+	for name, press := range map[string]func(m *Model) tea.Cmd{
+		"play another channel": func(m *Model) tea.Cmd {
+			m.List.Select(1) // dronezone
+			_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			return cmd
+		},
+		"stop": func(m *Model) tea.Cmd {
+			_, cmd := sendKey(m, 's')
+			return cmd
+		},
+		"pause": func(m *Model) tea.Cmd {
+			_, cmd := sendKey(m, 'p')
+			return cmd
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newTestModel(t)
+			m.About.Version = "new"
+			m.ServerVersion = "old"
+			m.Remote = true
+			m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1})
+
+			runCmd(press(m))
+
+			assert.Zero(t, backend(m).shutdowns, "the remote daemon is left running")
+			assert.Empty(t, m.pendingPlayID)
+			assert.False(t, m.skewed())
+		})
+	}
+}
+
 func TestUpdate_StopKey_RestartsSkewedServer(t *testing.T) {
 	m := newTestModel(t)
 	m.About.Version = "new"
