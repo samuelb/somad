@@ -106,10 +106,13 @@ func newItem(m menuItem, title string) *item {
 	return &item{menuItem: m, title: title}
 }
 
+// setTitle shows title on the item as it is written: track and channel
+// names come from the network, and a menu may read more into a label than
+// its text (menuLabel).
 func (i *item) setTitle(title string) {
 	if title != i.title {
 		i.title = title
-		i.SetTitle(title)
+		i.SetTitle(menuLabel(title))
 	}
 }
 
