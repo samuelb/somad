@@ -293,6 +293,58 @@ func TestView_Error(t *testing.T) {
 	assert.Contains(t, result, "quit")
 }
 
+func TestView_ErrorScreenNamesALostDaemon(t *testing.T) {
+	m := newTestModel(t)
+
+	m.Update(ServerGoneMsg{Err: errors.New("lost connection to the soma daemon and could not restore it: no such file")})
+
+	view := ansi.Strip(m.View())
+	assert.Contains(t, view, "✕ Lost the soma daemon")
+	assert.Contains(t, view, "could not restore it", "the error itself, wrapped")
+	assert.NotContains(t, view, "Error loading channels", "the channels are not what failed")
+	assert.NotContains(t, view, "keeps retrying", "nothing does: the reconnects are over")
+	assert.Contains(t, view, "q to quit")
+}
+
+func TestView_ErrorScreenSaysTheDaemonKeepsTryingForACatalog(t *testing.T) {
+	m := newTestModel(t)
+	m.Loading = true
+
+	// The daemon has no catalog and reports why.
+	m.Update(ServerChannelsMsg{Payload: protocol.ChannelsPayload{Error: "fetch failed: no route to host"}})
+
+	view := ansi.Strip(m.View())
+	assert.Contains(t, view, "✕ Error loading channels")
+	assert.Contains(t, view, "no route to host")
+	assert.Contains(t, view, "The daemon keeps retrying")
+	assert.Contains(t, view, "q to quit")
+
+	// And when its next fetch works, the catalog it pushes takes the
+	// screen's place.
+	m.Update(ServerChannelsMsg{Payload: protocol.ChannelsPayload{Channels: testChannels()}})
+	view = ansi.Strip(m.View())
+	assert.Contains(t, view, "Groove Salad")
+	assert.NotContains(t, view, "Error loading channels")
+
+	// A daemon lost after that is not a catalog error either.
+	m.Update(ServerGoneMsg{Err: errors.New("gave up")})
+	view = ansi.Strip(m.View())
+	assert.Contains(t, view, "✕ Lost the soma daemon")
+	assert.NotContains(t, view, "keeps retrying")
+}
+
+func TestView_ErrorScreenForAFailedCatalogRequestPromisesNoRetry(t *testing.T) {
+	m := newTestModel(t)
+	m.Loading = true
+
+	m.Update(RequestErrorMsg{Op: opLoadChannels, Err: errors.New("request timed out")})
+
+	view := ansi.Strip(m.View())
+	assert.Contains(t, view, "✕ Error loading channels")
+	assert.Contains(t, view, "request timed out")
+	assert.NotContains(t, view, "keeps retrying", "the request is not sent again")
+}
+
 func TestView_NormalContainsChannels(t *testing.T) {
 	m := newTestModel(t)
 	m.Loading = false

@@ -64,7 +64,10 @@ type Model struct {
 	sleepTickGen    int
 
 	Loading bool
+	// Err replaces the view with the error screen; errKind says what it
+	// is the error of, and is set with it. See renderError.
 	Err     error
+	errKind errKind
 	// RequestErr is the most recent failed-request notice, shown in the
 	// status bar until the server next answers successfully.
 	RequestErr string
@@ -259,7 +262,7 @@ func (m *Model) applyChannels(payload protocol.ChannelsPayload) {
 		// error; an empty payload without one means the load is still
 		// underway and a channels event will follow.
 		if payload.Error != "" {
-			m.Err = errors.New(payload.Error)
+			m.Err, m.errKind = errors.New(payload.Error), errNoCatalog
 			m.Loading = false
 		}
 		return

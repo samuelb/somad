@@ -109,7 +109,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			// Without a catalog there is nothing to render behind a status
 			// bar notice; show the error screen instead of loading forever.
 			m.Loading = false
-			m.Err = msg.Err
+			m.Err, m.errKind = msg.Err, errLoad
 			return nil
 		}
 		m.RequestErr = fmt.Sprintf("%s failed: %v", msg.Op, msg.Err)
@@ -149,7 +149,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case ServerGoneMsg:
 		m.ServerLost = false
 		m.Loading = false
-		m.Err = msg.Err
+		m.Err, m.errKind = msg.Err, errDaemonGone
 		return nil
 	}
 

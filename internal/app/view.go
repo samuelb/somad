@@ -390,17 +390,9 @@ func (m *Model) View() string {
 		))
 	}
 
-	// Display error message if channel loading failed
+	// Display the error screen: no catalog to show, or no daemon
 	if m.Err != nil {
-		width := min(max(m.screenWidth()-10, 20), 64)
-		box := ui.ErrorBoxStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
-			ui.StatusErrorStyle.Render("✕ Error loading channels"),
-			"",
-			ui.TextStyle.Width(width).Render(m.Err.Error()),
-			"",
-			ui.HelpKeyStyle.Render("q")+ui.HelpDescStyle.Render(" to quit"),
-		))
-		return m.place(box)
+		return m.place(m.renderError())
 	}
 
 	body := m.body()
@@ -419,6 +411,46 @@ func (m *Model) View() string {
 		view = m.viz.Underlay(view, m.Visualizer, m.Width, field)
 	}
 	return view
+}
+
+// errKind is what the error screen stands for: which failure Err is, set
+// with it by whoever sets Err.
+type errKind int
+
+const (
+	// errLoad: the request for the catalog failed.
+	errLoad errKind = iota
+	// errNoCatalog: the daemon has no catalog, cached or fetched, and says
+	// why. It fetches again periodically (refreshLoop in internal/server)
+	// and pushes the catalog when that works, which replaces this screen
+	// with the list, so the screen says it need only be waited out.
+	errNoCatalog
+	// errDaemonGone: the connection to the daemon is lost and could not be
+	// restored. Nothing more arrives.
+	errDaemonGone
+)
+
+// renderError renders the screen that replaces the view for Err: what
+// failed, the error, and what happens next.
+func (m *Model) renderError() string {
+	width := min(max(m.screenWidth()-10, 20), 64)
+	heading, note := "Error loading channels", ""
+	switch m.errKind {
+	case errNoCatalog:
+		note = "The daemon keeps retrying in the background. The channels appear here once it has them."
+	case errDaemonGone:
+		heading = "Lost the soma daemon"
+	}
+	parts := []string{
+		ui.StatusErrorStyle.Render("✕ " + heading),
+		"",
+		ui.TextStyle.Width(width).Render(m.Err.Error()),
+	}
+	if note != "" {
+		parts = append(parts, "", ui.MutedStyle.Width(width).Render(note))
+	}
+	parts = append(parts, "", ui.HelpKeyStyle.Render("q")+ui.HelpDescStyle.Render(" to quit"))
+	return ui.ErrorBoxStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
 }
 
 // body renders what View frames with the chrome: the list, or why it is
