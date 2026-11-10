@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"somad/internal/security/securitytest"
@@ -1295,6 +1297,92 @@ func TestFetchStream_CancelledContextSuppressesReadError(t *testing.T) {
 	case err := <-p.errChan:
 		t.Fatalf("cancellation should not report an error, got: %v", err)
 	default:
+	}
+}
+
+func TestPlay_FetchFailureIsReportedAsOne(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	notFound := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(notFound.Close)
+	// A server that has gone away: nothing listens on its port any more.
+	gone := httptest.NewServer(http.NotFoundHandler())
+	gone.Close()
+
+	for _, tc := range []struct{ name, url, want string }{
+		{"not found", notFound.URL, "unexpected status code: 404"},
+		{"connection refused", gone.URL, "failed to fetch stream: "},
+		{"host not allowed", "http://evil.example.com/stream", "invalid stream URL: "},
+	} {
+		for _, format := range PreferredFormats() {
+			t.Run(tc.name+"/"+format, func(t *testing.T) {
+				err := playNext(newTestPlayer(), tc.url, format)
+				require.Error(t, err)
+				// The decoder is where the failure comes to light, since the
+				// fetch fails through the pipe under it, but being offline
+				// is not a failure to decode, and the message is what the
+				// status line shows.
+				assert.True(t, strings.HasPrefix(err.Error(), tc.want), "got: %v", err)
+				assert.NotContains(t, err.Error(), "decode")
+			})
+		}
+	}
+}
+
+func TestPlay_UndecodableStreamIsReportedAsADecodeFailure(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	// The fetch is fine; what it fetches is not audio in any format, and
+	// there is more of it than a decoder searches for a frame.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(make([]byte, 2*adtsMaxSkip))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+
+	for _, format := range PreferredFormats() {
+		t.Run(format, func(t *testing.T) {
+			err := awaitPlay(t, playAsync(newTestPlayer(), server.URL, format, testGen.Add(1)), 3*time.Second)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "failed to decode "+format+" stream: ")
+		})
+	}
+}
+
+func TestPlay_StreamEndingInsideItsFirstFrameIsAFetchFailure(t *testing.T) {
+	securitytest.AllowTestHosts(t)
+	// The server hangs up a few bytes into the first frame. go-mp3 puts
+	// the read error it was given into a message of its own without
+	// wrapping it, so its error cannot be asked what went wrong; the pipe
+	// can.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(silentMP3Frames(1)[:14])
+	}))
+	t.Cleanup(server.Close)
+
+	err := playNext(newTestPlayer(), server.URL, FormatMP3)
+	assert.EqualError(t, err, "stream ended unexpectedly")
+}
+
+func TestBuildPipeline_FetchFailureBehindBufferedAudioIsReportedAsOne(t *testing.T) {
+	p := newTestPlayer()
+	// The fetch failed just as Play committed: the audio that was buffered
+	// decodes, and the failure follows it through the pipe, here in the
+	// middle of a frame. It is the stream that failed, not the decoder.
+	audio := append(silentMP3Frames(2), silentMP3Frames(1)[:14]...)
+	failure := &fetchError{errors.New("stream ended unexpectedly")}
+	stream, err := p.buildPipeline(context.Background(), 1, FormatMP3,
+		io.MultiReader(bytes.NewReader(audio), iotest.ErrReader(failure)))
+	require.NoError(t, err)
+
+	_, err = io.Copy(io.Discard, stream)
+	require.Error(t, err)
+	select {
+	case reported := <-p.errChan:
+		assert.EqualError(t, reported, "stream ended unexpectedly")
+	default:
+		t.Fatal("the failure was not reported")
 	}
 }
 

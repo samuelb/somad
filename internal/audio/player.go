@@ -541,9 +541,18 @@ func (p *AudioPlayer) clearConnecting(attempt *pendingPlay) {
 // differs from the context's, and an error reporter on top. Decoding the
 // stream head is the only synchronous failure mode, so a session is not
 // committed until this succeeds.
+//
+// A fetch that fails before the session is committed fails through the
+// pipe (see fetchStream), so the decoder is what trips over it. That is
+// reported as the fetch failure it is: being offline, a 404 and a host
+// that is not allowed are not failures to decode.
 func (p *AudioPlayer) buildPipeline(ctx context.Context, gen uint64, format string, pr io.Reader) (io.Reader, error) {
-	decoder, err := newDecoder(format, pr)
+	src := &fetchFailureReader{r: pr}
+	decoder, err := newDecoder(format, src)
 	if err != nil {
+		if failed := src.failed.Load(); failed != nil {
+			return nil, failed
+		}
 		return nil, fmt.Errorf("failed to decode %s stream: %w", format, err)
 	}
 
@@ -560,6 +569,12 @@ func (p *AudioPlayer) buildPipeline(ctx context.Context, gen uint64, format stri
 	// session's ctx scopes the report so a session that is already fading
 	// out cannot kill its successor.
 	return &errorReportingReader{r: decodedStream, report: func(err error) {
+		if failed := src.failed.Load(); failed != nil {
+			// The fetch failed just as Play committed, and its error came
+			// through the pipe behind the audio that was buffered.
+			p.reportError(ctx, gen, failed)
+			return
+		}
 		if errors.Is(err, io.EOF) {
 			// A live stream never ends; the network side normally reports
 			// this first, and the duplicate is ignored once the server has
@@ -630,8 +645,12 @@ func (p *AudioPlayer) commitSession(gen uint64, attempt *pendingPlay, tap *pcmTa
 // queued that could kill a later, healthy session: the caller retries the
 // same generation on the next mirror or format. Once the session is
 // committed, errors are reported asynchronously via the errors channel.
+//
+// What goes through the pipe is marked as a fetchError: the decoder at the
+// other end fails on it, and unmarked it would read as a failure to decode.
 func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, pw *io.PipeWriter, committed *atomic.Bool) {
 	defer func() { _ = pw.Close() }()
+	fail := func(err error) { _ = pw.CloseWithError(&fetchError{err}) }
 
 	// The stall watchdog runs from before the request, so a server that
 	// never answers is caught too; see streamTimers. (Play's connect
@@ -643,20 +662,20 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 
 	req, err := security.NewRequest(reqCtx, url, p.userAgent)
 	if err != nil {
-		pw.CloseWithError(fmt.Errorf("invalid stream URL: %w", err))
+		fail(fmt.Errorf("invalid stream URL: %w", err))
 		return
 	}
 	req.Header.Set("Icy-MetaData", "1") // Request interleaved ICY metadata
 
 	resp, err := security.HTTPClient.Do(req) // #nosec G704 -- URL validated by security.NewRequest()
 	if err != nil {
-		pw.CloseWithError(timers.wrap(fmt.Errorf("failed to fetch stream: %w", err)))
+		fail(timers.wrap(fmt.Errorf("failed to fetch stream: %w", err)))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		pw.CloseWithError(fmt.Errorf("unexpected status code: %d", resp.StatusCode))
+		fail(fmt.Errorf("unexpected status code: %d", resp.StatusCode))
 		return
 	}
 
@@ -699,10 +718,39 @@ func (p *AudioPlayer) fetchStream(ctx context.Context, gen uint64, url string, p
 		// only owner, exactly as for a failure before the response. Should
 		// Play commit after all, the decoder reads the error once the
 		// buffered audio is played, and errorReportingReader reports it.
-		pw.CloseWithError(err)
+		fail(err)
 		return
 	}
 	p.reportError(ctx, gen, err)
+}
+
+// fetchError marks a failure of the stream fetch itself (the request, the
+// server's answer, the connection) on its way through the stream pipe to
+// Play, so that it can be told from a failure to decode what did arrive.
+type fetchError struct{ err error }
+
+func (e *fetchError) Error() string { return e.err.Error() }
+
+func (e *fetchError) Unwrap() error { return e.err }
+
+// fetchFailureReader reads the stream pipe for a decoder and keeps the
+// fetchError the pipe ends with, if it ends with one. The decoder's own
+// error cannot be asked for it: a decoder fails on that read in its own
+// words, and go-mp3 does not always wrap the error it was given.
+type fetchFailureReader struct {
+	r      io.Reader
+	failed atomic.Pointer[fetchError]
+}
+
+func (f *fetchFailureReader) Read(p []byte) (int, error) {
+	n, err := f.r.Read(p)
+	if err != nil {
+		var failed *fetchError
+		if errors.As(err, &failed) {
+			f.failed.CompareAndSwap(nil, failed)
+		}
+	}
+	return n, err
 }
 
 // errorReportingReader forwards reads and hands the first error (EOF
