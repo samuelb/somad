@@ -1,9 +1,12 @@
 package app
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 
 	"somad/internal/channels"
+	"somad/internal/protocol"
 	"somad/internal/ui"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -87,6 +90,80 @@ func TestToggleFavorite_WhileSearching_KeepsMatchesOnlyView(t *testing.T) {
 	// the matches-only view still shows exactly the matches.
 	assert.Len(t, m.List.Items(), 2)
 	assert.Equal(t, 2, m.matchCount())
+}
+
+// favoritesView returns a model showing only its favorites, all n of its
+// channels, c0 to c<n-1>, with the cursor on index at.
+func favoritesView(t *testing.T, n, at int) *Model {
+	t.Helper()
+	m := newTestModel(t)
+	chans := make([]channels.Channel, n)
+	favs := make([]string, n)
+	for i := range chans {
+		chans[i] = channels.Channel{ID: fmt.Sprintf("c%d", i), Title: fmt.Sprintf("Channel %d", i), Listeners: "1"}
+		favs[i] = chans[i].ID
+	}
+	backend(m).favorites = slices.Clone(favs)
+	m.Update(ServerChannelsMsg{Payload: protocol.ChannelsPayload{Channels: chans, Favorites: favs}})
+	sendKey(m, 'F')
+	require.Len(t, m.List.Items(), n)
+	m.List.Select(at)
+	return m
+}
+
+func TestToggleFavorite_InFavoritesViewKeepsTheCursorInPlace(t *testing.T) {
+	m := favoritesView(t, 12, 8)
+	require.Equal(t, "c8", m.selectedChannelID())
+
+	_, cmd := sendKey(m, 'f')
+
+	require.Len(t, m.List.Items(), 11, "the channel left the view")
+	assert.Equal(t, 8, m.List.Index(), "the cursor stays where it was")
+	assert.Equal(t, "c9", m.selectedChannelID(), "on the channel that moved up")
+
+	// The server's answer to the toggle leaves it there.
+	m.Update(runCmd(cmd))
+	assert.Equal(t, 8, m.List.Index())
+	assert.Equal(t, "c9", m.selectedChannelID())
+}
+
+func TestToggleFavorite_InFavoritesViewOnTheLastItemMovesToTheNewLast(t *testing.T) {
+	m := favoritesView(t, 12, 11)
+
+	sendKey(m, 'f')
+
+	assert.Equal(t, 10, m.List.Index())
+	assert.Equal(t, "c10", m.selectedChannelID())
+}
+
+func TestToggleFavorite_InFavoritesViewOnTheOnlyItemLeavesItEmpty(t *testing.T) {
+	m := favoritesView(t, 1, 0)
+
+	sendKey(m, 'f')
+
+	assert.Empty(t, m.List.Items())
+	assert.Equal(t, 0, m.List.Index())
+}
+
+// Opening the favorites view from a channel that is not in it is a change
+// of view, not a channel leaving the one on screen: it starts at the top.
+func TestFavoritesOnlyKey_FromANonFavoriteStartsAtTheTop(t *testing.T) {
+	m := favoritesView(t, 12, 0)
+	sendKey(m, 'F') // back to all channels
+	m.Update(FavoritesMsg{Favorites: []string{"c0", "c1", "c2", "c3", "c4"}})
+	m.List.Select(10)
+	require.Equal(t, "c10", m.selectedChannelID())
+
+	sendKey(m, 'F')
+
+	require.Len(t, m.List.Items(), 5)
+	assert.Equal(t, 0, m.List.Index())
+
+	// From a favorite, the cursor stays on it.
+	sendKey(m, 'F')
+	m.List.Select(3)
+	sendKey(m, 'F')
+	assert.Equal(t, "c3", m.selectedChannelID())
 }
 
 func TestSortItemsWithFavorites_NoFavorites(t *testing.T) {

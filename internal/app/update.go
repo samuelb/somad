@@ -262,7 +262,13 @@ func (m *Model) updateListKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// Toggle a favorites-only view, applied on top of the search
 		// filter via the shared refreshVisibleItems plumbing.
 		m.FavoritesOnly = !m.FavoritesOnly
-		m.refreshVisibleItems(m.selectedChannelID())
+		keep := m.selectedChannelID()
+		if m.FavoritesOnly && !m.isFavoriteID(keep) {
+			// Not in the view this opens, which starts at the top: the
+			// cursor's place in the full list means nothing there.
+			keep = ""
+		}
+		m.refreshVisibleItems(keep)
 		return nil, true
 	case key.Matches(msg, keys.VolumeUp):
 		return m.stepVolume(volumeStep), true

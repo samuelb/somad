@@ -27,9 +27,9 @@ func PrintableRunes(runes []rune) string {
 // m.List: the favorites-only filter (if active), then a fuzzy matches-only
 // subset on top of that (if a search query is active). It keeps the cursor
 // on the channel identified by keepID when that channel is still visible,
-// or on the first item otherwise. Callers (search, favorites, and the
-// channels-event handler) all funnel through this so the list and the
-// filter state never disagree.
+// and where it was when the channel is not; with no keepID it goes to the
+// first item. Callers (search, favorites, and the channels-event handler)
+// all funnel through this so the list and the filter state never disagree.
 func (m *Model) refreshVisibleItems(keepID string) {
 	items := m.allItems
 	if m.FavoritesOnly {
@@ -42,15 +42,21 @@ func (m *Model) refreshVisibleItems(keepID string) {
 	if m.SearchQuery != "" {
 		items, m.matches = fuzzyMatchItems(items, m.SearchQuery)
 	}
+	at := m.List.Index() // before SetItems, which keeps it within the new list
 	m.List.SetItems(items)
 	// Keep the cursor on the channel that was selected before this refresh
 	// (a favorite toggle, the favorites-only reconcile, or a catalog
 	// refresh) when it is still visible, instead of always snapping back to
-	// the top (which, while searching, is the top-ranked match).
-	// UpdateSearchMatches passes "" for keepID on every keystroke, so typing
-	// still jumps to the top match: selectChannelByID("") is always a no-op.
-	if !m.selectChannelByID(keepID) {
+	// the top (which, while searching, is the top-ranked match). When it
+	// has left the view (unfavorited in the favorites-only view, most
+	// often), the cursor stays where it was: on the channel that moved up
+	// into its place, or on the new last one. UpdateSearchMatches passes ""
+	// for keepID on every keystroke, so typing still jumps to the top match.
+	switch {
+	case keepID == "":
 		m.List.Select(0)
+	case !m.selectChannelByID(keepID):
+		m.List.Select(max(min(at, len(items)-1), 0))
 	}
 }
 
