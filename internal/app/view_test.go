@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -484,7 +485,10 @@ func TestView_NeverTallerThanTheWindow(t *testing.T) {
 			view := m.View()
 
 			assert.LessOrEqual(t, lipgloss.Height(view), 24)
-			assert.Contains(t, strings.Split(view, "\n")[1], "SomaFM", "the header stays on screen")
+			// On the second line, or on the first when a full history
+			// card has taken the spacing lines.
+			lines := strings.Split(view, "\n")
+			assert.Contains(t, lines[0]+lines[1], "SomaFM", "the header stays on screen")
 			for _, line := range strings.Split(view, "\n") {
 				assert.LessOrEqual(t, lipgloss.Width(line), 80, "no line is wider than the window")
 			}
@@ -659,6 +663,95 @@ func TestView_HistoryWithNoRoomLeft(t *testing.T) {
 
 	assert.LessOrEqual(t, lipgloss.Height(view), 14)
 	assert.Contains(t, strings.Split(view, "\n")[0]+strings.Split(view, "\n")[1], "SomaFM")
+}
+
+// historyAt returns a model in an 80-column window height lines tall, with
+// a catalog longer than any page and the history card open on 20 entries,
+// and its view without the styling.
+func historyAt(t *testing.T, height int) (*Model, string) {
+	t.Helper()
+	m := newTestModel(t)
+	many := make([]channels.Channel, 45)
+	for i := range many {
+		many[i] = channels.Channel{ID: fmt.Sprintf("c%d", i), Title: fmt.Sprintf("Channel %d", i), Listeners: "1"}
+	}
+	m.Update(ServerChannelsMsg{Payload: protocol.ChannelsPayload{Channels: many}})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "c0", ChannelTitle: "Channel 0", Volume: 1}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m.Update(HistoryMsg{ChannelID: "c0", Entries: historyEntries(20)})
+	return m, ansi.Strip(m.View())
+}
+
+// TestView_HistoryShowsWhatFits opens the history card on 20 entries in
+// windows from too short for one to tall enough for all. The card shows as
+// many as the window fits once the spacing lines and the short help have
+// made way, and is left out when that is none.
+func TestView_HistoryShowsWhatFits(t *testing.T) {
+	// Around the entries: the header, one list row with its pagination,
+	// the card's two borders, the now-playing card, and the bottom margin.
+	const around = 1 + minListHeight + historyCardLines + 4 + 1
+
+	for height := 10; height <= 24; height++ {
+		t.Run(fmt.Sprintf("%d lines", height), func(t *testing.T) {
+			m, view := historyAt(t, height)
+			shown := strings.Count(view, "Artist — Track")
+			lines := strings.Split(view, "\n")
+
+			assert.LessOrEqual(t, len(lines), height, "the view fits the window")
+			assert.Contains(t, lines[0]+lines[1], "SomaFM", "the header stays on screen")
+			assert.Equal(t, max(height-around, 0), shown, "as many entries as fit")
+			if shown == 0 {
+				assert.NotContains(t, view, "History", "no room for an entry: no empty card")
+				return
+			}
+			assert.Contains(t, view, fmt.Sprintf("latest %d of 20", shown))
+			assert.Equal(t, minListHeight, m.List.Height(), "the list keeps its minimum, and no more")
+			assert.Len(t, lines, height-1, "every line is used, up to the bottom margin")
+		})
+	}
+}
+
+func TestView_HistoryTightensTheChromeOnlyAsFarAsItsEntriesNeed(t *testing.T) {
+	// 35 lines fit all 20 entries with the chrome as it is.
+	_, view := historyAt(t, 35)
+	lines := strings.Split(view, "\n")
+	assert.Equal(t, 20, strings.Count(view, "Artist — Track"))
+	assert.NotContains(t, view, "latest")
+	assert.Contains(t, lines[1], "SomaFM", "the top margin stays")
+	assert.Contains(t, view, "enter play", "and the help")
+
+	// 32 fit them without the spacing lines.
+	_, view = historyAt(t, 32)
+	lines = strings.Split(view, "\n")
+	assert.Equal(t, 20, strings.Count(view, "Artist — Track"))
+	assert.Contains(t, lines[0], "SomaFM", "the spacing lines went")
+	assert.Contains(t, view, "enter play", "the help stays")
+
+	// 31 only without the help too.
+	_, view = historyAt(t, 31)
+	assert.Equal(t, 20, strings.Count(view, "Artist — Track"))
+	assert.NotContains(t, view, "enter play")
+
+	// A short history leaves a 24-line window as it is.
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", ChannelTitle: "Groove Salad", Volume: 1}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m.Update(HistoryMsg{ChannelID: "groovesalad", Entries: historyEntries(5)})
+	view = ansi.Strip(m.View())
+	assert.Equal(t, 5, strings.Count(view, "Artist — Track"))
+	assert.Contains(t, strings.Split(view, "\n")[1], "SomaFM")
+	assert.Contains(t, view, "enter play")
+}
+
+func TestMouse_FollowsALayoutWithNoRoomForTheHistoryCard(t *testing.T) {
+	m, view := historyAt(t, 11)
+	require.NotContains(t, view, "History")
+
+	x, y := gaugeBar(t, m)
+	cmd := click(m, x+15, y) // the last cell
+	assert.InDelta(t, 1, msgOf[volumeSetMsg](t, cmd).volume, 1e-9, "the gauge is where the view put it")
 }
 
 func TestView_PaginationFitsTheWidth(t *testing.T) {

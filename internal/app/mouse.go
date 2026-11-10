@@ -146,7 +146,8 @@ type mouseTargets struct {
 // mouseLayout lays the view out as View does and returns where its mouse
 // targets are on screen.
 func (m *Model) mouseLayout() mouseTargets {
-	above, below := m.chrome()
+	history := m.RenderHistory()
+	above, below := m.chromeWith(history)
 	listY := chromeHeight(above, nil)
 	belowY := listY + lipgloss.Height(m.body())
 	// Bubble Tea cuts a view taller than the window from the top.
@@ -154,7 +155,7 @@ func (m *Model) mouseLayout() mouseTargets {
 		listY -= cut
 		belowY -= cut
 	}
-	np := m.nowPlayingIndex(below)
+	np := m.nowPlayingIndex(below, history != "")
 	cardY := belowY + chromeHeight(nil, below[:np])
 	// The help, when layout keeps it, is all that follows the card.
 	var help []ui.HelpSpan

@@ -277,7 +277,8 @@ func (m *Model) RenderAbout() string {
 // RenderHistory renders the now-playing history for the playing channel as
 // a card above the now-playing card. It shows only the newest entries that
 // fit the window (see historyEntryLimit). It returns an empty string unless
-// the history overlay is active.
+// the history overlay is active, and when the window has no room for even
+// one of its entries.
 func (m *Model) RenderHistory() string {
 	if !m.ShowHistory {
 		return ""
@@ -297,7 +298,13 @@ func (m *Model) RenderHistory() string {
 		lines = append(lines, ui.SubtleStyle.Render("No history yet."))
 	default:
 		entries := m.History
-		if limit := m.historyEntryLimit(); len(entries) > limit {
+		limit := m.historyEntryLimit()
+		if limit == 0 {
+			// An empty card would show nothing and take two more lines
+			// from a list already at its minimum.
+			return ""
+		}
+		if len(entries) > limit {
 			entries = entries[:limit]
 			title += ui.SubtleStyle.Render(fmt.Sprintf(" · latest %d of %d", limit, len(m.History)))
 		}
@@ -328,16 +335,27 @@ const (
 	dotWidth         = 2
 )
 
-// historyEntryLimit is how many history entries fit on screen: the window
-// height less the bottom margin, the rest of the chrome, the history
-// card's own lines and the list's minimum height. Before the window size
-// is known there is no limit.
+// historyEntryLimit is how many history entries the card shows: all of
+// them, at the first chrome level that has the room, or else as many as
+// fit the level with the most, none included. The room at a level is the
+// window height less the bottom margin, the rest of the chrome at that
+// level, the history card's own lines and the list's minimum height;
+// chromeWith then settles on that level for the card this makes, so the
+// lines a tighter level frees go to entries, not to the list. Before the
+// window size is known there is no limit.
 func (m *Model) historyEntryLimit() int {
 	if m.Height <= 0 {
 		return len(m.History)
 	}
-	used := 1 + historyCardLines + minListHeight + chromeHeight(m.baseChrome())
-	return max(0, m.Height-used)
+	most := 0
+	for _, level := range chromeLevels {
+		room := m.Height - (1 + historyCardLines + minListHeight + chromeHeight(m.layout("", level)))
+		if room >= len(m.History) {
+			return len(m.History)
+		}
+		most = max(most, room)
+	}
+	return most
 }
 
 // RenderHelp renders the key help under the now-playing card: one line of
@@ -451,17 +469,13 @@ func (m *Model) chrome() (above, below []string) {
 	return m.chromeWith(m.RenderHistory())
 }
 
-// baseChrome is chrome without the history card, the one component that
-// sizes itself to the room the others leave.
-func (m *Model) baseChrome() (above, below []string) {
-	return m.chromeWith("")
-}
-
 // chromeWith is chrome with the given, already rendered, history card. In
 // a window too short to leave the list minListHeight, the spacing lines go
 // first, then the short help; the full help stays, having been asked for.
+// The history card is the one component that sizes itself to the room the
+// others leave, at whichever level leaves it the most (historyEntryLimit).
 func (m *Model) chromeWith(history string) (above, below []string) {
-	for _, tight := range []chromeLevel{roomy, unspaced, bare} {
+	for _, tight := range chromeLevels {
 		above, below = m.layout(history, tight)
 		if m.Height <= 0 || chromeHeight(above, below)+1+minListHeight <= m.Height {
 			break
@@ -478,6 +492,9 @@ const (
 	unspaced                    // no blank spacing lines
 	bare                        // no spacing and no short help either
 )
+
+// chromeLevels are the levels in the order chromeWith tries them.
+var chromeLevels = []chromeLevel{roomy, unspaced, bare}
 
 // layout returns the chrome at the given level; see chromeWith. Keep
 // nowPlayingIndex in step with the order it lays below out in.
@@ -509,8 +526,9 @@ func (m *Model) layout(history string, level chromeLevel) (above, below []string
 
 // nowPlayingIndex is where layout put the now-playing card among below:
 // after the spacing line and the about and history cards, those of them
-// it has.
-func (m *Model) nowPlayingIndex(below []string) int {
+// it has. history says whether it was given a history card, which an open
+// history does not draw in a window with no room for an entry.
+func (m *Model) nowPlayingIndex(below []string, history bool) int {
 	i := 0
 	if len(below) > 0 && below[0] == "" {
 		i++
@@ -518,7 +536,7 @@ func (m *Model) nowPlayingIndex(below []string) int {
 	if m.ShowAbout {
 		i++
 	}
-	if m.ShowHistory {
+	if history {
 		i++
 	}
 	return i

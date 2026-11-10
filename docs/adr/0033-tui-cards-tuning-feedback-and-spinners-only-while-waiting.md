@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (amended 2026-10-06: an equalizer ahead of the
   playing track in the now-playing card; amended 2026-11-09: the history
-  card follows what plays)
+  card follows what plays, and takes the lines a short window frees)
 - **Date:** 2026-09-29
 - **Sources:** `internal/ui/widgets.go`, `internal/ui/delegate.go`, `internal/app/view.go`, `internal/app/model.go` (`tuningID`), `internal/app/commands.go` (`syncAnim`)
 
@@ -59,6 +59,18 @@ the list only marked a channel once it was playing.
 - **Short windows** lose the blank spacing lines first, then the short
   help (never the full help, which was asked for), before the list is
   squeezed below its minimum and the header is pushed off the top.
+  - *Amendment 2026-11-09.* The history card takes the lines those steps
+    free, like the list's own beyond its minimum: it shows all its
+    entries at the first step with the room for them, or else as many as
+    the last step fits (`historyEntryLimit`). Its limit used to be
+    measured against the full chrome whichever step the layout then
+    took, so at 80×14 it drew an empty card titled "latest 0 of 20"
+    above lines nothing used, and showed its first entry at 16 lines. The
+    entries were asked for; the spacing and the short help were not. So
+    on an 80×24 terminal a history of 20 now shows 13 of them without
+    spacing or short help, where it showed 9 with both, and one of five
+    leaves the window as it is. With no room for a single entry (11
+    lines and fewer) the card is not drawn at all.
 - **Help.** The short help is rendered by `ui.ShortHelp`, not
   `help.Model.ShortHelpView`, which overflows its width when an item does
   not fit and neither would its ellipsis.
