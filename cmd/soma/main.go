@@ -72,6 +72,12 @@ func main() {
 		return
 	}
 
+	// --shutdown-on-exit is the TUI's alone. Before a command it used to be
+	// ignored without a word, though the daemon form above refuses it.
+	if len(rest) > 0 && flagWasSet(fs, "shutdown-on-exit") {
+		failUsage("--shutdown-on-exit only applies to the TUI (soma without a command), not to soma %s", rest[0])
+	}
+
 	// Completion scripts run `soma completion channels` on every Tab press;
 	// dispatch before the config load so a broken config cannot break
 	// completion. Like the word forms above, it ignores the connection flags.
@@ -89,7 +95,7 @@ func main() {
 	}
 	endpoint, err = resolveEndpoint(cf, cfg)
 	if err != nil {
-		fail("%v", err)
+		failErr(err) // 2 when the connection flags themselves are wrong
 	}
 
 	if len(rest) == 0 {

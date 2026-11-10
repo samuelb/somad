@@ -132,7 +132,13 @@ command; daemon flags (`--idle-timeout`, `--no-tray`, `--notify`,
 `favorite`, `next`, `prev`, `pause`, `stop`, `status`, `volume`, `history`,
 `lastfm status` all take `--json`. A command's own flags may come before
 or after its arguments (`parseFlags`); a command line soma cannot parse
-exits 2 (`failUsage`), a command that ran and failed 1 (`fail`). `stop` also takes `--in <duration>` (arm
+exits 2 (`failUsage`), a command that ran and failed 1 (`fail`). The
+connection and daemon flags follow the same rule through `usageError`
+(`failErr`): what the arguments alone show to be wrong exits 2, what takes
+the environment to go wrong (a file a flag names, `$SOMAD_SERVER`, the
+config file) exits 1, and the daemon parses its flags before it writes the
+config template. `--shutdown-on-exit` is refused before any command.
+`stop` also takes `--in <duration>` (arm
 a sleep timer instead of stopping now, replacing any timer already
 pending) and `--cancel` (drop a pending timer without stopping); the two are
 mutually exclusive. The daemon's timer goes by the wall clock as well as its

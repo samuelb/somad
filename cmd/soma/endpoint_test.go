@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,6 +45,45 @@ func TestResolveEndpoint_FlagBeatsEnvBeatsConfig(t *testing.T) {
 func TestResolveEndpoint_RejectsAddressWithoutPort(t *testing.T) {
 	_, err := resolveEndpoint(connFlags{server: "myserver"}, &config.Config{})
 	assert.Error(t, err)
+}
+
+// TestResolveEndpoint_OnlyFlagMistakesAreUsageErrors pins which failures
+// exit 2: the ones the flags alone show. The same mistake in the
+// environment or the config file, and a file a flag names that cannot be
+// read, exit 1.
+func TestResolveEndpoint_OnlyFlagMistakesAreUsageErrors(t *testing.T) {
+	const fingerprint = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	badAddr, badFingerprint := "myserver", "nothex"
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	tests := []struct {
+		name      string
+		flags     connFlags
+		env       string // $SOMAD_SERVER
+		cfg       config.ClientConfig
+		wantUsage bool
+	}{
+		{name: "--tls without a server", flags: connFlags{tls: true}, wantUsage: true},
+		{name: "--server without a port", flags: connFlags{server: badAddr}, wantUsage: true},
+		{name: "$SOMAD_SERVER without a port", env: badAddr},
+		{name: "client.server without a port", cfg: config.ClientConfig{Server: &badAddr}},
+		{name: "--tls-ca with --tls-fingerprint", flags: connFlags{server: "h:1", tlsCA: missing, tlsFingerprint: fingerprint}, wantUsage: true},
+		{name: "malformed --tls-fingerprint", flags: connFlags{server: "h:1", tlsFingerprint: badFingerprint}, wantUsage: true},
+		{name: "malformed client.tls_fingerprint", flags: connFlags{server: "h:1"}, cfg: config.ClientConfig{TLSFingerprint: &badFingerprint}},
+		{name: "--tls-ca file missing", flags: connFlags{server: "h:1", tlsCA: missing}},
+		{name: "--psk-file missing", flags: connFlags{server: "h:1", pskFile: missing}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SOMAD_SERVER", tt.env)
+
+			_, err := resolveEndpoint(tt.flags, &config.Config{Client: tt.cfg})
+
+			require.Error(t, err)
+			var usage usageError
+			assert.Equal(t, tt.wantUsage, errors.As(err, &usage), "error: %v", err)
+		})
+	}
 }
 
 func TestResolveEndpoint_TLSAndPSK(t *testing.T) {

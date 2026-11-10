@@ -37,6 +37,33 @@ func failUsage(format string, args ...any) {
 	os.Exit(2)
 }
 
+// usageError marks an error as a mistake in the command line itself: a bad
+// flag value, flags that contradict each other, a stray argument. What
+// tells it from any other error is that the arguments alone show it. A
+// file a flag names that is missing or unreadable, a bad environment
+// variable or a config file problem is not one: those lie in the
+// environment, and the same command line works once they are put right.
+// failErr exits 2 for a usageError and 1 otherwise.
+type usageError struct{ err error }
+
+func (e usageError) Error() string { return e.err.Error() }
+func (e usageError) Unwrap() error { return e.err }
+
+// usageErrorf is fmt.Errorf for a usageError.
+func usageErrorf(format string, args ...any) error {
+	return usageError{fmt.Errorf(format, args...)}
+}
+
+// failErr reports err and exits: 2 when it is a usageError (failUsage), 1
+// for anything else (fail).
+func failErr(err error) {
+	var usage usageError
+	if errors.As(err, &usage) {
+		failUsage("%v", err)
+	}
+	fail("%v", err)
+}
+
 // ensureServer connects for a command that does not interrupt playback (it
 // spawns the server if needed but leaves a running, playing one in place even
 // when its version differs from ours, so the music keeps going).
@@ -805,13 +832,21 @@ func volumeLine(v float64) string {
 // mute. With --json, it prints a protocol.PlaybackState instead of the
 // human-readable line, in every case.
 func runVolume(args []string) {
+	const usage = "usage: soma volume [--json] [<0-100> | +<n> | -<n> | mute]"
+	// The other commands get -h and --help from the flag package, which
+	// prints the usage line and exits 0; volume parses its own arguments
+	// (see stripJSONFlag), so it has to see to that itself.
+	if slices.ContainsFunc(args, isHelpFlag) {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(0)
+	}
 	args, jsonOut := stripJSONFlag(args)
 	if len(args) == 0 {
 		showVolume(jsonOut)
 		return
 	}
 	if len(args) != 1 {
-		failUsage("usage: soma volume [--json] [<0-100> | +<n> | -<n> | mute]")
+		failUsage("%s", usage)
 	}
 	if args[0] == "mute" {
 		runVolumeMute(jsonOut)
@@ -839,6 +874,16 @@ func runVolume(args []string) {
 		fail("%v", err)
 	}
 	printState(jsonOut, st, volumeLine(st.Volume))
+}
+
+// isHelpFlag reports whether arg asks for help the way the flag package
+// understands it: -h or -help, with one dash or two.
+func isHelpFlag(arg string) bool {
+	switch arg {
+	case "-h", "--h", "-help", "--help":
+		return true
+	}
+	return false
 }
 
 // runVolumeMute toggles mute, restoring the pre-mute level (or a sensible

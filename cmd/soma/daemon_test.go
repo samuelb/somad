@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,6 +179,36 @@ func TestResolveDaemonOptions_RequiresTLSCertAndKeyTogether(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "must be set together")
+		})
+	}
+}
+
+// TestResolveDaemonOptions_OnlyFlagMistakesAreUsageErrors pins which
+// failures exit 2: the ones the flags alone show. A file a flag names that
+// cannot be read exits 1.
+func TestResolveDaemonOptions_OnlyFlagMistakesAreUsageErrors(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	tests := []struct {
+		name      string
+		args      []string
+		wantUsage bool
+	}{
+		{name: "stray argument", args: []string{"bogus"}, wantUsage: true},
+		{name: "unknown quality", args: []string{"--quality=ultra"}, wantUsage: true},
+		{name: "negative idle timeout", args: []string{"--idle-timeout=-5s"}, wantUsage: true},
+		{name: "certificate without key", args: []string{"--tls-cert=" + missing}, wantUsage: true},
+		{name: "PSK file missing", args: []string{"--psk-file=" + missing}},
+		{name: "certificate files missing", args: []string{"--show-cert", "--tls-cert=" + missing, "--tls-key=" + missing}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resolveDaemonOptions(&config.Config{}, tt.args)
+
+			require.Error(t, err)
+			var usage usageError
+			assert.Equal(t, tt.wantUsage, errors.As(err, &usage), "error: %v", err)
 		})
 	}
 }

@@ -257,7 +257,10 @@ channel is `channelId` and `channelTitle`, a track's title `trackTitle`.
 A command's flags can go before or after its arguments (`soma play
 groovesalad --json`). The exit status is 0 on success, 1 when the command
 fails, and 2 when the command line is wrong: an unknown flag, a missing or
-extra argument, or a bad value.
+extra argument, or a bad value. That goes for the connection flags and for
+`soma daemon`'s flags too. A file a flag names that is missing or
+unreadable, or a mistake in the configuration file, is a failure (1), not a
+wrong command line.
 
 ### Background playback
 

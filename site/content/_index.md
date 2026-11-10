@@ -204,7 +204,7 @@ Run `soma` with no arguments to open the terminal UI. It starts the playback dae
 
 ### Commands {#commands}
 
-Every command works without the TUI, which makes them handy for scripts, keybindings and status bars. A command's flags can go before or after its arguments, and the exit status is 0 on success, 1 when the command fails, and 2 when the command line is wrong.
+Every command works without the TUI, which makes them handy for scripts, keybindings and status bars. A command's flags can go before or after its arguments, and the exit status is 0 on success, 1 when the command fails, and 2 when the command line is wrong, connection and daemon flags included (a file a flag names that cannot be read, or a mistake in the configuration file, counts as a failure).
 
 | Command | Description |
 |---|---|

@@ -1,6 +1,6 @@
 # ADR-0021: Shell completion is cache-only and side-effect free; scripting uses `--json`
 
-- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed; amended 2026-10-13: one set of field names, flags in any order, exit status 2 for usage errors; amended 2026-11-09: a wrongly paired remote daemon is a failed handshake; the completion scripts are run by the tests)
+- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed; amended 2026-10-13: one set of field names, flags in any order, exit status 2 for usage errors; amended 2026-11-09: a wrongly paired remote daemon is a failed handshake; the completion scripts are run by the tests; exit status 2 for the connection and daemon flags too)
 - **Date:** 2026-07-05 (completion 2026-07-11)
 - **Sources:** cc3a8f2, 224efb2, 79f4ba1, 0c2224a, 0dadcbd; `cmd/soma/completion.go`, `internal/channels` `PeekChannelsFromCache`
 
@@ -72,6 +72,21 @@ Tab press, so it must be instant and must never change anything.
   soma cannot make sense of (an unknown flag, a wrong number of
   arguments, a bad value). Usage errors used to exit 1 and unknown flags
   2, as the flag package does; `failUsage` now exits 2 for all of them.
+  - *Amendment 2026-11-09.* "All of them" left out the connection flags
+    and the daemon's: `soma --tls status`, `soma --server nohostport
+    list`, `soma daemon bogus`, `--quality nope`, `--idle-timeout -5s`
+    and `--tls-cert` without `--tls-key` exited 1. They exit 2 now. The
+    line between the two: an error is a usage error (`usageError`) when
+    the arguments alone show it. Anything that takes the environment to
+    go wrong exits 1, even when a flag names it: a PSK or CA file that
+    is missing or unreadable, a bad address in `$SOMAD_SERVER`, any
+    problem in the config file. The daemon parses its command line
+    before it writes the config template (ADR-0011), so one it cannot
+    parse leaves nothing behind. `soma volume --help` prints the usage
+    line and exits 0 like every other command's (it parses its own
+    arguments and used to take `--help` for a bad volume), and
+    `--shutdown-on-exit` before a command is refused by name, as it
+    already was before `daemon`, instead of being ignored.
 
 ## Consequences
 

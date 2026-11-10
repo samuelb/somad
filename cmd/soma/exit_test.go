@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,11 +70,15 @@ func runSoma(t *testing.T, dir string, env []string, args ...string) (string, in
 // of. None of the commands here may spawn a daemon: that would run this
 // test binary as one.
 func TestExitStatus(t *testing.T) {
-	dir := shortTempDir(t) // short: a socket path has a length limit
+	t.Parallel() // each case is a process of its own in a directory of its own
+	const fingerprint = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 	tests := []struct {
-		args []string
-		want int
+		args    []string
+		env     []string // added to the command's environment
+		config  string   // config.yaml content, when the case needs one
+		want    int
+		wantOut string // when set, the output must contain it
 	}{
 		{args: []string{"history", "--json"}, want: 0}, // no daemon: an empty history
 		{args: []string{"--server", "127.0.0.1:1", "list"}, want: 1},
@@ -86,11 +91,73 @@ func TestExitStatus(t *testing.T) {
 		{args: []string{"list", "--bogus"}, want: 2},
 		{args: []string{"completion", "fish"}, want: 2},
 		{args: []string{"bogus"}, want: 2},
+
+		// Asking for help is not a mistake, whoever parses the arguments.
+		{args: []string{"play", "--help"}, want: 0, wantOut: "usage: soma play"},
+		{args: []string{"volume", "--help"}, want: 0, wantOut: "usage: soma volume"},
+		{args: []string{"volume", "-h"}, want: 0, wantOut: "usage: soma volume"},
+		{args: []string{"volume", "--json", "--help"}, want: 0, wantOut: "usage: soma volume"},
+		{args: []string{"daemon", "--help"}, want: 0, wantOut: "Usage: soma daemon [flags]"},
+
+		// Connection flags that are wrong in themselves...
+		{args: []string{"--tls", "status"}, want: 2, wantOut: "require --server"},
+		{args: []string{"--psk-file", "/nonexistent/psk", "status"}, want: 2, wantOut: "require --server"},
+		{args: []string{"--server", "nohostport", "list"}, want: 2, wantOut: "invalid server address"},
+		{args: []string{"--server", "127.0.0.1:1", "--tls-fingerprint", "nothex", "list"}, want: 2, wantOut: "invalid TLS fingerprint"},
+		{args: []string{"--server", "127.0.0.1:1", "--tls-ca", "ca.pem", "--tls-fingerprint", fingerprint, "list"}, want: 2, wantOut: "mutually exclusive"},
+		// ...as opposed to the environment or the config file being wrong,
+		// or a file the flags name.
+		{args: []string{"list"}, env: []string{"SOMAD_SERVER=nohostport"}, want: 1, wantOut: "invalid server address"},
+		{args: []string{"list"}, config: "client:\n  server: nohostport\n", want: 1, wantOut: "invalid server address"},
+		{args: []string{"list"}, config: "client:\n  bogus: 1\n", want: 1, wantOut: "error loading config"},
+		{args: []string{"--server", "127.0.0.1:1", "--psk-file", "/nonexistent/psk", "list"}, want: 1, wantOut: "opening PSK file"},
+		{args: []string{"--server", "127.0.0.1:1", "--tls-ca", "/nonexistent/ca.pem", "list"}, want: 1, wantOut: "reading TLS CA file"},
+
+		// --shutdown-on-exit belongs to the TUI.
+		{args: []string{"--shutdown-on-exit", "status"}, want: 2, wantOut: "--shutdown-on-exit only applies to the TUI"},
+		{args: []string{"--shutdown-on-exit", "daemon", "stop"}, want: 2, wantOut: "--shutdown-on-exit only applies to the TUI"},
+		{args: []string{"--shutdown-on-exit", "daemon"}, want: 2, wantOut: "--shutdown-on-exit does not apply to the daemon"},
+
+		// The daemon's own command line. None of these gets as far as
+		// starting one.
+		{args: []string{"--tls", "daemon"}, want: 2, wantOut: "--tls does not apply to the daemon"},
+		{args: []string{"daemon", "bogus"}, want: 2, wantOut: `unexpected argument "bogus"`},
+		{args: []string{"daemon", "--no-tray", "stop"}, want: 2, wantOut: `unexpected argument "stop"`},
+		{args: []string{"daemon", "--bogus"}, want: 2},
+		{args: []string{"daemon", "--quality", "nope"}, want: 2, wantOut: "--quality"},
+		{args: []string{"daemon", "--idle-timeout", "-5s"}, want: 2, wantOut: "--idle-timeout must not be negative"},
+		{args: []string{"daemon", "--idle-timeout", "soon"}, want: 2},
+		{args: []string{"daemon", "--tls-cert", "/x"}, want: 2, wantOut: "must be set together"},
+		{args: []string{"daemon", "--psk-file", "/nonexistent/psk"}, want: 1, wantOut: "error reading the PSK file"},
+		{args: []string{"daemon", "--show-cert", "--tls-cert", "/nonexistent/c.pem", "--tls-key", "/nonexistent/k.pem"}, want: 1, wantOut: "error loading the TLS certificate"},
+		{args: []string{"daemon"}, config: "server:\n  quality: nope\n", want: 1, wantOut: "error loading config"},
 	}
 	for _, tt := range tests {
-		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
-			out, status := runSoma(t, dir, nil, tt.args...)
+		name := strings.Join(tt.args, " ")
+		if tt.env != nil || tt.config != "" {
+			name += " (" + strings.Join(append(tt.env, strings.Fields(tt.config)...), " ") + ")"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := shortTempDir(t) // short: a socket path has a length limit
+			configFile := filepath.Join(dir, "somad", "config.yaml")
+			if tt.config != "" {
+				require.NoError(t, os.Mkdir(filepath.Dir(configFile), 0o750))
+				require.NoError(t, os.WriteFile(configFile, []byte(tt.config), 0o600))
+			}
+
+			out, status := runSoma(t, dir, tt.env, tt.args...)
+
 			assert.Equal(t, tt.want, status, "output: %s", out)
+			if tt.wantOut != "" {
+				assert.Contains(t, out, tt.wantOut)
+			}
+			if tt.config == "" && tt.want != 1 {
+				// A command line soma could not parse, or one that only
+				// asked for help, must not leave the daemon's config
+				// template behind.
+				assert.NoFileExists(t, configFile)
+			}
 		})
 	}
 }

@@ -140,7 +140,7 @@ func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
 	// made-up subcommand ("soma daemon shutdown") or a misplaced "stop"
 	// ("soma daemon --no-tray stop") would silently start a daemon.
 	if fs.NArg() > 0 {
-		return daemonFlags{}, fmt.Errorf("unexpected argument %q: usage: soma daemon [flags] (see soma daemon --help), or soma daemon stop to shut the running daemon down", fs.Arg(0))
+		return daemonFlags{}, usageErrorf("unexpected argument %q: usage: soma daemon [flags] (see soma daemon --help), or soma daemon stop to shut the running daemon down", fs.Arg(0))
 	}
 
 	for _, p := range []*string{&f.tlsCert, &f.tlsKey, &f.pskFile} {
@@ -157,10 +157,12 @@ func parseDaemonFlags(cfg *config.Config, args []string) (daemonFlags, error) {
 // defaults), validates them, and resolves the files they name — a TLS
 // certificate pair (generating a self-signed one when none is configured),
 // a PSK file — into a daemonOptions. It returns an error instead of calling
-// log.Fatal for every failure that can occur during resolution: leftover
-// arguments, the --quality and --idle-timeout validation, the
-// --tls-cert/--tls-key pairing rule, certificate preparation, certificate
-// loading for --show-cert, and the PSK file read.
+// log.Fatal for every failure that can occur during resolution. The ones
+// only the flags can have caused are a usageError: leftover arguments, the
+// --quality and --idle-timeout validation, and the --tls-cert/--tls-key
+// pairing rule (config.Load already holds the config's own values to all
+// three). The rest are not: certificate preparation, certificate loading
+// for --show-cert, and the PSK file read.
 func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, error) {
 	f, err := parseDaemonFlags(cfg, args)
 	if err != nil {
@@ -180,17 +182,17 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 	}
 
 	if f.quality != "" && !config.ValidQuality(f.quality) {
-		return daemonOptions{}, fmt.Errorf("--quality (or server.quality in the config) must be one of %s (got %q)", config.QualityList(), f.quality)
+		return daemonOptions{}, usageErrorf("--quality (or server.quality in the config) must be one of %s (got %q)", config.QualityList(), f.quality)
 	}
 	// config.Load already rejects a negative server.idle_timeout; the flag
 	// needs the same check, or the idle timer would silently never fire.
 	if f.idleTimeout < 0 {
-		return daemonOptions{}, fmt.Errorf("--idle-timeout must not be negative (got %s; 0 disables the idle exit)", f.idleTimeout)
+		return daemonOptions{}, usageErrorf("--idle-timeout must not be negative (got %s; 0 disables the idle exit)", f.idleTimeout)
 	}
 
 	certPath, keyPath := f.tlsCert, f.tlsKey
 	if (certPath == "") != (keyPath == "") {
-		return daemonOptions{}, errors.New("--tls-cert and --tls-key (or tls_cert/tls_key in the config) must be set together")
+		return daemonOptions{}, usageErrorf("--tls-cert and --tls-key (or tls_cert/tls_key in the config) must be set together")
 	}
 	tlsEnabled := f.tls || certPath != ""
 	// The certificate is resolved (and generated) even for --show-cert with
@@ -234,6 +236,24 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 // persisted state, and MPRIS, and serves clients on the Unix socket (and,
 // when configured, TCP).
 func runServer(args []string) {
+	// The config file supplies the flag defaults, so explicit flags override
+	// it, and an auto-spawned server (which gets no flags) still honors it.
+	// It is read before the template below is written: a missing file reads
+	// as the zero Config, which is what the template parses to as well.
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("error loading config: %v", err)
+	}
+
+	// A command line that cannot be parsed ends here, exit status 2, before
+	// anything is written: `soma daemon bogus` (or --help) leaves no config
+	// template behind.
+	opts, err := resolveDaemonOptions(cfg, args)
+	var usage usageError
+	if errors.As(err, &usage) {
+		failUsage("%v", err)
+	}
+
 	// On first start, materialize a commented-out template so the settings
 	// are discoverable; failing to (e.g. a read-only home) is no reason not
 	// to run.
@@ -242,18 +262,9 @@ func runServer(args []string) {
 	} else if created {
 		log.Printf("wrote a default config template to %s", path)
 	}
-
-	// The config file supplies the flag defaults, so explicit flags override
-	// it, and an auto-spawned server (which gets no flags) still honors it.
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("error loading config: %v", err)
-	}
 	for _, w := range cfg.Warnings {
 		log.Printf("warning: %s", w)
 	}
-
-	opts, err := resolveDaemonOptions(cfg, args)
 	if err != nil {
 		log.Fatalf("%v", err)
 	}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"cmp"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -43,20 +42,33 @@ func (f *connFlags) register(fs *flag.FlagSet) {
 
 // resolveEndpoint turns the connection flags and config into the endpoint to
 // use: the Unix socket unless a remote server address is configured.
+//
+// What only the flags can have got wrong comes back as a usageError: flags
+// that need --server without one, a malformed --server or --tls-fingerprint
+// value, --tls-ca together with --tls-fingerprint. A bad address from
+// $SOMAD_SERVER or the config, or a file a flag names that cannot be read,
+// is an ordinary error.
 func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
 	addr := cmp.Or(f.server, os.Getenv("SOMAD_SERVER"), str(cfg.Client.Server))
 	if addr == "" {
 		// The remaining connection flags only mean something for a TCP
 		// endpoint; ignoring them silently would mask a typo'd setup.
 		if f.tls || f.tlsCA != "" || f.tlsFingerprint != "" || f.pskFile != "" {
-			return client.Endpoint{}, errors.New(
+			return client.Endpoint{}, usageErrorf(
 				"--tls, --tls-ca, --tls-fingerprint, and --psk-file require --server (or $SOMAD_SERVER, or client.server in the config)")
 		}
 		return client.UnixEndpoint(protocol.SocketPath()), nil
 	}
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		return client.Endpoint{}, fmt.Errorf("invalid server address %q: want host:port", addr)
+		err = fmt.Errorf("invalid server address %q: want host:port", addr)
+		if f.server != "" { // addr is the flag's value
+			err = usageError{err}
+		}
+		return client.Endpoint{}, err
+	}
+	if f.tlsCA != "" && f.tlsFingerprint != "" {
+		return client.Endpoint{}, usageErrorf("--tls-ca and --tls-fingerprint are mutually exclusive")
 	}
 
 	caPath, fingerprint := str(cfg.Client.TLSCA), str(cfg.Client.TLSFingerprint)
@@ -90,6 +102,11 @@ func resolveEndpoint(f connFlags, cfg *config.Config) (client.Endpoint, error) {
 	ep := client.Endpoint{Network: "tcp", Address: addr, PSK: psk}
 	if useTLS {
 		if ep.TLS, err = tlsutil.ClientTLSConfig(caPath, fingerprint, host); err != nil {
+			// With no CA file to read, all that can be wrong is the
+			// fingerprint's form; f.tlsFingerprint is where it came from.
+			if caPath == "" && f.tlsFingerprint != "" {
+				err = usageError{err}
+			}
 			return client.Endpoint{}, err
 		}
 	}

@@ -31,6 +31,11 @@ flags. Settings needed a home that reaches auto-spawned daemons too.
     existing path, as `O_EXCL` did), then syncs the directory. The in-place
     `O_EXCL` write could leave an empty file after a crash, which for a
     generated PSK stopped the daemon until the file was deleted by hand.
+  - *Amendment 2026-11-09.* The template is written once the daemon's
+    command line has parsed, not before: `soma daemon bogus` and `soma
+    daemon --help` used to leave one behind on their way out. The config
+    is read first for that (it supplies the flag defaults); a missing
+    file reads as the zero config, which is what the template parses to.
 
 ## Consequences
 
