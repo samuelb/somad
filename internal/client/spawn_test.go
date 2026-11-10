@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -322,4 +324,98 @@ func TestStopIncompatible_FailsWhenTheDaemonDoesNotExit(t *testing.T) {
 	err = StopIncompatible(skew, ep)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not exit")
+}
+
+// holdServerLock takes the single-instance lock next to the socket at path,
+// as a daemon holds it from before the socket exists until after it is
+// gone. The returned function releases it.
+func holdServerLock(t *testing.T, path string) (release func()) {
+	t.Helper()
+	lock, err := os.OpenFile(protocol.LockPath(path), os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 // Test file path
+	require.NoError(t, err)
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)) // #nosec G115 -- a file descriptor fits an int
+	var once sync.Once
+	release = func() { once.Do(func() { _ = lock.Close() }) }
+	t.Cleanup(release)
+	return release
+}
+
+// connectTo returns a hello-verified client to the fake daemon on path.
+func connectTo(t *testing.T, path string) *Client {
+	t.Helper()
+	c, err := Dial(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	_, err = c.Hello("new")
+	require.NoError(t, err)
+	return c
+}
+
+func TestStopServer_ReturnsOnlyOnceTheLockIsReleased(t *testing.T) {
+	path := testSocketPath(t)
+	// It answers the shutdown request and stops listening at once.
+	startOutdatedServer(t, path, "new", protocol.StatusStopped, "", make(chan string, 1))
+	release := holdServerLock(t, path)
+	c := connectTo(t, path)
+
+	// The lock goes later, as when a daemon flushes its state and waits for
+	// a Last.fm submission after closing its listeners. A daemon started
+	// before then would exit as "already running".
+	var released atomic.Bool
+	time.AfterFunc(400*time.Millisecond, func() {
+		released.Store(true)
+		release()
+	})
+
+	require.NoError(t, StopServer(c, UnixEndpoint(path)))
+	assert.True(t, released.Load(), "StopServer returned while the daemon still held its lock")
+}
+
+func TestStopServer_FailsWhenTheDaemonDoesNotLetGo(t *testing.T) {
+	prevRestartWait := restartWait
+	restartWait = 300 * time.Millisecond
+	t.Cleanup(func() { restartWait = prevRestartWait })
+
+	t.Run("it keeps listening", func(t *testing.T) {
+		path := testSocketPath(t)
+		startFakeServer(t, path, func(req protocol.Request, send func(v any)) {
+			send(protocol.Response{ID: req.ID, Result: json.RawMessage(`{}`)})
+		})
+
+		err := StopServer(connectTo(t, path), UnixEndpoint(path))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "had not exited")
+	})
+	t.Run("it keeps its lock", func(t *testing.T) {
+		path := testSocketPath(t)
+		startOutdatedServer(t, path, "new", protocol.StatusStopped, "", make(chan string, 1))
+		holdServerLock(t, path)
+
+		err := StopServer(connectTo(t, path), UnixEndpoint(path))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "had not exited")
+	})
+}
+
+func TestStopServer_RemoteDaemonIsNotWaitedFor(t *testing.T) {
+	// It answers the shutdown request and goes on listening; nothing on
+	// this side can tell when a daemon on another machine is gone.
+	addr := startFakeTCPServer(t, func(req protocol.Request, send func(v any)) {
+		send(protocol.Response{ID: req.ID, Result: json.RawMessage(`{}`)})
+	})
+	ep := Endpoint{Network: "tcp", Address: addr}
+	c, err := DialEndpoint(ep)
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	start := time.Now()
+	require.NoError(t, StopServer(c, ep))
+	assert.Less(t, time.Since(start), restartWait/2)
+}
+
+func TestWaitForServerExit_NoLockFileIsNothingToWaitFor(t *testing.T) {
+	// Nothing listens and no lock file exists: the daemon is gone.
+	assert.True(t, waitForServerExit(UnixEndpoint(testSocketPath(t))))
 }

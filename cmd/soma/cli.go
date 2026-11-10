@@ -1046,9 +1046,12 @@ func formatHistory(entries []protocol.HistoryEntry) string {
 	return b.String()
 }
 
-// runServerStop shuts the server down. A local one that speaks another
-// protocol version refuses the shutdown request along with everything else,
-// so it is stopped by signal instead.
+// runServerStop shuts the server down, and for a local one returns only
+// once it has let go of its socket and lock, so `soma daemon stop && soma
+// daemon` starts a daemon instead of finding the old one "already running"
+// (see client.StopServer). A local one that speaks another protocol version
+// refuses the shutdown request along with everything else, so it is stopped
+// by signal instead.
 func runServerStop() {
 	c, hr, err := tryDialServer()
 	var skew *client.ProtocolSkewError
@@ -1065,7 +1068,7 @@ func runServerStop() {
 		return
 	}
 	defer func() { _ = c.Close() }()
-	if err := c.Shutdown(); err != nil {
+	if err := client.StopServer(c, endpoint); err != nil {
 		fail("%v", err)
 	}
 	fmt.Println("soma: server stopped")

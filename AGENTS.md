@@ -276,8 +276,11 @@ another protocol version refuses every request, `shutdown` included, so at
 those moments (and on `soma daemon stop`) it is sent SIGTERM instead, its
 PID read from the socket's peer credentials (`peercred_darwin.go` /
 `peercred_linux.go` / `peercred_other.go`); any other command fails with a
-`ProtocolSkewError`. Remote endpoints are never spawned, restarted, or
-signalled. The same credentials guard every Unix-socket dial: a peer
+`ProtocolSkewError`. Stopping a local daemon (`client.StopServer` behind
+`soma daemon stop`, the restarts above) waits until it has let go of both
+the socket and the single-instance lock, which it releases last, so a
+daemon started right after does not exit as "already running". Remote
+endpoints are never spawned, restarted, or signalled. The same credentials guard every Unix-socket dial: a peer
 running as another user is refused with `ErrForeignDaemon` (ADR-0007).
 Only a dial that fails means "no daemon" (spawn one locally, "cannot
 reach" remotely, stopped for `status --json`). A daemon that accepted the

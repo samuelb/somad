@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -42,6 +44,11 @@ type fakeDaemon struct {
 	onHello       func()     // when set, runs (under mu) before each hello is answered
 	serverVersion string     // reported in hello; empty means the client's own version
 	methods       []string   // every request's method, in arrival order
+	ln            net.Listener
+	// onShutdown, when set, runs on its own goroutine once a shutdown
+	// request has been answered, in place of the default: stop listening
+	// at once, as a daemon shutting down does.
+	onShutdown func()
 }
 
 func startFakeDaemon(t *testing.T) *fakeDaemon {
@@ -63,6 +70,7 @@ func startFakeDaemon(t *testing.T) *fakeDaemon {
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
+	d.ln = ln
 	go func() {
 		for {
 			nc, err := ln.Accept()
@@ -94,6 +102,16 @@ func (d *fakeDaemon) serve(nc net.Conn) {
 		}
 		raw, _ := json.Marshal(result)
 		_ = protocol.WriteLine(nc, protocol.Response{ID: req.ID, Result: raw})
+		if req.Method == protocol.MethodShutdown {
+			// Like the real daemon: answer first, then shut down.
+			d.mu.Lock()
+			after := d.onShutdown
+			d.mu.Unlock()
+			if after == nil {
+				after = func() { _ = d.ln.Close() }
+			}
+			go after()
+		}
 	}
 }
 
@@ -492,6 +510,53 @@ func TestRunServerStop_RequestsShutdown(t *testing.T) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	assert.Equal(t, 1, d.shutdowns)
+}
+
+// holdDaemonLock takes the single-instance lock of the daemon on the
+// current endpoint, as the real one holds it from before its socket exists
+// until after it is gone. The returned function releases it.
+func holdDaemonLock(t *testing.T) (release func()) {
+	t.Helper()
+	lock, err := os.OpenFile(protocol.LockPath(endpoint.Address), os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- test-controlled path
+	require.NoError(t, err)
+	require.NoError(t, syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)) // #nosec G115 -- a file descriptor fits an int
+	var once sync.Once
+	release = func() { once.Do(func() { _ = lock.Close() }) }
+	t.Cleanup(release)
+	return release
+}
+
+// TestRunServerStop_ReturnsOnlyOnceTheDaemonHasLetGo covers `soma daemon
+// stop && soma daemon`: a daemon answers the shutdown request first and
+// lets go afterwards, of the socket and, later still, of the lock that
+// makes a daemon started meanwhile exit as "already running".
+func TestRunServerStop_ReturnsOnlyOnceTheDaemonHasLetGo(t *testing.T) {
+	for name, lingerOn := range map[string]string{
+		"it keeps the lock after closing the socket": "lock",
+		"it keeps listening for a moment":            "socket",
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := startFakeDaemon(t)
+			release := holdDaemonLock(t)
+			var gone atomic.Bool
+			d.mu.Lock()
+			d.onShutdown = func() {
+				if lingerOn == "lock" {
+					_ = d.ln.Close()
+				}
+				time.Sleep(400 * time.Millisecond)
+				gone.Store(true)
+				_ = d.ln.Close()
+				release()
+			}
+			d.mu.Unlock()
+
+			out := captureStdout(t, runServerStop)
+
+			assert.True(t, gone.Load(), "daemon stop returned while the daemon still held on")
+			assert.Contains(t, out, "server stopped")
+		})
+	}
 }
 
 func TestRunServerStop_NotRunning(t *testing.T) {

@@ -1,6 +1,6 @@
 # ADR-0004: One daemon instance via a lock file; clients spawn it detached
 
-- **Status:** Accepted (amended 2026-09-25: clients act on the spawned daemon's exit status; amended 2026-11-09: what a daemon writes before it holds the lock)
+- **Status:** Accepted (amended 2026-09-25: clients act on the spawned daemon's exit status; amended 2026-11-09: what a daemon writes before it holds the lock, and stopping a daemon waits for its lock)
 - **Date:** 2026-07-05
 - **Sources:** 95fb723; `internal/server/spawnlock.go`, `internal/client/spawn.go`, `internal/protocol/socket.go`
 
@@ -16,6 +16,22 @@ stale socket file from a crashed daemon must not block the next start.
   server gets `ErrAlreadyRunning` and exits cleanly; the clients that
   spawned both end up connecting to the winner. Only the lock holder
   removes a stale socket file.
+  - *Amendment 2026-11-09.* A client that stops a daemon waits for the
+    lock, not just for the socket. A daemon shutting down answers the
+    request, closes its listeners, and releases the lock only after
+    flushing its state and waiting up to 3 s for a Last.fm submission
+    still under way. `soma daemon stop` returned at the answer, so `soma
+    daemon stop && soma daemon` could find the lock held, log "already
+    running", and exit 0 with no daemon left. `client.StopServer` and
+    the version-skew restart (ADR-0006) now wait, up to 5 s, until the
+    socket no longer answers and the lock is free, and `soma daemon
+    stop` fails if the daemon has not let go by then. The only way to
+    ask whether a `flock` is held is to take it, so the client takes a
+    shared lock and drops it at once; a daemon starting in that instant
+    would see "already running", which the spawning client's retry
+    below covers. The daemon's process lives on for the 400 ms of its
+    fade-out after the lock is free; nothing waits for that. A remote
+    daemon cannot be watched and is not waited for.
 - Clients spawn the daemon with `Setsid` and `context.Background()` so it
   is detached from the terminal and never cancelled by the client.
 - The socket path is kept deliberately short (macOS caps `sun_path` at

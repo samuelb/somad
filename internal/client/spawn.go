@@ -320,7 +320,8 @@ var terminateProcess = func(pid int) error { return syscall.Kill(pid, syscall.SI
 
 // StopIncompatible stops a local daemon that speaks another protocol version
 // (see ProtocolSkewError) by signalling its process, and waits until it has
-// let go of the socket. A remote daemon is never stopped this way.
+// let go of the socket and its lock. A remote daemon is never stopped this
+// way.
 func StopIncompatible(skew *ProtocolSkewError, ep Endpoint) error {
 	if !ep.IsLocal() {
 		return fmt.Errorf("cannot stop the remote soma daemon at %s from here", ep)
@@ -411,18 +412,67 @@ func serverLogSince(offset int64) string {
 	return strings.Join(lines, "\n")
 }
 
-// waitForServerExit waits until the old server has stopped answering the
-// socket, so a fresh spawn doesn't lose the single-instance race to it. It
-// reports whether the server exited before restartWait elapsed.
+// StopServer asks the connected daemon to shut down and, for a local one,
+// returns only once it has let go of its socket and its single-instance
+// lock (see waitForServerExit), so that whatever runs next can start a
+// daemon: `soma daemon stop && soma daemon` found the lock still held by
+// the daemon it had just stopped, took that for a running instance, and
+// left none. A daemon that has not let go after restartWait is an error. A
+// remote daemon cannot be watched from here; its answer to the request is
+// all there is to wait for.
+func StopServer(c *Client, ep Endpoint) error {
+	if err := c.Shutdown(); err != nil {
+		return err
+	}
+	if !ep.IsLocal() {
+		return nil
+	}
+	if !waitForServerExit(ep) {
+		return fmt.Errorf("the soma daemon on %s acknowledged the shutdown request but had not exited after %s", ep, restartWait)
+	}
+	return nil
+}
+
+// waitForServerExit waits until the old server has let go: it no longer
+// answers the socket and has released the single-instance lock, so a
+// daemon started next does not lose the single-instance race to it. Those
+// are not the same moment. A daemon shutting down closes its listeners
+// first and gives the lock up only after flushing its state and waiting, up
+// to a few seconds, for a Last.fm submission still under way; one started
+// in between finds the lock held, takes that for a running daemon, and
+// exits. It reports whether the server let go before restartWait elapsed.
 func waitForServerExit(ep Endpoint) bool {
 	deadline := time.Now().Add(restartWait)
 	for time.Now().Before(deadline) {
 		c, err := DialEndpoint(ep)
-		if err != nil {
+		if err != nil && lockReleased(ep) {
 			return true
 		}
-		_ = c.Close()
+		if err == nil {
+			_ = c.Close()
+		}
 		time.Sleep(dialRetryInterval)
 	}
 	return false
+}
+
+// lockReleased reports whether the single-instance lock of the daemon on a
+// local endpoint is free: the flock internal/server's Listen holds, from
+// before the socket exists until after it is gone, on the lock file next
+// to it. The only way to ask is to take the lock, so a shared one is taken
+// and dropped at once; it fails exactly while a daemon holds its exclusive
+// one. No lock file, or one that cannot be probed, counts as free: there
+// is nothing to wait for.
+func lockReleased(ep Endpoint) bool {
+	f, err := os.Open(protocol.LockPath(ep.Address)) // #nosec G304 -- path derived from the socket path
+	if err != nil {
+		return true
+	}
+	defer func() { _ = f.Close() }()
+	fd := int(f.Fd()) // #nosec G115 -- a file descriptor fits an int
+	if err := syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		return !errors.Is(err, syscall.EWOULDBLOCK)
+	}
+	_ = syscall.Flock(fd, syscall.LOCK_UN)
+	return true
 }

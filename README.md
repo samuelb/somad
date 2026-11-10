@@ -285,7 +285,8 @@ keeps running until stopped explicitly (`soma daemon stop` or the tray's
 Quit item); set an idle timeout with `soma daemon --idle-timeout` or the
 `server.idle_timeout` setting in the [configuration file](#configuration) to
 make it exit on its own once playback is stopped and no client is connected
-for that long.
+for that long. `soma daemon stop` returns once the daemon has let go, so
+`soma daemon stop && soma daemon` starts a fresh one.
 
 After an upgrade, the running server is restarted onto the new version the
 next time you change channel, pause, or stop, never mid-song. If the upgrade
