@@ -190,6 +190,17 @@ func (s *session) requestStop() {
 	s.stopOnce.Do(func() { close(s.stop) })
 }
 
+// drained reports whether the session has nothing left to play: its stream
+// has given the oto player no audio for tapStallAfter, and the player has
+// played out what it had read ahead. Neither says so alone. The oto player
+// reads up to half a second ahead, so a stream that has only just stalled
+// still has audio to come; and an empty buffer may be about to be refilled.
+// Together they also mean oto's mixer is waiting in this session's stream
+// for audio, since it reads for every player whose buffer has room.
+func (s *session) drained() bool {
+	return s.tap.stalled() && s.player.BufferedSize() == 0
+}
+
 // setVolume hands a new volume target to the session goroutine, replacing any
 // pending one so the newest value wins.
 func (s *session) setVolume(v float64) {
@@ -965,6 +976,16 @@ func (p *AudioPlayer) fadeOutAndClose(s *session) {
 	// through the same curve as everything else.
 	startTarget := math.Cbrt(s.player.Volume())
 	for i := fadeSteps - 1; i >= 0; i-- {
+		// A session with nothing left to play has nothing to fade, and
+		// until its stream is closed it holds up every other session: oto
+		// fills all its players from one goroutine, one blocking read at a
+		// time, and that goroutine waits in this stream's read. Fading
+		// first, the session that replaced this one got no audio for the
+		// length of the fade while its own fade-in ran on, so it came in
+		// late and partway up.
+		if s.drained() {
+			break
+		}
 		s.player.SetVolume(perceptualVolume(startTarget * float64(i) / fadeSteps))
 		time.Sleep(step)
 	}

@@ -56,6 +56,11 @@ type fakeOutputPlayer struct {
 	volume         float64
 	paused         func()
 	stoppedReading func()
+	// buffered is BufferedSize; nil for a player that holds no audio.
+	buffered func() int
+	// lowered counts the SetVolume calls that turned the volume down: one
+	// when a session is committed, at volume 0, and the steps of a fade-out.
+	lowered atomic.Int32
 
 	// reading is held for each read of the source, so PauseAndStopReading
 	// waits one out, as oto's does, before it sets outOfMixer.
@@ -100,11 +105,19 @@ func (p *fakeOutputPlayer) pump(r io.Reader) {
 
 func (p *fakeOutputPlayer) SetVolume(v float64) {
 	p.mu.Lock()
+	if v < p.volume {
+		p.lowered.Add(1)
+	}
 	p.volume = v
 	p.mu.Unlock()
 }
 
-func (p *fakeOutputPlayer) BufferedSize() int { return 0 }
+func (p *fakeOutputPlayer) BufferedSize() int {
+	if p.buffered == nil {
+		return 0
+	}
+	return p.buffered()
+}
 
 func (p *fakeOutputPlayer) Volume() float64 {
 	p.mu.Lock()
@@ -121,6 +134,10 @@ type fakeAudioContext struct {
 	// pump makes each player consume its reader on a goroutine until the
 	// first read error or PauseAndStopReading, like oto's mixer does.
 	pump bool
+	// playedOut makes the players report an empty buffer, like one that has
+	// played everything it had read from its stream. Otherwise they hold
+	// audio, as a player does whose stream keeps up.
+	playedOut atomic.Bool
 
 	mu        sync.Mutex
 	resumeErr error
@@ -135,6 +152,12 @@ func (c *fakeAudioContext) NewPlayer(r io.Reader) outputPlayer {
 		volume:         1,
 		paused:         func() { c.pauses.Add(1) },
 		stoppedReading: func() { c.stoppedReading.Add(1) },
+		buffered: func() int {
+			if c.playedOut.Load() {
+				return 0
+			}
+			return 4096
+		},
 	}
 	if c.pump {
 		go p.pump(r)
@@ -562,6 +585,121 @@ func TestTeardown_TakesThePlayerOutOfTheMixer(t *testing.T) {
 		return ctx.stoppedReading.Load() == 1 && ctx.suspends.Load() == 1
 	}, 2*time.Second, 10*time.Millisecond)
 	assert.EqualValues(t, 1, ctx.pauses.Load())
+}
+
+// currentSession returns the session p is playing and its fake oto player.
+func currentSession(t *testing.T, p *AudioPlayer) (*session, *fakeOutputPlayer) {
+	t.Helper()
+	p.mu.Lock()
+	s := p.current
+	p.mu.Unlock()
+	require.NotNil(t, s)
+	return s, s.player.(*fakeOutputPlayer)
+}
+
+func TestPlaySwitch_SessionWithNothingLeftToPlayIsNotFaded(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	// Pumped like oto's mixer does. The test server sends a burst and then
+	// holds the connection: the stream has stalled, the pump is parked in a
+	// read the stream will not answer, and the player has played out what
+	// it had.
+	ctx.pump = true
+	ctx.playedOut.Store(true)
+	server := newStreamingTestServer(t)
+	t.Cleanup(func() { stopNext(p) })
+
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	old, player := currentSession(t, p)
+	// Played out, not yet to start: a tap that has taken no audio at all
+	// counts as stalled too.
+	require.Eventually(t, func() bool {
+		old.tap.mu.Lock()
+		played := old.tap.written > 0
+		old.tap.mu.Unlock()
+		return played && old.drained()
+	}, 2*time.Second, 10*time.Millisecond)
+	steps := player.lowered.Load()
+
+	// oto fills all its players from the one goroutine that is parked in
+	// the old stream's read, so the new session gets no audio until the old
+	// stream is closed. Fading silence for a quarter of a second first
+	// would cost the new session the first half of its fade-in.
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	switched := time.Now()
+	require.Eventually(t, func() bool {
+		return ctx.stoppedReading.Load() == 1
+	}, 2*time.Second, time.Millisecond)
+	assert.Less(t, time.Since(switched), fadeOutDuration, "the old stream was held open for the length of a fade")
+	assert.Zero(t, player.lowered.Load()-steps, "the old session was faded, with nothing left to fade")
+}
+
+// fadeOutSteps stops p's session and returns how many steps down its
+// volume was taken on the way out.
+func fadeOutSteps(t *testing.T, p *AudioPlayer, ctx *fakeAudioContext, player *fakeOutputPlayer) int32 {
+	t.Helper()
+	before := player.lowered.Load()
+	stopNext(p)
+	require.Eventually(t, func() bool {
+		return ctx.stoppedReading.Load() == 1
+	}, 2*time.Second, 5*time.Millisecond)
+	return player.lowered.Load() - before
+}
+
+func TestStop_StalledStreamWithAudioBufferedStillFadesOut(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	// The stream has stalled, as above, but the player still holds audio it
+	// read ahead of the stall. That plays on, and is faded, not cut off.
+	ctx.pump = true
+	server := newStreamingTestServer(t)
+
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	s, player := currentSession(t, p)
+	require.Eventually(t, func() bool {
+		s.tap.mu.Lock()
+		played := s.tap.written > 0
+		s.tap.mu.Unlock()
+		return played && s.tap.stalled()
+	}, 2*time.Second, 10*time.Millisecond)
+
+	assert.EqualValues(t, fadeSteps, fadeOutSteps(t, p, ctx, player))
+	assert.Zero(t, player.Volume())
+}
+
+// endlessSilence decodes to silence for as long as it is read, a little at
+// a time: a stream that keeps up.
+type endlessSilence struct{}
+
+func (endlessSilence) Read(b []byte) (int, error) {
+	time.Sleep(time.Millisecond)
+	clear(b)
+	return len(b), nil
+}
+
+func (endlessSilence) SampleRate() int { return sampleRate }
+
+func TestStop_FlowingStreamStillFadesOut(t *testing.T) {
+	p, ctx, _ := newLifecycleTestPlayer(t)
+	// The player's buffer is empty at every look, as in an underrun, but
+	// the stream is delivering: audio is about to play, and is faded.
+	ctx.pump = true
+	ctx.playedOut.Store(true)
+	server := newStreamingTestServer(t)
+	prevDecoder := newDecoder
+	newDecoder = func(_ string, r io.Reader) (pcmDecoder, error) {
+		// Drain the pipe on a goroutine so the fetch side never blocks; the
+		// decoder's own output does not depend on it.
+		go func() { _, _ = io.Copy(io.Discard, r) }()
+		return endlessSilence{}, nil
+	}
+	t.Cleanup(func() { newDecoder = prevDecoder })
+
+	require.NoError(t, playNext(p, server.URL, FormatMP3))
+	_, player := currentSession(t, p)
+	// A fade-out starts from where the fade-in has brought the volume.
+	require.Eventually(t, func() bool { return player.Volume() > 0 }, time.Second, 5*time.Millisecond)
+
+	assert.EqualValues(t, fadeSteps, fadeOutSteps(t, p, ctx, player))
+	assert.Zero(t, player.Volume())
 }
 
 func TestErrors_ReturnsChannel(t *testing.T) {
