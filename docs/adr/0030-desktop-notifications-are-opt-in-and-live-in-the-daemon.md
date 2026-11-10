@@ -32,6 +32,19 @@ now feeds MPRIS's `xesam:artist`, landing in the same commit series.
   the AppleScript command as escaped string literals
   (`appleScriptQuote`), never through a shell, so there is no injection
   path through the notification text.
+  - *Amendment 2026-11-09.* Linux had such a path after all. A
+    notification server with the `body-markup` capability, as the common
+    desktop ones have, parses the body as markup: `<`, `>` and `&` in an
+    artist or track name lost text, and a title from the stream could
+    carry the `<a href>` and `<img>` tags some servers honor. The
+    notifier asks `GetCapabilities` once and, for a server with
+    `body-markup`, sends the body with those three characters as
+    `&lt;`, `&gt;` and `&amp;`; a server without it gets the body as it
+    is, since it would show the entities as written. Only these three,
+    not all of `html.EscapeString`: quotes need no escaping outside a
+    tag. The summary is plain text to every server and is never escaped.
+    Until `GetCapabilities` has answered nothing is sent, and the next
+    title asks again.
 - A small `notifyPipeline` (`internal/server/notify.go`) coalesces bursts:
   while a send is in flight (blocking on D-Bus, or forking `osascript`), a
   newer title just replaces the not-yet-sent one instead of queuing another
