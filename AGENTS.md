@@ -34,8 +34,8 @@ make demo               # re-record demo.gif and demo.mp4 from demo.tape with VH
   (`libasound.so.2`, via purego). Release builds keep `CGO_ENABLED=1` for
   glibc's resolver (mDNS `.local` names for `--server`), not for audio.
   macOS builds do need cgo, and so the Xcode Command Line Tools:
-  `aac_darwin.go` (AudioToolbox) and the vendored systray call system
-  frameworks.
+  `aac_darwin.go` (AudioToolbox), `nowplaying_darwin.go` (MediaPlayer) and
+  the vendored systray call system frameworks.
 - lefthook (`lefthook.yml`) runs lint and race tests on pre-commit and
   pre-push. CI (`.github/workflows/ci.yml`) additionally runs `govulncheck`
   and fails below 60 % total coverage on the Linux job. It also runs every
@@ -97,7 +97,7 @@ make demo               # re-record demo.gif and demo.mp4 from demo.tape with VH
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
   - config and persisted state: 0011, 0012
   - audio pipeline and formats: 0013–0017, 0028, 0037 (a lost audio device, also daemon and client)
-  - MPRIS, tray, and desktop notifications: 0019, 0030
+  - MPRIS, tray, and desktop notifications: 0019, 0030, 0039 (macOS Now Playing)
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029
   - Last.fm scrobbling: 0031
@@ -203,7 +203,8 @@ command's output and exit status (the binary refuses to be spawned as a
 daemon). `cmd/soma/daemon_e2e_test.go` has `startDaemonProcess`, which runs
 the real daemon from the test binary; with `lostDeviceSandbox`
 (`daemon_restart_e2e_test.go`) it plays through a `lostOncePlayer`, whose
-device is lost at the first play. `cmd/soma/completion_test.go` runs the completion scripts in the
+device is lost at the first play. A daemon run that way gets no media
+controls (`newMPRIS`), so a test run never appears in the desktop's. `cmd/soma/completion_test.go` runs the completion scripts in the
 real shells, skipping the ones not installed: every bash it finds with
 `COMP_WORDS` split both the bash 3.2 and the bash 4+ way, zsh through
 `testdata/zsh-complete.zsh` on a pty. `internal/audio/player_test.go`
@@ -381,7 +382,12 @@ changes must keep `nowPlayingIndex` and `cardContentX` in step.
   not load, ADR-0009) and client trust via CA file, pinned SHA-256
   fingerprint, or system roots; `ExplainHostnameMismatch` adds the certificate's names to a
   hostname-mismatch handshake error
-- `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_other.go`), `tray/`,
+- `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_darwin.go` /
+  `mpris_other.go`; on macOS it is the system's Now Playing, ADR-0039:
+  the Objective-C sits in the cgo preamble of `nowplaying_darwin.go`, the
+  daemon registers at its first play, shows a stop as paused, and needs
+  the main thread's run loop, which is the tray's or, without a tray,
+  `MPRIS.RunMainLoop` in `serve`), `tray/`,
   and `notify/` (desktop notification on track change, D-Bus on Linux,
   `osascript` on macOS)
 - `internal/atomicfile` — temp-file + rename writes used by state and

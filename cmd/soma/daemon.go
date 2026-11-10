@@ -315,9 +315,9 @@ func runServer(args []string) {
 
 	// cleanup must run on every path below, including the fatal ones, so it
 	// is called explicitly rather than deferred (log.Fatalf skips defers).
-	srv, tr, err := buildServer(cfg, opts)
+	srv, tr, mpris, err := buildServer(cfg, opts)
 	if err == nil {
-		if err = serve(srv, tr, listeners); err != nil {
+		if err = serve(srv, tr, mpris, listeners); err != nil {
 			err = fmt.Errorf("server error: %w", err)
 		}
 	}
@@ -388,6 +388,11 @@ var reexec = func() error {
 	return syscall.Exec(exe, startArgs, os.Environ()) // #nosec G204 G702 -- our own executable and arguments
 }
 
+// newMPRIS connects to the desktop's media controls: MPRIS on Linux, Now
+// Playing on macOS. A variable so the tests that run the real daemon can
+// keep it off the session of whoever runs them.
+var newMPRIS = platform.NewMPRIS
+
 // newPlayer builds the audio player. A variable so the tests that run the
 // real daemon can give it one that needs no audio device.
 var newPlayer = func(userAgent string) audio.Player { return audio.NewPlayer(userAgent) }
@@ -426,7 +431,7 @@ func openListeners(opts daemonOptions) ([]net.Listener, func(), error) {
 // player, persisted state, MPRIS, the tray, and the Last.fm scrobbler. The
 // tray is nil when disabled, unsupported, or when no GUI is present (a
 // headless host), so the server still runs anywhere.
-func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.Tray, error) {
+func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.Tray, *platform.MPRIS, error) {
 	player := newPlayer(userAgent())
 	if opts.quality != "" && opts.quality != "highest" && !slices.Contains(audio.PreferredFormats(), audio.FormatAACP) {
 		log.Printf("note: stream quality %q has no effect in this build: SomaFM offers its lower qualities "+
@@ -434,9 +439,9 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 	}
 	appState, err := state.LoadState()
 	if err != nil {
-		return nil, nil, fmt.Errorf("error loading state: %w", err)
+		return nil, nil, nil, fmt.Errorf("error loading state: %w", err)
 	}
-	mpris, err := platform.NewMPRIS()
+	mpris, err := newMPRIS()
 	if err != nil {
 		// MPRIS is optional, continue without it
 		log.Printf("warning: MPRIS initialization failed: %v", err)
@@ -470,15 +475,17 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 		ReloadLastfmSession: reloadLastfmSession,
 		LoadScrobbler:       loadScrobbler,
 	})
-	return srv, tr, nil
+	return srv, tr, mpris, nil
 }
 
 // serve runs the server until it shuts down (a signal, the idle timer, the
 // tray's Quit item, or a shutdown RPC). The tray owns the process's native
 // GUI run loop and must run on the main goroutine, so with a tray the
 // connections are served on a goroutine and the tray blocks; srv.Shutdown
-// stops the tray, which unblocks Run. Without a tray, Run blocks directly.
-func serve(srv *server.Server, tr *tray.Tray, listeners []net.Listener) error {
+// stops the tray, which unblocks Run. Without a tray, Run blocks directly,
+// unless the media controls need the main thread's run loop (macOS Now
+// Playing, ADR-0039), which then runs here in the tray's place.
+func serve(srv *server.Server, tr *tray.Tray, mpris *platform.MPRIS, listeners []net.Listener) error {
 	// The server must survive its spawning terminal closing; SIGINT/SIGTERM
 	// shut it down cleanly.
 	signal.Ignore(syscall.SIGHUP)
@@ -489,15 +496,23 @@ func serve(srv *server.Server, tr *tray.Tray, listeners []net.Listener) error {
 		srv.Shutdown()
 	}()
 
-	if tr == nil {
+	runErrCh := make(chan error, 1)
+	switch {
+	case tr != nil:
+		go func() {
+			runErrCh <- srv.Run(listeners...)
+			srv.Shutdown() // idempotent; unblocks the tray on any exit path
+		}()
+		tr.Run(nil)
+	case mpris.NeedsMainLoop():
+		go func() {
+			runErrCh <- srv.Run(listeners...)
+			mpris.StopMainLoop()
+		}()
+		mpris.RunMainLoop()
+	default:
 		return srv.Run(listeners...)
 	}
-	runErrCh := make(chan error, 1)
-	go func() {
-		runErrCh <- srv.Run(listeners...)
-		srv.Shutdown() // idempotent; unblocks the tray on any exit path
-	}()
-	tr.Run(nil)
 	return <-runErrCh
 }
 

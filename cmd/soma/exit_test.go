@@ -11,6 +11,7 @@ import (
 
 	"somad/internal/audio"
 	"somad/internal/channels"
+	"somad/internal/platform"
 	"somad/internal/security"
 
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,9 @@ func TestMain(m *testing.M) {
 		// to a host that is not on the allowlist fail before any network
 		// I/O, and the daemon runs on without a catalog.
 		channels.SomaFMChannelsURL = "http://catalog.invalid.test/channels.json"
+		// Nor may it show up in the media controls of whoever runs the
+		// tests, or take their media keys.
+		newMPRIS = func() (*platform.MPRIS, error) { return nil, nil }
 		if marker := os.Getenv(lostDeviceEnv); marker != "" {
 			newPlayer = func(string) audio.Player { return &lostOncePlayer{marker: marker} }
 			// The playlist of the one channel in its catalog is served by

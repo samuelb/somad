@@ -52,3 +52,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0036](0036-tui-mouse-hit-tests-the-rendered-layout.md) | The TUI's mouse acts on the list, the volume gauge, and the help bar, hit-tested against View's own layout | Accepted |
 | [0037](0037-a-lost-audio-device-ends-the-daemon-process-clients-replace-it.md) | A daemon whose audio device is lost stops and says so; a local client puts a new daemon in its place | Accepted (amended) |
 | [0038](0038-a-supervised-daemon-is-restarted-by-its-service-manager.md) | A daemon run by a service manager is restarted through it, not replaced by a spawn | Accepted |
+| [0039](0039-macos-now-playing-plays-the-part-of-mpris.md) | On macOS the daemon registers with Now Playing, which does there what MPRIS does on Linux | Accepted |

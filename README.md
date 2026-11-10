@@ -55,8 +55,10 @@ Linux and macOS — other platforms are not supported and may not work.
 - Fast startup with cached channels and background refresh
 - Smooth, keyboard-driven navigation and playback controls, with mouse
   support: scroll and click the channel list, click or drag the volume
-- MPRIS desktop integration (Linux) — media keys keep working even with the
-  TUI closed
+- Media keys and the desktop's media controls keep working even with the
+  TUI closed: MPRIS on Linux, Now Playing on macOS (Control Center, the
+  lock screen, headset buttons). On macOS the daemon takes the keys once
+  it has played something, and the play key brings the last channel back
 - System tray / menu-bar icon (macOS and Linux) — shows the current track,
   lets you pick any channel from a menu, and gives you play/stop, next, and
   previous while the server runs, even with the TUI closed. Disable
@@ -159,8 +161,9 @@ Then, you can run it from your terminal.
 ### Build from Source
 
 Prerequisites: Go 1.26 or newer. On macOS, also the Xcode Command Line
-Tools (`xcode-select --install`): AAC decoding and the menu bar icon use
-system frameworks through cgo. Linux needs no C libraries at build time:
+Tools (`xcode-select --install`): AAC decoding, the menu bar icon and the
+media keys use system frameworks through cgo. Linux needs no C libraries
+at build time:
 audio goes to PulseAudio or PipeWire directly, and the ALSA library
 (`libasound.so.2`) is loaded at runtime only as a fallback.
 

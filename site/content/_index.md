@@ -69,7 +69,8 @@ extra:
     - title: Tray icon and media keys
       text: >-
         A menu-bar or tray icon with channel picker and playback controls, and
-        MPRIS on Linux so media keys keep working with the TUI closed.
+        MPRIS on Linux and Now Playing on macOS, so media keys keep working
+        with the TUI closed.
     - title: Resilient streaming
       text: >-
         Buffered playback with a stall watchdog, automatic reconnection, and
@@ -160,7 +161,7 @@ chmod +x ./soma                        <span class="c"># Linux</span></code></pr
 {% </card> %}
 
 {% <card title="Build from source"> %}
-Needs Go 1.26 or newer, plus the Xcode Command Line Tools on macOS (`xcode-select --install`), where AAC decoding and the menu bar icon use system frameworks. Linux needs no C libraries: audio goes to PulseAudio or PipeWire directly, with the ALSA library loaded at runtime only as a fallback.
+Needs Go 1.26 or newer, plus the Xcode Command Line Tools on macOS (`xcode-select --install`), where AAC decoding, the menu bar icon and the media keys use system frameworks. Linux needs no C libraries: audio goes to PulseAudio or PipeWire directly, with the ALSA library loaded at runtime only as a fallback.
 
 ```sh
 git clone https://github.com/samuelb/somad.git

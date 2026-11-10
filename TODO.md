@@ -17,13 +17,12 @@ for ADR-0029, publishing to the AUR) live in the ADRs and the README.
 
 ## P2 — features and hardening
 
-- **macOS media keys and Now Playing** **[L]**. MPRIS gives Linux media
-  keys and a now-playing entry with the TUI closed; macOS has the tray
-  only. The daemon would register with `MPRemoteCommandCenter` and
-  `MPNowPlayingInfoCenter` next to the tray (the macOS build needs cgo
-  already). Not decided: needs an ADR beside 0019.
-
 ## P3 — polish
+
+- **Channel artwork in macOS Now Playing** **[M]**. The entry shows track,
+  artist and station but no image (ADR-0039): Now Playing takes an image,
+  not the URL MPRIS takes, so the daemon has to fetch the channel's
+  artwork through the outbound allowlist and hand it over decoded.
 
 ## Not planned
 

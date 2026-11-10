@@ -336,6 +336,16 @@ func (m *MPRIS) Close() {
 	}
 }
 
+// NeedsMainLoop is always false on Linux: D-Bus delivers the calls on
+// goroutines of its own. Only macOS needs the main thread (mpris_darwin.go).
+func (m *MPRIS) NeedsMainLoop() bool { return false }
+
+// RunMainLoop is a no-op on Linux.
+func (m *MPRIS) RunMainLoop() {}
+
+// StopMainLoop is a no-op on Linux.
+func (m *MPRIS) StopMainLoop() {}
+
 // org.mpris.MediaPlayer2 methods
 
 func (r *mprisRoot) Raise() *dbus.Error {
