@@ -364,7 +364,11 @@ not the config file, so logging in never edits your hand-written config. A
 running daemon picks up a fresh login (or logout) immediately, without a
 restart, even one started before you added the key pair. The session
 belongs to the machine you log in on: for a daemon you control over TCP
-(`--server`), run `soma lastfm login` on the host the daemon runs on.
+(`--server`), run `soma lastfm login` on the host the daemon runs on. If
+you set `lastfm.session_key` in the configuration file yourself, that key
+decides instead of the saved session: `soma lastfm login` then refuses to
+run, and `soma lastfm logout` removes the saved session but fails, telling
+you to take the key out of the file.
 
 Once logged in, the daemon sends a now-playing update on every track change
 and scrobbles the previous track when it ends (next title change, stop, or

@@ -3,7 +3,8 @@
 - **Status:** Accepted (amended 2026-09-09: one scrobble per play across
   interruptions; 2026-09-25: a reload can start scrobbling, local daemons
   only; 2026-10-13: retries yield to shutdown, no retry without a session,
-  failures logged afresh after a reload)
+  failures logged afresh after a reload; 2026-11-09: login and logout do
+  not report success while the config's session_key decides)
 - **Date:** 2026-09-03
 - **Sources:** TODO.md "Last.fm scrobbling"; `internal/lastfm`,
   `internal/server/lastfm.go`, `internal/state/lastfm.go`,
@@ -39,6 +40,18 @@ the config file is meant to be hand-editable, never machine-written
   machine-written file), never to `config.yaml`. The config's
   `lastfm.session_key` still exists as an explicit override for config-
   management setups, but logging in itself never touches that file.
+  - *Amendment 2026-11-09.* While that override is set, `soma lastfm
+    login` and `logout` say so instead of reporting success. The override
+    decides which session is used, in the CLI and in the daemon, so
+    `logout` printed "Logged out of last.fm." while `status` went on
+    saying logged in and the daemon went on scrobbling, and `login` saved
+    a session nothing would ever read. `login` now refuses before it asks
+    Last.fm for a token: sending the user to the browser to authorize a
+    session that changes nothing would be the surprising part. `logout`
+    still removes the saved session and reloads the daemon, so that
+    session does not come back into use once the key is out of the
+    config, and then fails, naming the config file and the key. Neither
+    edits the config file (ADR-0011).
 - A track is scrobbled when it ends (the next title change, a stop, or a
   channel switch) if it played for at least 30 seconds
   (`lastfmMinPlayDuration`); a title with no artist (`audio.SplitTitle`

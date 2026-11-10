@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"somad/internal/client"
@@ -39,11 +40,14 @@ func writeTestConfig(t *testing.T, content string) *config.Config {
 }
 
 // startFakeLastfm serves auth.getToken and auth.getSession, standing in for
-// Last.fm during the desktop auth flow, and points lastfm.APIURL at it.
-func startFakeLastfm(t *testing.T, token, sessionKey string) {
+// Last.fm during the desktop auth flow, and points lastfm.APIURL at it. It
+// returns the number of requests it has served.
+func startFakeLastfm(t *testing.T, token, sessionKey string) *atomic.Int32 {
 	t.Helper()
 	securitytest.AllowTestHosts(t)
+	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		require.NoError(t, r.ParseForm())
 		switch r.FormValue("method") {
 		case "auth.getToken":
@@ -58,6 +62,7 @@ func startFakeLastfm(t *testing.T, token, sessionKey string) {
 	prev := lastfm.APIURL
 	lastfm.APIURL = srv.URL + "/"
 	t.Cleanup(func() { lastfm.APIURL = prev })
+	return &requests
 }
 
 // stubOpenURL replaces openURLFunc with a no-op for the duration of t, so
@@ -123,7 +128,7 @@ func TestRunLastfmLogout_RemovesSessionAndReloadsDaemon(t *testing.T) {
 	require.NoError(t, state.SaveLastfmSession("sess456"))
 	d := startFakeDaemon(t)
 
-	out := captureStdout(t, func() { runLastfmLogout(nil) })
+	out := captureStdout(t, func() { runLastfmLogout(&config.Config{}, nil) })
 
 	assert.Contains(t, out, "Logged out of last.fm.")
 	key, err := state.LoadLastfmSession()
@@ -133,6 +138,90 @@ func TestRunLastfmLogout_RemovesSessionAndReloadsDaemon(t *testing.T) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	assert.Equal(t, 1, d.lastfmReloads)
+}
+
+// overrideConfig is a config file whose lastfm.session_key decides the
+// session, whatever "soma lastfm login" has saved.
+const overrideConfig = "lastfm:\n  api_key: testkey\n  api_secret: testsecret\n  session_key: overridden\n"
+
+// TestLastfmLogout_FailsWhileTheConfigDecidesTheSession covers a logout
+// that cannot log anyone out: "Logged out of last.fm." was printed while
+// status went on saying logged in and the daemon went on scrobbling under
+// the config file's key.
+func TestLastfmLogout_FailsWhileTheConfigDecidesTheSession(t *testing.T) {
+	cfg := writeTestConfig(t, overrideConfig)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	require.NoError(t, state.SaveLastfmSession("sess456"))
+	d := startFakeDaemon(t)
+
+	err := lastfmLogout(cfg)
+
+	require.Error(t, err)
+	configFile, pathErr := config.Path()
+	require.NoError(t, pathErr)
+	assert.Contains(t, err.Error(), "still logged in")
+	assert.Contains(t, err.Error(), "lastfm.session_key is set in "+configFile)
+	assert.Contains(t, err.Error(), "remove that key")
+
+	// The saved session goes all the same, as the message says, so it does
+	// not come back into use once the key is out of the config file.
+	key, err := state.LoadLastfmSession()
+	require.NoError(t, err)
+	assert.Empty(t, key)
+	d.mu.Lock()
+	assert.Equal(t, 1, d.lastfmReloads)
+	d.mu.Unlock()
+
+	out := captureStdout(t, func() { runLastfmStatus(cfg, nil) })
+	assert.Contains(t, out, "configured and logged in", "which is why logout must not claim otherwise")
+}
+
+// TestLastfmLogin_RefusedWhileTheConfigDecidesTheSession covers a login
+// whose session would never be used: it must stop before sending the user
+// to the browser, not save a session and report success.
+func TestLastfmLogin_RefusedWhileTheConfigDecidesTheSession(t *testing.T) {
+	cfg := writeTestConfig(t, overrideConfig)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	requests := startFakeLastfm(t, "tok123", "sess456")
+	stubOpenURL(t)
+	stubLoginInput(t)
+	d := startFakeDaemon(t)
+
+	var err error
+	out := captureStdout(t, func() { err = lastfmLogin(cfg) })
+
+	require.Error(t, err)
+	configFile, pathErr := config.Path()
+	require.NoError(t, pathErr)
+	assert.Contains(t, err.Error(), "lastfm.session_key is set in "+configFile)
+	assert.Contains(t, err.Error(), "remove that key")
+	assert.Zero(t, requests.Load(), "last.fm must not be asked for a token")
+	assert.NotContains(t, out, "Open this URL")
+	key, err := state.LoadLastfmSession()
+	require.NoError(t, err)
+	assert.Empty(t, key, "no session may be saved")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	assert.Zero(t, d.lastfmReloads)
+}
+
+// TestLastfmLogout_ExitsNonZeroWhileTheConfigDecidesTheSession runs the
+// command itself for its exit status and message.
+func TestLastfmLogout_ExitsNonZeroWhileTheConfigDecidesTheSession(t *testing.T) {
+	dir := shortTempDir(t)
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "somad"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "somad", "config.yaml"), []byte(overrideConfig), 0o600))
+
+	out, status := runSoma(t, dir, nil, "lastfm", "logout")
+
+	assert.Equal(t, 1, status, "output: %s", out)
+	assert.Contains(t, out, "soma: still logged in")
+	assert.Contains(t, out, "lastfm.session_key")
+	assert.NotContains(t, out, "Logged out of last.fm.")
+
+	out, status = runSoma(t, dir, nil, "lastfm", "status")
+	assert.Equal(t, 0, status, "output: %s", out)
+	assert.Contains(t, out, "configured and logged in")
 }
 
 // captureLastfmOutput runs fn with os.Stdout and os.Stderr redirected and
@@ -191,7 +280,7 @@ func TestRunLastfmLogout_ReloadFailureGoesToStderr(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	startReloadFailingDaemon(t)
 
-	stdout, stderr := captureLastfmOutput(t, func() { runLastfmLogout(nil) })
+	stdout, stderr := captureLastfmOutput(t, func() { runLastfmLogout(&config.Config{}, nil) })
 
 	assert.Contains(t, stdout, "Logged out of last.fm.")
 	assert.NotContains(t, stdout, "could not tell the running daemon")
@@ -216,7 +305,7 @@ func TestRunLastfmLogout_RemoteDaemonGetsANoteNotAReload(t *testing.T) {
 	}()
 	setEndpoint(t, client.Endpoint{Network: "tcp", Address: ln.Addr().String()})
 
-	stdout, stderr := captureLastfmOutput(t, func() { runLastfmLogout(nil) })
+	stdout, stderr := captureLastfmOutput(t, func() { runLastfmLogout(&config.Config{}, nil) })
 
 	assert.Contains(t, stdout, "Logged out of last.fm.")
 	assert.Contains(t, stderr, "tcp://"+ln.Addr().String()+" reads its own")

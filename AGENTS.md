@@ -158,7 +158,8 @@ tls, tls_ca, tls_fingerprint, psk, psk_file}`, `tui.shutdown_on_exit`,
 `lastfm.{api_key, api_secret, session_key}` (api_key/api_secret must be set
 together; session_key requires them too, and is normally left to `soma
 lastfm login`, which persists it outside this file instead — see
-Directories). `server.quality` is one of `highest`/`high`/`low` (validated);
+Directories; while it is set it decides, so `login` refuses and `logout`
+fails, naming the key). `server.quality` is one of `highest`/`high`/`low` (validated);
 a channel lacking that exact quality falls back to the nearest one it has.
 SomaFM offers `high`/`low` only as HE-AAC (`aacp`), so they take effect on
 macOS only; a daemon that cannot decode it logs a note at start when one

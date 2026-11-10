@@ -47,7 +47,7 @@ func runLastfm(cfg *config.Config, args []string) {
 	case "login":
 		runLastfmLogin(cfg, args[1:])
 	case "logout":
-		runLastfmLogout(args[1:])
+		runLastfmLogout(cfg, args[1:])
 	case "status":
 		runLastfmStatus(cfg, args[1:])
 	default:
@@ -64,6 +64,21 @@ func resolveLastfmSession(cfg *config.Config) (string, error) {
 		return override, nil
 	}
 	return state.LoadLastfmSession()
+}
+
+// sessionKeyOverride reports whether the config file's lastfm.session_key
+// is set, and where that file is. While it is, it decides which session
+// soma scrobbles under (resolveLastfmSession), here and in the daemon, and
+// the session "soma lastfm login" and "logout" manage is not used at all.
+func sessionKeyOverride(cfg *config.Config) (configFile string, set bool) {
+	if str(cfg.Lastfm.SessionKey) == "" {
+		return "", false
+	}
+	path, err := config.Path()
+	if err != nil {
+		return "the config file", true
+	}
+	return path, true
 }
 
 // lastfmClientFromConfig builds a lastfm.Client from the config's
@@ -89,11 +104,27 @@ func runLastfmLogin(cfg *config.Config, args []string) {
 	if len(args) != 0 {
 		failUsage("usage: soma lastfm login")
 	}
+	if err := lastfmLogin(cfg); err != nil {
+		fail("%v", err)
+	}
+	fmt.Println("Logged in to last.fm.")
+}
+
+// lastfmLogin is runLastfmLogin without the exit. It refuses to start while
+// lastfm.session_key in the config file decides the session: the one it
+// would save is never used then, so the user would authorize soma in the
+// browser, read "Logged in", and go on scrobbling to the account the
+// config names.
+func lastfmLogin(cfg *config.Config) error {
+	if configFile, set := sessionKeyOverride(cfg); set {
+		return fmt.Errorf("lastfm.session_key is set in %s and decides which last.fm session soma uses, "+
+			"so a session saved by logging in would never be used; remove that key from the config file first", configFile)
+	}
 	c := lastfmClientFromConfig(cfg)
 
 	token, err := c.GetToken()
 	if err != nil {
-		fail("could not get a last.fm auth token: %v", err)
+		return fmt.Errorf("could not get a last.fm auth token: %w", err)
 	}
 
 	authURL := c.AuthURL(token)
@@ -105,27 +136,44 @@ func runLastfmLogin(cfg *config.Config, args []string) {
 
 	sessionKey, err := c.GetSession(token)
 	if err != nil {
-		fail("could not obtain a last.fm session (did you authorize the URL above?): %v", err)
+		return fmt.Errorf("could not obtain a last.fm session (did you authorize the URL above?): %w", err)
 	}
 	if err := state.SaveLastfmSession(sessionKey); err != nil {
-		fail("could not save the last.fm session: %v", err)
+		return fmt.Errorf("could not save the last.fm session: %w", err)
 	}
 
 	reloadRunningDaemon("login")
-	fmt.Println("Logged in to last.fm.")
+	return nil
 }
 
 // runLastfmLogout removes the persisted session and asks a locally running
 // daemon to stop scrobbling under it.
-func runLastfmLogout(args []string) {
+func runLastfmLogout(cfg *config.Config, args []string) {
 	if len(args) != 0 {
 		failUsage("usage: soma lastfm logout")
 	}
-	if err := state.ClearLastfmSession(); err != nil {
+	if err := lastfmLogout(cfg); err != nil {
 		fail("%v", err)
 	}
-	reloadRunningDaemon("logout")
 	fmt.Println("Logged out of last.fm.")
+}
+
+// lastfmLogout is runLastfmLogout without the exit. While
+// lastfm.session_key in the config file decides the session, removing the
+// saved one logs nobody out, and saying "Logged out" would be false: that
+// is an error naming the key. The saved session is removed all the same,
+// and the daemon told, so that it does not come back into use the moment
+// the key is taken out of the config file.
+func lastfmLogout(cfg *config.Config) error {
+	if err := state.ClearLastfmSession(); err != nil {
+		return err
+	}
+	reloadRunningDaemon("logout")
+	if configFile, set := sessionKeyOverride(cfg); set {
+		return fmt.Errorf("still logged in: the saved last.fm session is removed, but lastfm.session_key is set in %s "+
+			"and soma keeps scrobbling under it; remove that key from the config file to log out", configFile)
+	}
+	return nil
 }
 
 // reloadRunningDaemon best-effort asks the local daemon to reload its
