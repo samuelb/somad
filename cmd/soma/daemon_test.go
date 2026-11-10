@@ -229,6 +229,40 @@ func TestResolveDaemonOptions_PSKFileTakesPrecedenceOverConfigPSK(t *testing.T) 
 	assert.Equal(t, "from-file", opts.psk, "--psk-file wins even though server.psk is also set")
 }
 
+// TestResolveDaemonOptions_WarnsAboutAShortPSKFile covers a daemon key in a
+// file that anyone could guess: it is accepted, with a warning for the log.
+func TestResolveDaemonOptions_WarnsAboutAShortPSKFile(t *testing.T) {
+	dir := t.TempDir()
+	short := filepath.Join(dir, "short")
+	require.NoError(t, os.WriteFile(short, []byte("radio\n"), 0o600))
+	generated := filepath.Join(dir, "generated")
+	require.NoError(t, writeGeneratedPSK(generated))
+
+	opts, err := resolveDaemonOptions(&config.Config{}, []string{"--psk-file=" + short})
+	require.NoError(t, err, "a short key warns; it never stops the daemon")
+	assert.Equal(t, "radio", opts.psk)
+	require.Len(t, opts.warnings, 1)
+	assert.Contains(t, opts.warnings[0], "the pre-shared key in "+short)
+	assert.Contains(t, opts.warnings[0], "is only 5 bytes long")
+	assert.Contains(t, opts.warnings[0], "soma daemon --gen-psk")
+
+	opts, err = resolveDaemonOptions(&config.Config{}, []string{"--psk-file=" + generated})
+	require.NoError(t, err)
+	assert.Empty(t, opts.warnings, "what --gen-psk writes must pass")
+
+	// The same file named by the config instead of the flag.
+	opts, err = resolveDaemonOptions(&config.Config{Server: config.ServerConfig{PSKFile: &short}}, nil)
+	require.NoError(t, err)
+	assert.Len(t, opts.warnings, 1)
+
+	// A short key written into the config itself is config.Load's to warn
+	// about (Config.Warnings); it must not be reported twice.
+	inline := "radio"
+	opts, err = resolveDaemonOptions(&config.Config{Server: config.ServerConfig{PSK: &inline}}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, opts.warnings)
+}
+
 func TestResolveDaemonOptions_GenPSKAction(t *testing.T) {
 	t.Run("explicit --psk-file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "psk")

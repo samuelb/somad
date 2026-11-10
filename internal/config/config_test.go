@@ -365,7 +365,8 @@ client:
 }
 
 func TestLoadWarnsWhenAConfigHoldingSecretsIsNotPrivate(t *testing.T) {
-	const secrets = "lastfm:\n  api_key: k\n  api_secret: s\nserver:\n  psk: p\n" // #nosec G101 -- fixture YAML, not real credentials
+	// A key long enough not to draw the short-key warning as well.
+	const secrets = "lastfm:\n  api_key: k\n  api_secret: s\nserver:\n  psk: 0123456789abcdef0123456789abcdef\n" // #nosec G101 -- fixture YAML, not real credentials
 	for _, tc := range []struct {
 		name    string
 		content string
@@ -393,6 +394,44 @@ func TestLoadWarnsWhenAConfigHoldingSecretsIsNotPrivate(t *testing.T) {
 			assert.Contains(t, cfg.Warnings[0], path)
 			assert.Contains(t, cfg.Warnings[0], "server.psk, lastfm.api_secret")
 			assert.Contains(t, cfg.Warnings[0], "chmod 600")
+		})
+	}
+}
+
+// TestLoadWarnsAboutAShortServerPSK covers a daemon key anyone could guess
+// ("server.psk: radio"), which used to be accepted without a word.
+func TestLoadWarnsAboutAShortServerPSK(t *testing.T) {
+	generated := strings.Repeat("0123456789abcdef", 4) // the shape of a "soma daemon --gen-psk" key
+	for _, tc := range []struct {
+		name    string
+		content string
+		warn    string // what the warning must name; empty: none expected
+	}{
+		{name: "a word", content: "server:\n  psk: radio\n", warn: "is only 5 bytes long"},
+		{name: "one byte short", content: "server:\n  psk: 0123456789abcde\n", warn: "is only 15 bytes long"},
+		{name: "the minimum", content: "server:\n  psk: 0123456789abcdef\n"},
+		{name: "a generated key", content: "server:\n  psk: " + generated + "\n"},
+		// The client's key is a copy of some daemon's: nothing to fix here.
+		{name: "the client's copy", content: "client:\n  psk: radio\n"},
+		// A key file is read, and checked, by the daemon.
+		{name: "a key file", content: "server:\n  psk_file: /path/psk\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeConfig(t, tc.content)
+			path, err := Path()
+			require.NoError(t, err)
+
+			cfg, err := Load()
+
+			require.NoError(t, err, "a short key warns; it never stops soma")
+			if tc.warn == "" {
+				assert.Empty(t, cfg.Warnings)
+				return
+			}
+			require.Len(t, cfg.Warnings, 1)
+			assert.Contains(t, cfg.Warnings[0], "server.psk in "+path)
+			assert.Contains(t, cfg.Warnings[0], tc.warn)
+			assert.Contains(t, cfg.Warnings[0], "soma daemon --gen-psk")
 		})
 	}
 }

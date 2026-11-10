@@ -324,7 +324,7 @@ By default the daemon only listens on a local Unix socket. To control a daemon o
 soma daemon --gen-psk
 soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk</code></pre>
 
-`soma daemon --gen-psk` writes 32 random bytes to the PSK file (`--psk-file`/`server.psk_file`, defaulting to a `psk` file next to the [configuration file](#configuration)) at mode `0600`, refusing to overwrite an existing one. `--tls` encrypts the connection; without your own certificate (`--tls-cert`/`--tls-key`) a self-signed one is generated once and reused. The daemon prints its SHA-256 fingerprint at startup, and `soma daemon --show-cert` reprints it. `--psk-file` points at that key, which TCP clients must know; it is verified with an HMAC challenge-response and never travels over the wire. Both the daemon and any client reject a PSK file that is readable by group or others, or owned by another user.
+`soma daemon --gen-psk` writes 32 random bytes to the PSK file (`--psk-file`/`server.psk_file`, defaulting to a `psk` file next to the [configuration file](#configuration)) at mode `0600`, refusing to overwrite an existing one. A key you wrote yourself works too, but the daemon warns about one shorter than 16 bytes: the key is all that keeps a guesser out. `--tls` encrypts the connection; without your own certificate (`--tls-cert`/`--tls-key`) a self-signed one is generated once and reused. The daemon prints its SHA-256 fingerprint at startup, and `soma daemon --show-cert` reprints it. `--psk-file` points at that key, which TCP clients must know; it is verified with an HMAC challenge-response and never travels over the wire. Both the daemon and any client reject a PSK file that is readable by group or others, or owned by another user.
 
 </div>
 <div>

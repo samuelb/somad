@@ -21,7 +21,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0005](0005-daemon-runs-until-stopped.md) | The daemon runs until stopped explicitly | Accepted (supersedes the two-minute default from 95fb723) |
 | [0006](0006-version-skew-restart-only-when-playback-is-interrupted.md) | Restart a version-skewed daemon only at moments that already interrupt playback | Accepted (amended) |
 | [0007](0007-unix-socket-trusted-by-permissions-tcp-requires-tls-and-psk.md) | The Unix socket is authorized by file permissions; non-loopback TCP requires TLS and a PSK | Accepted (amended) |
-| [0008](0008-psk-challenge-response.md) | PSK authentication is an HMAC challenge-response; the client always authenticates when a key is configured | Accepted |
+| [0008](0008-psk-challenge-response.md) | PSK authentication is an HMAC challenge-response; the client always authenticates when a key is configured | Accepted (amended) |
 | [0009](0009-tls-1-3-only-with-a-long-lived-self-signed-certificate.md) | TLS 1.3 only, with an auto-generated long-lived self-signed certificate and three trust modes | Accepted (amended) |
 | [0010](0010-outbound-http-restricted-to-somafm.md) | All outbound HTTP goes through a SomaFM host allowlist, with redirects re-validated and bodies capped | Accepted (amended) |
 | [0011](0011-strict-config-file-supplies-flag-defaults.md) | The config file is strict, supplies flag defaults, and ships fully commented out | Accepted |

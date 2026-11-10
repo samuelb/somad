@@ -265,6 +265,27 @@ func exposedSecretsWarning(cfg *Config, path string) string {
 	return ""
 }
 
+// MinPSKLength is the length in bytes below which the daemon's pre-shared
+// key draws a warning (WeakPSKWarning). The key is all that stands between
+// an exposed TCP listener and its playback controls, and the daemon does
+// not limit guessing beyond one attempt a second on each of its connection
+// slots (ADR-0008), so a short or dictionary key falls quickly. Length is a
+// crude measure, but it catches the "radio" kind of key; "soma daemon
+// --gen-psk" writes 64 hex digits.
+const MinPSKLength = 16
+
+// WeakPSKWarning returns a warning when psk, the daemon's pre-shared key as
+// found at source ("server.psk in <file>", "the PSK file <path>"), is
+// shorter than MinPSKLength, and "" otherwise. Like exposedSecretsWarning it
+// only warns: refusing would stop a daemon that worked before an upgrade.
+func WeakPSKWarning(psk, source string) string {
+	if len(psk) >= MinPSKLength {
+		return ""
+	}
+	return fmt.Sprintf("%s is only %d bytes long, short enough to be guessed by anyone who can reach the daemon's TCP port; "+
+		"use at least %d, or better a random key from \"soma daemon --gen-psk\"", source, len(psk), MinPSKLength)
+}
+
 // Load reads the configuration file. A missing file is not an error and
 // yields the zero Config; a file that exists but does not parse is an error,
 // because silently ignoring a hand-written config would be worse than
@@ -307,6 +328,14 @@ func Load() (*Config, error) {
 	}
 	if w := exposedSecretsWarning(&cfg, path); w != "" {
 		cfg.Warnings = append(cfg.Warnings, w)
+	}
+	// Only the daemon's key: client.psk is a copy of some daemon's, and
+	// whoever holds the copy cannot make that daemon's key any longer. A
+	// key in server.psk_file is the daemon's to check when it reads it.
+	if psk := cfg.Server.PSK; psk != nil && *psk != "" {
+		if w := WeakPSKWarning(*psk, "server.psk in "+path); w != "" {
+			cfg.Warnings = append(cfg.Warnings, w)
+		}
 	}
 	return &cfg, nil
 }

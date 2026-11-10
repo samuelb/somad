@@ -59,6 +59,9 @@ type daemonOptions struct {
 	keyPath     string
 	psk         string
 	insecure    bool
+	// warnings are problems found while resolving that do not stop the
+	// daemon, for runServer to log like the config's own (Config.Warnings).
+	warnings []string
 
 	// genPSKPath is where daemonActionGenPSK should write the generated key.
 	genPSKPath string
@@ -211,13 +214,20 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 	}
 
 	psk := str(cfg.Server.PSK)
+	var warnings []string
 	if f.pskFile != "" {
 		if psk, err = readPSKFile(f.pskFile); err != nil {
 			return daemonOptions{}, fmt.Errorf("error reading the PSK file: %w", err)
 		}
+		// A short key in the config's own server.psk is config.Load's to
+		// warn about (Config.Warnings); one in a file only turns up here.
+		if w := config.WeakPSKWarning(psk, "the pre-shared key in "+f.pskFile); w != "" {
+			warnings = append(warnings, w)
+		}
 	}
 
 	return daemonOptions{
+		warnings:    warnings,
 		action:      daemonActionRun,
 		idleTimeout: f.idleTimeout,
 		noTray:      f.noTray,
@@ -262,7 +272,7 @@ func runServer(args []string) {
 	} else if created {
 		log.Printf("wrote a default config template to %s", path)
 	}
-	for _, w := range cfg.Warnings {
+	for _, w := range slices.Concat(cfg.Warnings, opts.warnings) {
 		log.Printf("warning: %s", w)
 	}
 	if err != nil {

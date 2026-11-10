@@ -1,6 +1,6 @@
 # ADR-0008: PSK authentication is an HMAC challenge-response; the client always authenticates when a key is configured
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-11-09: the daemon warns about a short key)
 - **Date:** 2026-07-11 (client rule 2026-07-12)
 - **Sources:** a396db0, de4cb38; `internal/protocol/auth.go`, `internal/client/client.go`; rejection of a per-address limiter on 2026-09-03
 
@@ -37,3 +37,19 @@ Unix socket is unencrypted.
   unrealistic. The actual threat is resource exhaustion, which the TCP
   connection cap and deadlines address (ce83966); a limiter map keyed by
   attacker-controlled addresses would itself need bounding.
+  - *Amendment 2026-11-09.* "A decent key" was left to the user, and
+    `server.psk: radio` was accepted without a word. Without the limiter,
+    guessing is bounded only by the 64 connection slots and one attempt
+    per connection with its one-second delay: about 64 guesses a second
+    against an exposed TLS listener, which a word from a dictionary does
+    not survive for long. The limiter stays rejected; instead the daemon
+    warns about a key shorter than 16 bytes (`config.MinPSKLength`) and
+    points at `soma daemon --gen-psk`, whose 64 hex digits pass. A short
+    `server.psk` is a `Config.Warnings` entry, printed by the CLI and
+    logged by the daemon like a config file that exposes its secrets; a
+    short key in `--psk-file`/`server.psk_file` is logged by the daemon
+    when it reads the file. It is a warning and never a refusal, so an
+    upgrade cannot stop a daemon that worked the day before, and length
+    is only a proxy for strength: sixteen bytes of a repeated letter
+    pass. The client's copy (`client.psk`, `--psk-file`) is not checked:
+    whoever holds it cannot change the daemon's key.

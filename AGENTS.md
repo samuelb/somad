@@ -168,7 +168,10 @@ Config supplies flag defaults; explicit flags win. Path-valued keys expand
 `~/` and resolve relative paths against the config directory. A file holding
 an inline secret (`psk`, `api_secret`, `session_key`) that others can read
 yields a `Config.Warnings` entry, printed by the CLI and logged by the daemon,
-never an error.
+never an error. So does a `server.psk` shorter than `config.MinPSKLength`
+(16 bytes); a short key read from `--psk-file`/`server.psk_file` the daemon
+logs itself (`daemonOptions.warnings`). The client's copy of the key is not
+checked (ADR-0008).
 
 **Directories**: config `~/.config/somad/` (Linux) or
 `~/Library/Application Support/somad/` (macOS); state (favorites, last

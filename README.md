@@ -397,7 +397,9 @@ soma daemon --listen 0.0.0.0:5454 --tls --psk-file ~/.config/somad/psk
 from `--psk-file`/`server.psk_file`, defaulting to a `psk` file next to the
 [configuration file](#configuration)) at file mode `0600` and refuses to
 overwrite an existing one, so there's no need to invent or type a key by
-hand. `--tls` encrypts the connection; when you don't provide a certificate
+hand. A key you wrote yourself works too, but the daemon warns about one
+shorter than 16 bytes: the key is all that keeps a guesser out. `--tls`
+encrypts the connection; when you don't provide a certificate
 (`--tls-cert`/`--tls-key`), a self-signed one is generated once in the state
 directory and reused. The daemon prints its SHA-256 fingerprint at startup,
 and `soma daemon --show-cert` reprints it any time. Should the two files
