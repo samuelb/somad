@@ -289,7 +289,11 @@ mirror wave, waterfall, off; ADR-0034): `syncSpectrum` keeps the subscription at
 band per bar, frames arrive as `SpectrumMsg` from the bridge in
 `cmd/soma/tui.go`, and `ui.Visualizer.Underlay` draws the style behind the
 rendered view above the cards: glyphs in blank cells, a darker background
-behind text.
+behind text. A frame changes nothing else, so `View` keeps the view it
+rendered for the last message of any other kind (`viewBase`) and draws
+only the visualizer behind it for a frame; `Update` drops it at every
+other message (ADR-0026). What the view shows must therefore change
+through messages only.
 `mouse.go` handles the mouse (ADR-0036): the wheel scrolls the list, or
 steps the volume over the gauge; a click selects a channel and a second
 plays it; a click or drag on the gauge's bar sets the volume; a click on

@@ -219,7 +219,7 @@ func testChannels() []channels.Channel {
 
 // newTestModel returns a minimal Model populated with testChannels() and a
 // fake backend, its list built by NewList as in the real TUI.
-func newTestModel(t *testing.T) *Model {
+func newTestModel(t testing.TB) *Model {
 	t.Helper()
 
 	m := &Model{

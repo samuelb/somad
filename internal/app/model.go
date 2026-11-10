@@ -132,6 +132,18 @@ type Model struct {
 	// see syncAnim.
 	frame     int
 	animating bool
+
+	// viewBase is the view as View last rendered it, before the visualizer
+	// went behind its first viewField lines, kept for the spectrum frames
+	// that follow: they change the visualizer and nothing else. It is the
+	// view still (viewCurrent) until Update gets a message of any other
+	// kind, and viewReuse tells the View after a spectrum frame to draw
+	// behind it rather than render. View, called on the model's pointer
+	// as Update is, keeps both.
+	viewBase    string
+	viewField   int
+	viewCurrent bool
+	viewReuse   bool
 }
 
 // Init requests the initial catalog and playback state from the server,

@@ -21,9 +21,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// message; SetSize keeps the selection. Spectrum frames are the
 	// exception: they only feed the visualizer behind the view, and at 25 a
 	// second measuring the chrome (which renders most of it) was a good
-	// part of the TUI's CPU time.
-	if _, ok := msg.(SpectrumMsg); !ok {
+	// part of the TUI's CPU time. So was rendering the view they leave as
+	// it is: the next View draws the new frame behind the view the last
+	// one rendered, when that still is the view (viewCurrent). Any other
+	// message may change it, so the view after it is rendered afresh; the
+	// view changes through messages only (the sleep timer's countdown
+	// through its ticks, the spinners and the equalizer through theirs).
+	if _, ok := msg.(SpectrumMsg); ok {
+		m.viewReuse = m.viewCurrent
+	} else {
 		m.UpdateListSize()
+		m.viewCurrent, m.viewReuse = false, false
 	}
 	return m, cmd
 }

@@ -379,38 +379,59 @@ func (m *Model) helpWidth() int {
 	return max(m.screenWidth()-helpIndent-1, 0)
 }
 
-// View renders the application's UI.
+// View renders the application's UI: the view itself, and the visualizer
+// drawn behind it. A spectrum frame moves only the visualizer, so the view
+// rendered for the last message of any other kind is kept and drawn behind
+// again (viewBase; Update says when it may be, see there). Rendering the
+// list and the cards 25 times a second to get the same text each time took
+// most of the time a frame cost (ADR-0026).
 func (m *Model) View() string {
+	if !m.viewReuse {
+		m.viewBase, m.viewField = m.renderBase()
+		m.viewCurrent = true
+	}
+	m.viewReuse = false // for the one View after a spectrum frame
+	if m.viewField == 0 {
+		return m.viewBase
+	}
+	return m.viz.Underlay(m.viewBase, m.Visualizer, m.Width, m.viewField)
+}
+
+// renderBase renders the view without the visualizer: the loading or the
+// error screen, or the list in its chrome. field is how many of its lines,
+// from the top, the visualizer is drawn behind: none for the screens, or
+// with the visualizer off.
+func (m *Model) renderBase() (view string, field int) {
 	// Display a spinner while channels are still being fetched
 	if m.Loading {
 		return m.place(lipgloss.JoinVertical(lipgloss.Center,
 			ui.TitleStyle.Render("SomaFM"),
 			"",
 			ui.SpinnerStyle.Render(ui.Spinner(m.frame))+" "+ui.LoadingStyle.Render("Loading channels…"),
-		))
+		)), 0
 	}
 
 	// Display the error screen: no catalog to show, or no daemon
 	if m.Err != nil {
-		return m.place(m.renderError())
+		return m.place(m.renderError()), 0
 	}
 
 	body := m.body()
 	above, below := m.chrome()
 	components := append(append(above, body), below...)
-	view := lipgloss.JoinVertical(lipgloss.Left, components...)
-	if m.Visualizer != ui.VisualizerOff && m.Width > 0 {
-		// The bars rise from the top of the cards, which stay opaque.
-		field := chromeHeight(above, nil) + lipgloss.Height(body)
-		for _, c := range below {
-			if c != "" {
-				break
-			}
-			field++ // a spacing line
-		}
-		view = m.viz.Underlay(view, m.Visualizer, m.Width, field)
+	view = lipgloss.JoinVertical(lipgloss.Left, components...)
+	if m.Visualizer == ui.VisualizerOff || m.Width <= 0 {
+		return view, 0
 	}
-	return view
+	// The bars rise from the top of the cards, which stay opaque.
+	field = chromeHeight(above, nil) + lipgloss.Height(body)
+	for _, c := range below {
+		if c != "" {
+			break
+		}
+		field++ // a spacing line
+	}
+	return view, field
 }
 
 // errKind is what the error screen stands for: which failure Err is, set
