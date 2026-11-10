@@ -27,6 +27,10 @@ hiccup longer than the audio device's own small buffer was audible.
   without a valid header. A `Stop` or newer `Play` aborts a `Play` that is
   still connecting instead of letting it run into its deadline. None of
   this touches an established stream, where the watchdog alone applies.
+  - *Amendment 2026-11-09.* The MP3 path gives up the same way: the
+    reader that starts an MP3 stream on a confirmed frame (ADR-0017)
+    fails after 32 KiB without one, where go-mp3 alone went on searching
+    until the connect deadline.
 - A clean EOF is treated as an error: "a live stream never ends on its
   own; a clean EOF means the server hung up."
 - Reconnection backs off exponentially to a one-minute cap and then

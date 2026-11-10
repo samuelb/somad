@@ -45,7 +45,9 @@ func PreferredFormats() []string {
 var newDecoder = func(format string, r io.Reader) (pcmDecoder, error) {
 	switch format {
 	case FormatMP3:
-		return mp3.NewDecoder(r)
+		// go-mp3 trusts the first header-shaped bytes it meets; mp3Sync
+		// hands it a stream that starts on a frame.
+		return mp3.NewDecoder(newMP3Sync(r))
 	case FormatAAC, FormatAACP:
 		return newAACDecoder(r)
 	default:

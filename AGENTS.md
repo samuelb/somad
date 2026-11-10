@@ -299,7 +299,9 @@ changes must keep `nowPlayingIndex` and `cardContentX` in step.
 
 **Supporting packages**:
 - `internal/audio` — stream playback via oto: MP3 through go-mp3
-  everywhere, AAC through macOS AudioToolbox (`aac_darwin.go` /
+  everywhere (behind `mp3sync.go`, which starts the stream on a frame
+  header the next one confirms), AAC through macOS AudioToolbox
+  (`aac_darwin.go` /
   `aac_other.go`; AAC-LC, HE-AAC and HE-AAC v2, told apart by the system
   ADTS parser since only the payload signals SBR and parametric stereo),
   format preference in `PreferredFormats`, ICY metadata, jitter buffer,

@@ -796,13 +796,15 @@ func TestFetchStream_UnresponsiveServerReportsStall(t *testing.T) {
 
 // newUndecodableStreamServer streams zeros (no MP3 sync word, no ADTS
 // header) for as long as the client keeps reading: data flows the whole
-// time, so the stall watchdog stays quiet, but nothing ever decodes. The
-// returned channel is signalled when a request arrives.
+// time, so the stall watchdog stays quiet, but nothing ever decodes. It
+// trickles: both decoders give up on a stream with no frame in its first
+// 32 KiB, and at this pace that is seconds away. The returned channel is
+// signalled when a request arrives.
 func newUndecodableStreamServer(t *testing.T) (*httptest.Server, <-chan struct{}) {
 	t.Helper()
 	securitytest.AllowTestHosts(t)
 	arrived := make(chan struct{}, 1)
-	chunk := make([]byte, 4096)
+	chunk := make([]byte, 64)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case arrived <- struct{}{}:
@@ -884,6 +886,7 @@ func TestPlay_ConnectDeadlineHoldsUntilAudioDecodes(t *testing.T) {
 	server, _ := newUndecodableStreamServer(t)
 	p := newTestPlayer()
 	p.connectTimeout = 200 * time.Millisecond
+	p.prefillWait = 10 * time.Millisecond // the trickle reaches the decoder at once
 
 	// Bytes keep arriving but never decode. A deadline disarmed by the
 	// first byte would leave Play parked in the decoder for as long as the

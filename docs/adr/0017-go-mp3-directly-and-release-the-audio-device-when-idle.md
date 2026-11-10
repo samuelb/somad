@@ -1,6 +1,6 @@
 # ADR-0017: Decode MP3 with go-mp3 directly, and suspend the audio device when idle
 
-- **Status:** Accepted (amended 2026-09-04: the oto fork was never adopted; amended 2026-11-09: a device that fails for good is reported)
+- **Status:** Accepted (amended 2026-09-04: the oto fork was never adopted; amended 2026-11-09: a device that fails for good is reported, and an MP3 stream starts on a confirmed frame)
 - **Date:** 2026-07-02 (device release 2026-07-13)
 - **Sources:** dbaa748, 12045de, 0c0e7ba (rationale on branch commit ee50300), 073aa73; `internal/audio/player.go`, `resample.go`, `go.mod`
 
@@ -17,6 +17,24 @@ playing, because oto's `Suspend` only pauses the audio queue.
 - Use `go-mp3` directly plus a small linear resampler for the unlikely
   stream that is not at the oto context's 44.1 kHz. A zero source rate
   falls back to pass-through rather than repeating the first frame forever.
+  - *Amendment 2026-11-09.* go-mp3 takes the first four bytes shaped like
+    a frame header as the stream's first frame, and the stream's sample
+    rate from them, once. A stream joined between two headers starts with
+    the tail of a frame, and a false header in it either put the
+    resampler in for the whole session, at the wrong speed and pitch, or,
+    being of a kind go-mp3 does not decode (layer I or II, MPEG 2.5, a
+    free bitrate), failed the connect. A reader in front of go-mp3
+    (`mp3sync.go`) now discards the head of the stream up to the first
+    header of a layer III frame that the next frame's header, one frame
+    length on, confirms with the same version, layer and sample rate, as
+    the ADTS reader does when it resyncs (ADR-0016). It gives up after
+    32 KiB without one (ADR-0013) and passes everything from that header
+    on through untouched. An ID3v2 tag at the start is skipped there,
+    without reading it into memory as go-mp3 would. Whether SomaFM's
+    servers ever start a listener off a frame boundary is not known, so
+    this is hardening: lame-encoded streams of ten kinds, joined at each
+    of 6000 byte offsets, failed to connect at up to 8 % of them without
+    the reader and at none with it.
 - Suspend the oto context whenever no session is active and resume it on
   the next play, so the audio backend is not driven while nothing plays.
   This uses upstream `github.com/ebitengine/oto/v3` and its `Suspend`

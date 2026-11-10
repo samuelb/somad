@@ -49,6 +49,35 @@ func FuzzICYDemuxer(f *testing.F) {
 	})
 }
 
+func FuzzMP3Sync(f *testing.F) {
+	f.Add(silentMP3Frames(3))
+	f.Add(append(mp3FrameTail(0xFF, 0xFB, 0x94, 0x64), silentMP3Frames(3)...))
+	f.Add(append(id3v2Tag([]byte("a tag")), silentMP3Frames(2)...))
+	f.Add([]byte{'I', 'D', '3', 4, 0, 0, 0x7F, 0x7F, 0x7F, 0x7F})
+	f.Add(bytes.Repeat([]byte{0xFF}, 64))
+	f.Add([]byte{})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		out, err := io.ReadAll(newMP3Sync(bytes.NewReader(data)))
+		if err != nil && (!errors.Is(err, errMP3LostSync) || len(data) <= mp3MaxSkip) {
+			t.Fatalf("unexpected error from %d bytes: %v", len(data), err)
+		}
+		// It only ever drops the head of the stream: what comes out is the
+		// input's tail, byte for byte, and starts on a frame header.
+		if !bytes.HasSuffix(data, out) {
+			t.Fatalf("%d bytes came out that are not the tail of the %d that went in", len(out), len(data))
+		}
+		if len(out) == 0 {
+			return
+		}
+		if err != nil {
+			t.Fatalf("%d bytes came out alongside error %v", len(out), err)
+		}
+		if _, ok := mp3FrameLen(out); !ok {
+			t.Fatalf("the stream starts on % x, not a frame header", out[:mp3HeaderLen])
+		}
+	})
+}
+
 func FuzzADTSReader(f *testing.F) {
 	f.Add(append(buildADTSFrame(2, []byte("first")), buildADTSFrame(1, []byte("second"))...))
 	f.Add([]byte{0xFF, 0xF1, 0x50, 0x80, 0x00, 0x1F, 0xFC})
