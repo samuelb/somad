@@ -194,3 +194,104 @@ func TestRunPlay_BadChannelLeavesAProtocolSkewedDaemonRunning(t *testing.T) {
 	case <-time.After(300 * time.Millisecond):
 	}
 }
+
+// A stop interrupts playback anyway, so it upgrades an out-of-date daemon
+// on the way: the old one is shut down and the fresh one, which starts
+// stopped, is told to stop all the same.
+func TestRunStop_RestartsASkewedPlayingDaemon(t *testing.T) {
+	asNewerSoma(t)
+	old := startSkewedDaemon(t, protocol.StatusPlaying)
+	restart := spawnsReplacement(t)
+
+	out := captureStdout(t, func() { runStop(nil) })
+
+	assert.Contains(t, out, "Stopped")
+	fresh := restart.daemon(t)
+	old.mu.Lock()
+	assert.Equal(t, 1, old.shutdowns)
+	assert.Zero(t, old.stops, "the old daemon is replaced, not stopped")
+	old.mu.Unlock()
+	fresh.mu.Lock()
+	defer fresh.mu.Unlock()
+	assert.Equal(t, 1, fresh.stops)
+}
+
+// Arming a sleep timer interrupts nothing, so it leaves an out-of-date
+// daemon playing and arms the timer there.
+func TestRunStop_InLeavesASkewedDaemonPlaying(t *testing.T) {
+	asNewerSoma(t)
+	old := startSkewedDaemon(t, protocol.StatusPlaying)
+	restart := spawnsReplacement(t)
+
+	captureStdout(t, func() { runStop([]string{"--in", "10m"}) })
+
+	assert.Empty(t, restart.spawned)
+	old.mu.Lock()
+	defer old.mu.Unlock()
+	assert.Zero(t, old.shutdowns)
+	assert.Equal(t, []string{"10m0s"}, old.stopIns)
+	assert.Equal(t, protocol.StatusPlaying, old.status.Status)
+}
+
+// A paused (stopped) out-of-date daemon has no music to protect either:
+// unpausing restarts it and resumes on the fresh one.
+func TestRunPause_UnpausesOnTheFreshDaemonWhenASkewedOneWasStopped(t *testing.T) {
+	asNewerSoma(t)
+	old := startSkewedDaemon(t, protocol.StatusStopped)
+	restart := spawnsReplacement(t)
+
+	captureStdout(t, func() { runPause(nil) })
+
+	fresh := restart.daemon(t)
+	old.mu.Lock()
+	assert.Equal(t, 1, old.shutdowns)
+	assert.Equal(t, protocol.StatusStopped, old.status.Status, "nothing is started on the old daemon")
+	old.mu.Unlock()
+	fresh.mu.Lock()
+	defer fresh.mu.Unlock()
+	assert.Equal(t, protocol.StatusPlaying, fresh.status.Status)
+	assert.Zero(t, fresh.stops)
+}
+
+// Looking is not interrupting: status leaves an out-of-date daemon that is
+// playing exactly as it is.
+func TestRunStatus_LeavesASkewedPlayingDaemon(t *testing.T) {
+	asNewerSoma(t)
+	old := startSkewedDaemon(t, protocol.StatusPlaying)
+	restart := spawnsReplacement(t)
+
+	out := captureStdout(t, func() { runStatus(nil) })
+
+	assert.Contains(t, out, "Drone Zone")
+	assert.Empty(t, restart.spawned)
+	old.mu.Lock()
+	defer old.mu.Unlock()
+	assert.Zero(t, old.shutdowns)
+}
+
+// A daemon that speaks another protocol version refuses every request, so
+// a pause cannot ask it anything: it is signalled and replaced, and the
+// fresh daemon's stopped state is the pause.
+func TestRunPause_ReplacesAProtocolSkewedDaemon(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("reading a socket's peer PID is only implemented on macOS and Linux")
+	}
+	path := filepath.Join(shortTempDir(t), "s.sock")
+	terminated := startIncompatibleDaemon(t, path)
+	setEndpoint(t, client.UnixEndpoint(path))
+	restart := spawnsReplacement(t)
+
+	out := captureStdout(t, func() { runPause(nil) })
+
+	assert.Contains(t, out, "Paused")
+	select {
+	case <-terminated:
+	default:
+		t.Fatal("the old daemon must have been signalled")
+	}
+	fresh := restart.daemon(t)
+	fresh.mu.Lock()
+	defer fresh.mu.Unlock()
+	assert.Equal(t, protocol.StatusStopped, fresh.status.Status)
+	assert.Empty(t, fresh.plays, "music the user meant to silence is not started")
+}
