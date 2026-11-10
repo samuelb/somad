@@ -579,7 +579,11 @@ func (s *Server) channelsPayloadLocked() protocol.ChannelsPayload {
 }
 
 // ToggleFavorite flips a channel's favorite flag, persists it, re-sorts the
-// catalog, and notifies all clients.
+// catalog, and notifies all clients. It returns the favorites as they stand
+// once the save is done, not as this toggle left them: the caller's reply
+// goes out only then, after the event for another client's toggle made
+// meanwhile, and a client that took the reply for the latest word would
+// show the older list until the next change.
 func (s *Server) ToggleFavorite(channelID string) ([]string, error) {
 	s.mu.Lock()
 	if _, ok := s.findChannelLocked(channelID); !ok {
@@ -592,13 +596,15 @@ func (s *Server) ToggleFavorite(channelID string) ([]string, error) {
 	// view would keep an unfavorited channel at the top.
 	s.catalog = sortChannelsWithFavorites(s.fetchedCatalog, s.st.FavoriteChannelIDs)
 	s.broadcastChannelsLocked()
-	// Clone: the caller marshals this after the lock is released; handing out
-	// the live header would couple it to future mutations of s.st.
-	favorites := slices.Clone(s.st.FavoriteChannelIDs)
 	s.mu.Unlock()
 
 	save()
-	return favorites, nil
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Clone: the caller marshals this after the lock is released; handing out
+	// the live header would couple it to future mutations of s.st.
+	return slices.Clone(s.st.FavoriteChannelIDs), nil
 }
 
 // stageSaveLocked snapshots the persisted state and stamps it with the next

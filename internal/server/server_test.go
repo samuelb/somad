@@ -828,6 +828,47 @@ func TestSetVolume_ReplyOvertakenByAnEventHasTheOlderRevision(t *testing.T) {
 	assert.Less(t, answer.Revision, event.Revision, "so it must be told apart from the newer event")
 }
 
+// A favorite toggle answers only once it is saved, like a volume change.
+// The event for another client's toggle made meanwhile reaches a client
+// first, so the reply has to show that toggle too, or the client would be
+// left with the list from before it.
+func TestToggleFavorite_ReplyOvertakenByAnotherToggleShowsBoth(t *testing.T) {
+	s, _ := newTestServer(t, Config{})
+	var block atomic.Bool
+	saving, release := make(chan struct{}, 1), make(chan struct{})
+	s.persist = func(*state.State) error {
+		if block.Swap(false) {
+			saving <- struct{}{}
+			<-release
+		}
+		return nil
+	}
+	c := connect(t, s)
+	c.hello()
+
+	block.Store(true)
+	first := make(chan []string, 1)
+	go func() {
+		favorites, err := s.ToggleFavorite("dronezone")
+		assert.NoError(t, err)
+		first <- favorites
+	}()
+	<-saving // the toggle is made and broadcast; its reply waits for the save
+
+	second := make(chan struct{})
+	go func() {
+		defer close(second)
+		_, err := s.ToggleFavorite("groovesalad") // another client's
+		assert.NoError(t, err)
+	}()
+	for len(c.waitChannels("both toggles broadcast").Favorites) < 2 {
+	}
+	close(release)
+
+	assert.ElementsMatch(t, []string{"dronezone", "groovesalad"}, <-first)
+	<-second
+}
+
 // TestSetVolume_NonFiniteIsClamped covers MPRIS, whose D-Bus doubles can
 // carry NaN and infinities (JSON cannot): NaN fails every comparison, and
 // unclamped it broke encoding every state event and the state file.
