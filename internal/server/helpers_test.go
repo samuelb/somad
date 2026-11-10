@@ -180,8 +180,44 @@ func testChannels() []channels.Channel {
 // a fixed catalog, and stream resolution stubbed to skip the network.
 func newTestServer(t *testing.T, cfg Config) (*Server, *mockPlayer) {
 	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	isolateServer(t)
+	return startTestServer(t, cfg)
+}
 
+// isolateServer is the part of newTestServer that changes the process: the
+// state directory and the package's hooks onto the network, all put back
+// when tb ends. A request still being handled then would read a hook as it
+// is restored, so a test that cannot wait for its requests (the fuzz
+// target) calls this once for all the servers it starts.
+func isolateServer(tb testing.TB) {
+	tb.Helper()
+	tb.Setenv("XDG_STATE_HOME", tb.TempDir())
+
+	prevResolve := resolveStreamURLs
+	resolveStreamURLs = func(playlistURL, _ string) ([]string, error) {
+		return []string{playlistURL + "#stream"}, nil
+	}
+	tb.Cleanup(func() { resolveStreamURLs = prevResolve })
+
+	// Pin the format capability to MP3-only so tests behave the same on
+	// every platform (on macOS the real build also plays AAC).
+	prevFormats := supportedFormats
+	supportedFormats = func() []string { return []string{audio.FormatMP3} }
+	tb.Cleanup(func() { supportedFormats = prevFormats })
+
+	// A history request for a channel whose in-memory ring is short (true of
+	// nearly every test) triggers a songs.json backfill fetch by default;
+	// point it at a disallowed host so security.NewRequest rejects it before
+	// any network I/O happens, unless a test opts in via withSongsServer.
+	prevSongsURL := songsURLFormat
+	songsURLFormat = "http://songs.invalid.test/%s.json"
+	tb.Cleanup(func() { songsURLFormat = prevSongsURL })
+}
+
+// startTestServer is the rest of newTestServer: the Server itself, with its
+// mock player and the fixed catalog, shut down when tb ends.
+func startTestServer(tb testing.TB, cfg Config) (*Server, *mockPlayer) {
+	tb.Helper()
 	player := newMockPlayer()
 	cfg.Player = player
 	if cfg.State == nil {
@@ -190,30 +226,9 @@ func newTestServer(t *testing.T, cfg Config) (*Server, *mockPlayer) {
 	if cfg.Version == "" {
 		cfg.Version = "test"
 	}
-
-	prevResolve := resolveStreamURLs
-	resolveStreamURLs = func(playlistURL, _ string) ([]string, error) {
-		return []string{playlistURL + "#stream"}, nil
-	}
-	t.Cleanup(func() { resolveStreamURLs = prevResolve })
-
-	// Pin the format capability to MP3-only so tests behave the same on
-	// every platform (on macOS the real build also plays AAC).
-	prevFormats := supportedFormats
-	supportedFormats = func() []string { return []string{audio.FormatMP3} }
-	t.Cleanup(func() { supportedFormats = prevFormats })
-
-	// A history request for a channel whose in-memory ring is short (true of
-	// nearly every test) triggers a songs.json backfill fetch by default;
-	// point it at a disallowed host so security.NewRequest rejects it before
-	// any network I/O happens, unless a test opts in via withSongsServer.
-	prevSongsURL := songsURLFormat
-	songsURLFormat = "http://songs.invalid.test/%s.json"
-	t.Cleanup(func() { songsURLFormat = prevSongsURL })
-
 	s := New(cfg)
 	s.setCatalog(testChannels())
-	t.Cleanup(s.Shutdown)
+	tb.Cleanup(s.Shutdown)
 	return s, player
 }
 
