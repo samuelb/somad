@@ -131,6 +131,11 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 		// bring the music back for the timer to end a moment later.
 		return nil, s.stopLocked(), nil
 	}
+	if s.deviceLost != "" {
+		// Said before the playlist is fetched and a stream is opened: the
+		// player would refuse it at the end of all that (ADR-0037).
+		return nil, s.snapshotLocked(), errors.New(s.deviceLost)
+	}
 	ch, ok := s.findChannelLocked(channelID)
 	if !ok {
 		err := fmt.Errorf("unknown channel: %s", channelID)
@@ -369,14 +374,43 @@ func (s *Server) failConnect(gen uint64, err error, retry bool) (protocol.Playba
 
 // failStreamLocked is the shared tail of a connect failure and an async
 // stream error: release the player session identified by gen, record the
-// error, and move to reconnecting (or stopped). Returns the broadcast
-// snapshot. Caller holds s.mu.
+// error, and move to reconnecting (or stopped). A lost audio device is
+// never retried, whatever the caller asked for: see noteDeviceLostLocked.
+// Returns the broadcast snapshot. Caller holds s.mu.
 func (s *Server) failStreamLocked(gen uint64, err error, retry bool) protocol.PlaybackState {
 	s.player.Stop(gen)
+	if errors.Is(err, audio.ErrAudioDeviceLost) {
+		s.noteDeviceLostLocked(err)
+		retry = false
+	}
 	s.streamErr = security.SanitizeText(err.Error()) // it may quote a URL a stream redirected to
 	s.trackTitle = ""
 	s.scheduleReconnectOrStopLocked(retry)
 	return s.broadcastStateLocked()
+}
+
+// noteDeviceLostLocked records that the audio device has failed for good
+// (audio.ErrAudioDeviceLost). The player cannot bring it back: oto allows
+// one device context per process and never clears its fatal error. So from
+// here on this daemon plays nothing: it stops instead of reconnecting,
+// which could only fail the same way for as long as it ran, refuses every
+// play (beginPlay), and says so in its snapshots and its hello, which is
+// what lets a client that may restart it put a new daemon in its place
+// before asking for playback (ADR-0037). Caller holds s.mu.
+func (s *Server) noteDeviceLostLocked(err error) {
+	if s.deviceLost != "" {
+		return
+	}
+	s.deviceLost = security.SanitizeText(err.Error()) + " (the soma daemon has to be restarted to play again)"
+	log.Printf("the audio device is lost, and this daemon cannot play again until it is restarted: %v", err)
+}
+
+// DeviceLost reports whether the audio device has failed for good; see
+// noteDeviceLostLocked.
+func (s *Server) DeviceLost() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.deviceLost != ""
 }
 
 // handleStreamError reacts to an async error on the running stream: release
@@ -384,6 +418,15 @@ func (s *Server) failStreamLocked(gen uint64, err error, retry bool) protocol.Pl
 func (s *Server) handleStreamError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if errors.Is(err, audio.ErrAudioDeviceLost) {
+		// The device is gone for every session, whichever one reported
+		// it and whatever the server is doing: a stream still connecting
+		// could not commit, and a reconnect already scheduled could not
+		// play. End all of it now.
+		gen := s.abandonSessionLocked(false)
+		s.failStreamLocked(gen, err, false)
+		return
+	}
 	// A session that is still fading out after a channel switch can fail
 	// during the crossfade; its error must not tear down its successor.
 	var se *audio.StreamError

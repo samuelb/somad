@@ -34,6 +34,9 @@ hiccup longer than the audio device's own small buffer was audible.
   playlist is never retried, because reconnecting cannot conjure one up;
   nor is a channel a catalog refresh dropped meanwhile, which stops with
   the error shown (2026-09-25).
+  - *Amendment 2026-11-10.* Nor is a lost audio device
+    (`audio.ErrAudioDeviceLost`): it does not come back in the daemon's
+    process, so the daemon stops and a client replaces it (ADR-0037).
   - *Amendment 2026-11-09.* The backoff started over with every connect
     that succeeded, so the cap only ever applied to connects that failed:
     a stream that connected and dropped again within seconds was retried

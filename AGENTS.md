@@ -94,7 +94,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   - TUI: 0003, 0020, 0026, 0033, 0034 (spectrum visualizer, also audio and wire), 0036 (mouse)
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
   - config and persisted state: 0011, 0012
-  - audio pipeline and formats: 0013–0017, 0028
+  - audio pipeline and formats: 0013–0017, 0028, 0037 (a lost audio device, also daemon and client)
   - MPRIS, tray, and desktop notifications: 0019, 0030
   - CLI scripting and completion: 0021
   - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029
@@ -222,6 +222,10 @@ that ends takes the daemon down; `conn.go`
 gates non-local connections behind auth when a PSK is configured, and
 ends a connection at its first line that is not a JSON request, so an HTTP
 request from a browser cannot carry requests in (ADR-0007).
+Once the player reports `audio.ErrAudioDeviceLost` the daemon plays nothing
+more (`noteDeviceLostLocked` in `playback.go`, ADR-0037): it stops without
+a reconnect, refuses every play in `beginPlay`, and sets `deviceLost` in
+its snapshots and its hello, so a local client can replace it.
 `history.go` keeps an in-memory ring (default 50) of now-playing titles
 across the daemon's lifetime, appended on every ICY title change
 (`handleTrackUpdate` in `playback.go`), except a title that is already the

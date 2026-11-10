@@ -183,6 +183,10 @@ type Server struct {
 	// successful fetch listed, for resolveMirrors to fall back on.
 	knownMirrors map[string][]string
 
+	// deviceLost is why the audio device is gone for good, empty while it
+	// works; it is never cleared. See noteDeviceLostLocked.
+	deviceLost string
+
 	// connectErr and connectTitle hold what the player reported for the
 	// current generation while the server still said connecting: a session
 	// can fail, or deliver its first title, between player.Play returning
@@ -533,6 +537,13 @@ func (s *Server) snapshotLocked() protocol.PlaybackState {
 	}
 	if !s.stopAt.IsZero() {
 		ps.StopAt = s.stopAt.Format(time.RFC3339)
+	}
+	if s.deviceLost != "" {
+		// Shown for as long as the daemon runs, also after a stop has
+		// cleared the error of the stream that was playing: it is why
+		// nothing plays.
+		ps.DeviceLost = true
+		ps.StreamError = s.deviceLost
 	}
 	// Numbered here, against the last snapshot handed out, rather than
 	// wherever the state is changed: each snapshot then carries the

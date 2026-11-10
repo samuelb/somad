@@ -33,6 +33,12 @@ type PlaybackState struct {
 	// shows the older state. A daemon counts from 1, and one that predates
 	// the field sends none, so 0 says nothing about order; see OlderThan.
 	Revision uint64 `json:"revision,omitempty"`
+	// DeviceLost reports that the daemon's audio device has failed for good
+	// (ADR-0037): this daemon process cannot play again, StreamError says
+	// why, and every play request fails. Only a new daemon process gets a
+	// working device, so a client that may restart the daemon (a local one)
+	// does that before it next asks for playback.
+	DeviceLost bool `json:"deviceLost,omitempty"`
 }
 
 // OlderThan reports whether st is known to show an older state than held,
@@ -68,6 +74,10 @@ type HelloResult struct {
 	ServerVersion   string `json:"serverVersion"`
 	ProtocolVersion int    `json:"protocolVersion"`
 	PID             int    `json:"pid"`
+	// DeviceLost is PlaybackState.DeviceLost at the time of the hello, so a
+	// command that is about to ask for playback knows without another round
+	// trip that this daemon has to be replaced first.
+	DeviceLost bool `json:"deviceLost,omitempty"`
 }
 
 // PlayParams selects the channel to play.

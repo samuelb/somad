@@ -320,6 +320,7 @@ func (c *conn) handleHello(req protocol.Request) bool {
 		ServerVersion:   c.s.version,
 		ProtocolVersion: protocol.Version,
 		PID:             os.Getpid(),
+		DeviceLost:      c.s.DeviceLost(),
 	})
 	return true
 }
