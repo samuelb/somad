@@ -5,11 +5,15 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"somad/internal/client"
+	"somad/internal/tlsutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,8 +25,26 @@ import (
 type daemonProcess struct {
 	ep   client.Endpoint
 	cmd  *exec.Cmd
-	out  *bytes.Buffer
+	out  *lockedBuffer
 	done chan struct{}
+}
+
+// lockedBuffer collects a process's output while the test reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // startDaemonProcess starts the daemon with args and waits until its socket
@@ -52,7 +74,7 @@ func spawnDaemonProcess(t *testing.T, dir string, args ...string) *daemonProcess
 	t.Helper()
 	d := &daemonProcess{
 		ep:   client.UnixEndpoint(dir + "/s.sock"),
-		out:  &bytes.Buffer{},
+		out:  &lockedBuffer{},
 		done: make(chan struct{}),
 	}
 	d.cmd = exec.CommandContext(t.Context(), os.Args[0]) // #nosec G204 G702 -- the test binary itself
@@ -164,4 +186,64 @@ func ignoreDisconnect(err error) error {
 		return nil
 	}
 	return err
+}
+
+// tcpListener matches the daemon's log line for a TLS listener: the address
+// it bound and the certificate's fingerprint.
+var tcpListener = regexp.MustCompile(`listening on tcp://(\S+) with TLS, certificate fingerprint (\S+)`)
+
+// A daemon serving frontends over TCP with TLS and a pre-shared key serves
+// a client that has both, and nothing to one without the key.
+func TestDaemon_TCPListenerServesOnlyAnAuthenticatedClient(t *testing.T) {
+	t.Parallel()
+	dir := shortTempDir(t)
+	pskFile := filepath.Join(dir, "psk")
+	const psk = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	require.NoError(t, os.WriteFile(pskFile, []byte(psk+"\n"), 0o600))
+
+	d := startDaemonProcess(t, dir, "--listen", "127.0.0.1:0", "--tls", "--psk-file", pskFile)
+	var m []string
+	require.Eventually(t, func() bool {
+		m = tcpListener.FindStringSubmatch(d.out.String())
+		return m != nil
+	}, 10*time.Second, 20*time.Millisecond, "the daemon must say where it listens")
+	tlsCfg, err := tlsutil.ClientTLSConfig("", m[2], "")
+	require.NoError(t, err)
+	ep := client.Endpoint{Network: "tcp", Address: m[1], TLS: tlsCfg, PSK: psk}
+
+	c, err := client.DialEndpoint(ep)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+	_, err = c.Hello(version)
+	require.NoError(t, err)
+	_, err = c.Status()
+	require.NoError(t, err, "a client with the certificate pinned and the key is served")
+
+	ep.PSK = ""
+	stranger, err := client.DialEndpoint(ep)
+	require.NoError(t, err, "TLS alone connects")
+	t.Cleanup(func() { _ = stranger.Close() })
+	_, err = stranger.Hello(version)
+	require.Error(t, err, "but nothing is answered before the key exchange")
+
+	ep.PSK = strings.Repeat("f", len(psk))
+	_, err = client.DialEndpoint(ep)
+	require.Error(t, err, "and the wrong key is turned away")
+
+	require.NoError(t, ignoreDisconnect(c.Shutdown()))
+	assert.Zero(t, d.exitStatus(t))
+}
+
+// A listener other machines can reach needs TLS and a key: without them the
+// daemon refuses to start, and leaves no socket behind.
+func TestDaemon_RefusesAnOpenListenerOtherMachinesCanReach(t *testing.T) {
+	t.Parallel()
+	dir := shortTempDir(t)
+
+	d := spawnDaemonProcess(t, dir, "--listen", "0.0.0.0:0")
+
+	assert.NotZero(t, d.exitStatus(t))
+	assert.Contains(t, d.out.String(), "refusing to serve")
+	_, statErr := os.Stat(d.ep.Address)
+	assert.True(t, os.IsNotExist(statErr), "nothing is left listening")
 }
