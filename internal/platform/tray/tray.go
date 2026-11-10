@@ -56,16 +56,94 @@ type Tray struct {
 	track     string
 	channels  []Channel
 
-	titleItem   *systray.MenuItem
-	playStop    *systray.MenuItem
-	favItem     *systray.MenuItem
-	channelsTop *systray.MenuItem
+	// The menu, from attach on: the items the playback state shows in, and
+	// how to add an item to the channel picker and set the icon's tooltip.
+	// tooltip is the one last set.
+	titleItem  *item
+	playStop   *item
+	favItem    *item
+	addChannel func(slot int) menuItem
+	setTooltip func(string)
+	tooltip    string
 	// channelItems is a grow-only pool of submenu items reused across catalog
 	// updates: systray cannot cleanly remove items, so surplus slots are
 	// hidden rather than removed. channelSlotID[i] is the channel each visible
 	// slot currently plays, read by its click watcher.
-	channelItems  []*systray.MenuItem
+	channelItems  []*item
 	channelSlotID []string
+}
+
+// menuItem is what the tray does to a menu item, as systray.MenuItem does
+// it, so a test can stand in for the menu.
+type menuItem interface {
+	SetTitle(title string)
+	Show()
+	Hide()
+	Enable()
+	Disable()
+	Check()
+	Uncheck()
+}
+
+// item is a menu item and what it was last set to; its setters skip a call
+// that would change nothing. systray hands every call on to the menu's
+// host, changed or not: on Linux each is two D-Bus signals and a property
+// change, the last of them an invitation to fetch the whole menu again.
+// With some 45 channels, setting every slot's title and showing it on each
+// track change came to several hundred messages for one new label, sent
+// while the server held its lock.
+type item struct {
+	menuItem
+	title    string
+	hidden   bool
+	disabled bool
+	checked  bool
+}
+
+// newItem wraps an item just added to the menu under title: visible,
+// enabled, and unchecked.
+func newItem(m menuItem, title string) *item {
+	return &item{menuItem: m, title: title}
+}
+
+func (i *item) setTitle(title string) {
+	if title != i.title {
+		i.title = title
+		i.SetTitle(title)
+	}
+}
+
+func (i *item) setVisible(visible bool) {
+	if visible == i.hidden {
+		i.hidden = !visible
+		if visible {
+			i.Show()
+		} else {
+			i.Hide()
+		}
+	}
+}
+
+func (i *item) setEnabled(enabled bool) {
+	if enabled == i.disabled {
+		i.disabled = !enabled
+		if enabled {
+			i.Enable()
+		} else {
+			i.Disable()
+		}
+	}
+}
+
+func (i *item) setChecked(checked bool) {
+	if checked != i.checked {
+		i.checked = checked
+		if checked {
+			i.Check()
+		} else {
+			i.Uncheck()
+		}
+	}
 }
 
 // New creates a Tray. It does not start the run loop; call Run for that.
@@ -184,15 +262,14 @@ func (t *Tray) build() {
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit soma daemon", "Shut down the playback server")
 
-	t.mu.Lock()
-	t.titleItem = title
-	t.playStop = playStop
-	t.favItem = fav
-	t.channelsTop = channelsTop
-	t.ready = true
-	t.applyLocked()
-	t.renderChannelsLocked()
-	t.mu.Unlock()
+	titleItem := newItem(title, "Stopped")
+	titleItem.setEnabled(false)
+	t.attach(titleItem, newItem(playStop, "Play"), newItem(fav, "★ Favorite"),
+		func(slot int) menuItem {
+			added := channelsTop.AddSubMenuItem("", "")
+			go t.watchChannelClick(slot, added)
+			return added
+		}, systray.SetTooltip, "Soma")
 
 	go func() {
 		for {
@@ -217,30 +294,40 @@ func (t *Tray) build() {
 	}()
 }
 
-// applyLocked pushes the current playback state onto the menu labels. The
-// caller holds t.mu; it is a no-op until the menu exists.
+// attach hands the tray its menu, as build made it: the title, play/stop
+// and favorite items, how to add an item to the channel picker (slot is
+// its index, for its click watcher), and how to set the icon's tooltip,
+// which is tooltip now. It then shows the state set so far.
+func (t *Tray) attach(title, playStop, fav *item, addChannel func(slot int) menuItem, setTooltip func(string), tooltip string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.titleItem, t.playStop, t.favItem = title, playStop, fav
+	t.addChannel, t.setTooltip, t.tooltip = addChannel, setTooltip, tooltip
+	t.ready = true
+	t.applyLocked()
+	t.renderChannelsLocked()
+}
+
+// applyLocked pushes the current playback state onto the menu labels, those
+// of them that change (see item). The caller holds t.mu; it is a no-op until
+// the menu exists.
 func (t *Tray) applyLocked() {
 	if !t.ready {
 		return
 	}
+	title, playStop, tooltip := "Stopped", "Play", "Soma"
 	if t.playing {
 		label := playbackLabel(t.station, t.track)
-		t.titleItem.SetTitle("♪ " + label)
-		t.playStop.SetTitle("Stop")
-		systray.SetTooltip("Soma — " + label)
-		t.favItem.Enable()
-		if t.favoriteLocked(t.playingID) {
-			t.favItem.Check()
-		} else {
-			t.favItem.Uncheck()
-		}
-	} else {
-		t.titleItem.SetTitle("Stopped")
-		t.playStop.SetTitle("Play")
-		systray.SetTooltip("Soma")
-		t.favItem.Disable()
-		t.favItem.Uncheck()
+		title, playStop, tooltip = "♪ "+label, "Stop", "Soma — "+label
 	}
+	t.titleItem.setTitle(title)
+	t.playStop.setTitle(playStop)
+	if tooltip != t.tooltip {
+		t.tooltip = tooltip
+		t.setTooltip(tooltip)
+	}
+	t.favItem.setEnabled(t.playing)
+	t.favItem.setChecked(t.playing && t.favoriteLocked(t.playingID))
 }
 
 // favoriteLocked reports whether the given channel is a favorite in the last
@@ -256,28 +343,28 @@ func (t *Tray) favoriteLocked(id string) bool {
 
 // renderChannelsLocked syncs the channel submenu with t.channels. The item
 // pool only grows: extra channels get new items (with a click watcher each),
-// and slots beyond the current list are hidden. The caller holds t.mu; it is a
-// no-op until the menu exists.
+// and slots beyond the current list are hidden. A slot whose title and
+// visibility stay as they are is left alone (see item): a track change
+// touches none, a channel change the two whose ▸ mark moves. The caller
+// holds t.mu; it is a no-op until the menu exists.
 func (t *Tray) renderChannelsLocked() {
-	if !t.ready || t.channelsTop == nil {
+	if !t.ready {
 		return
 	}
 	for len(t.channelItems) < len(t.channels) {
-		idx := len(t.channelItems)
-		item := t.channelsTop.AddSubMenuItem("", "")
-		t.channelItems = append(t.channelItems, item)
+		slot := len(t.channelItems)
+		t.channelItems = append(t.channelItems, newItem(t.addChannel(slot), ""))
 		t.channelSlotID = append(t.channelSlotID, "")
-		go t.watchChannelClick(idx, item)
 	}
-	for i, item := range t.channelItems {
+	for i, slot := range t.channelItems {
 		if i < len(t.channels) {
 			ch := t.channels[i]
 			t.channelSlotID[i] = ch.ID
-			item.SetTitle(channelItemTitle(ch, ch.ID == t.playingID))
-			item.Show()
+			slot.setTitle(channelItemTitle(ch, ch.ID == t.playingID))
+			slot.setVisible(true)
 		} else {
 			t.channelSlotID[i] = ""
-			item.Hide()
+			slot.setVisible(false)
 		}
 	}
 }
