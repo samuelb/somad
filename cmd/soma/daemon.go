@@ -563,8 +563,9 @@ func writeGeneratedPSK(path string) error {
 
 // checkTCPSecurity rejects a non-loopback TCP listener that lacks TLS or a
 // PSK, unless the user explicitly opted out with --insecure. Loopback binds
-// only warn (in listenTCP): the machine boundary already limits exposure,
-// like the Unix socket.
+// only warn (in listenTCP): the machine boundary limits exposure. Not as
+// far as the Unix socket does, which is its owner's alone: a loopback port
+// without a PSK answers every user and program on the machine (ADR-0007).
 func checkTCPSecurity(opts daemonOptions) error {
 	if opts.insecure || isLoopbackAddr(opts.listen) {
 		return nil
