@@ -8,16 +8,32 @@ under "Not planned" so they are not re-proposed.
 
 The 2026-09 assessment backlog (P1 correctness and security fixes, the
 P2 features, and the P3 polish) was worked off on 2026-09-03/04; see the
-git log from 79ae532 onwards. Nothing is open right now. Follow-ups that
-came out of that work but were not worth a line here (the Apple Developer
-ID secrets for ADR-0029, publishing to the AUR) live in the ADRs and the
-README.
+git log from 79ae532 onwards. The 2026-11 review was worked off on
+2026-11-09/10, from d1ce301 onwards; what it left open is below.
+Follow-ups that were not worth a line here (the Apple Developer ID secrets
+for ADR-0029, publishing to the AUR) live in the ADRs and the README.
 
 ## P1 — correctness and security
 
 ## P2 — features and hardening
 
+- **macOS media keys and Now Playing** **[L]**. MPRIS gives Linux media
+  keys and a now-playing entry with the TUI closed; macOS has the tray
+  only. The daemon would register with `MPRemoteCommandCenter` and
+  `MPNowPlayingInfoCenter` next to the tray (the macOS build needs cgo
+  already). Not decided: needs an ADR beside 0019.
+- **Recover from a lost audio device without a client** **[M]**. The
+  daemon stops and a `soma` command or the TUI replaces it (ADR-0037), so
+  a session that only uses the tray or media keys stays silent until one
+  runs. ADR-0037 lists what a daemon that replaces itself would take.
+
 ## P3 — polish
+
+- **Shrink the demo recording** **[S]**. `demo.gif` is 3.3 MB: 97 % of the
+  website's page weight, and every re-record adds as much to the
+  repository, about 12 of whose 18 MB are old recordings. An H.264 copy of
+  the same recording is 0.5 MB, which VHS can write next to the GIF for
+  the site to show; or record fewer frames.
 
 ## Not planned
 
