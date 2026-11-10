@@ -60,6 +60,13 @@ func runTUI(shutdownOnExit bool) {
 	// vendored bubbles/list does not process mouse events on its own).
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
+	// From here on the screen is the TUI's: a reconnect that restarts an
+	// out-of-date daemon and loses its sleep timer on the way says so in
+	// the status bar, not on stderr.
+	client.OnSleepTimerLost = func(err error) {
+		p.Send(app.RequestErrorMsg{Op: "carrying the sleep timer over the daemon restart", Err: err})
+	}
+
 	saver := newVisualizerSaver(saveVisualizer, func(err error) {
 		p.Send(app.RequestErrorMsg{Op: "saving the visualizer style", Err: err})
 	})

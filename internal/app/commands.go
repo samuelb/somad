@@ -22,6 +22,9 @@ type Backend interface {
 	// pause: unpausing reconnects to the live stream).
 	PlayPause() (protocol.PlaybackState, error)
 	Stop() (protocol.PlaybackState, error)
+	// StopIn arms the sleep timer; the TUI only does so to carry a pending
+	// one over a restart of the server (carrySleepTimerCmd).
+	StopIn(d time.Duration) (protocol.PlaybackState, error)
 	SetVolume(v float64) (protocol.PlaybackState, error)
 	// ToggleMute mutes playback, remembering the current volume to restore,
 	// or restores it (or a sensible default) when already muted.
@@ -199,6 +202,32 @@ func (m *Model) restartCmd() tea.Cmd {
 			return RestartFailedMsg{Err: err}
 		}
 		return nil
+	}
+}
+
+// carrySleepTimerCmd arms, on the server a restart has just brought up, the
+// sleep timer its predecessor had pending for stopAt (a snapshot's StopAt;
+// empty for none), with the time that is left of it. The timer lives in the
+// server's memory only, so a restart would otherwise drop it without a
+// word, and the music would play on past the time the user set. One that
+// has come due meanwhile is dropped: the restart stopped the music as it
+// would have, and the channel about to play was asked for after it.
+func (m *Model) carrySleepTimerCmd(stopAt string) tea.Cmd {
+	at, err := time.Parse(time.RFC3339, stopAt)
+	if err != nil {
+		return nil // none pending
+	}
+	b := m.Backend
+	return func() tea.Msg {
+		left := time.Until(at)
+		if left <= 0 {
+			return nil
+		}
+		st, err := b.StopIn(left)
+		if err != nil {
+			return requestErr("carrying the sleep timer over the restart", err)
+		}
+		return ServerStateMsg{State: st, from: b}
 	}
 }
 

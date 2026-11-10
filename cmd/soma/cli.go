@@ -542,7 +542,12 @@ func runPause(args []string) {
 		}
 		c = restartForUpgrade(c, serverVersion)
 		if wasPlaying {
-			st, err := c.Status()
+			// Stop all the same, though the fresh server has nothing playing:
+			// a pause is a stop to the server, and a stop also drops the
+			// sleep timer, which the restart has just carried over. It is
+			// also what pauses the old server, should the restart have fallen
+			// back to it.
+			st, err := c.Stop()
 			if err != nil {
 				fail("%v", err)
 			}

@@ -127,7 +127,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case RestartFailedMsg:
 		// No reconnect will follow, so a queued channel change would never
 		// play; drop it and tell the user instead of failing silently.
-		m.pendingPlayID = ""
+		m.pendingPlayID, m.pendingStopAt = "", ""
 		m.RequestErr = fmt.Sprintf("server restart failed: %v", msg.Err)
 		return nil
 
@@ -302,7 +302,7 @@ func (m *Model) playChannel(id string) tea.Cmd {
 	// connecting) is the exception: the server keeps it going, so
 	// restarting would cut the music off just to upgrade.
 	if m.skewed() && !m.playingOrConnecting(id) {
-		m.pendingPlayID = id
+		m.pendingPlayID, m.pendingStopAt = id, m.Snapshot.StopAt
 		return m.restartCmd()
 	}
 	if !m.playingOrConnecting(id) {
@@ -379,11 +379,13 @@ func (m *Model) applyReconnect(msg ServerReconnectedMsg) tea.Cmd {
 	m.vizBands = 0 // a new connection starts unsubscribed
 	resubscribe := m.syncSpectrum()
 	// A channel change queued before a version-upgrade restart plays now
-	// that a fresh backend is here.
+	// that a fresh backend is here, and a sleep timer the old server had
+	// pending is armed again. A stop or pause that caused the restart
+	// queued neither: it ends the timer along with the music.
 	if m.pendingPlayID != "" {
-		id := m.pendingPlayID
-		m.pendingPlayID = ""
-		return tea.Batch(m.fetchChannels(), m.playCmd(id), resubscribe)
+		id, stopAt := m.pendingPlayID, m.pendingStopAt
+		m.pendingPlayID, m.pendingStopAt = "", ""
+		return tea.Batch(m.fetchChannels(), m.playCmd(id), m.carrySleepTimerCmd(stopAt), resubscribe)
 	}
 	return tea.Batch(m.fetchChannels(), m.fetchStatus(), resubscribe)
 }

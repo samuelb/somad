@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"somad/internal/channels"
 	"somad/internal/protocol"
@@ -18,6 +19,7 @@ type fakeBackend struct {
 	playIDs    []string
 	playPauses int
 	stops      int
+	stopIns    []time.Duration // every sleep timer armed
 	shutdowns  int
 	volumes    []float64
 	mutes      int
@@ -103,6 +105,17 @@ func (b *fakeBackend) Stop() (protocol.PlaybackState, error) {
 	}
 	b.stops++
 	b.status = protocol.PlaybackState{Status: protocol.StatusStopped, Volume: b.status.Volume}
+	return b.status, nil
+}
+
+func (b *fakeBackend) StopIn(d time.Duration) (protocol.PlaybackState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.callErr != nil {
+		return protocol.PlaybackState{}, b.callErr
+	}
+	b.stopIns = append(b.stopIns, d)
+	b.status.StopAt = time.Now().Add(d).Format(time.RFC3339)
 	return b.status, nil
 }
 

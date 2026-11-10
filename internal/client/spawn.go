@@ -54,6 +54,18 @@ var restartWait = 5 * time.Second
 // spawnServer is a variable so tests can fake the server launch.
 var spawnServer = SpawnServer
 
+// SetSpawnServer replaces how a missing local daemon is started and returns
+// a function that puts the real launch back. It exists for the tests of
+// code built on this package (cmd/soma): their daemons are fakes inside the
+// test process, and the real launch would run the test binary as `soma
+// daemon`. With it they go through the real spawn, restart and
+// version-skew logic, and only the process start is faked.
+func SetSpawnServer(spawn func() (<-chan error, error)) (restore func()) {
+	prev := spawnServer
+	spawnServer = spawn
+	return func() { spawnServer = prev }
+}
+
 // SpawnServer starts a detached `soma daemon` process using the current
 // executable, with its stderr appended to the server log file. The returned
 // channel receives the process's exit (nil when clean) once it ends: a
@@ -169,10 +181,18 @@ func NeedsRestart(ep Endpoint, clientVersion, serverVersion string) bool {
 // running server is out of date and the operation about to follow interrupts
 // playback anyway; the persisted volume and last-played channel carry across on
 // their own, so the caller need only re-establish the stream it wants.
+//
+// A pending sleep timer (`soma stop --in`) lives only in the old server's
+// memory, so Restart carries it: it asks the old server when the timer
+// fires and arms the new one for what is left. A caller whose command ends
+// playback (stop, pause) then cancels it like any other timer, by stopping.
+// When it cannot be carried, the restart still succeeds and
+// OnSleepTimerLost is told.
 func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
 	if !ep.IsLocal() {
 		return nil, protocol.HelloResult{}, fmt.Errorf("cannot restart the remote soma daemon at %s from here", ep)
 	}
+	stopAt, askErr := pendingStop(c)
 	_ = c.Shutdown()
 	_ = c.Close()
 	// When the old server is slow to exit (a loaded machine, a long fade-out),
@@ -182,7 +202,63 @@ func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.He
 	// version) and spawns a fresh one once it is gone. A later interrupting
 	// command retries the upgrade.
 	_ = waitForServerExit(ep)
-	return connectOrSpawn(ep, clientVersion)
+	nc, hr, err := connectOrSpawn(ep, clientVersion)
+	if err != nil {
+		return nil, hr, err
+	}
+	carrySleepTimer(nc, stopAt, askErr)
+	return nc, hr, nil
+}
+
+// OnSleepTimerLost is called when a restart could not carry the old
+// daemon's sleep timer over to the new one (see Restart). The command that
+// caused the restart goes ahead, but the user has to hear that playback
+// will no longer stop on its own. By default that is a warning on stderr;
+// the TUI, which owns the terminal, shows it in its status bar instead.
+var OnSleepTimerLost = func(err error) {
+	fmt.Fprintf(os.Stderr, "soma: warning: the sleep timer was lost in the daemon restart: %v; "+
+		"arm it again with `soma stop --in <duration>`\n", err)
+}
+
+// pendingStop asks a daemon when its sleep timer will stop playback. The
+// zero time means none is pending.
+func pendingStop(c *Client) (time.Time, error) {
+	st, err := c.Status()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("the old daemon could not be asked whether one was pending: %w", err)
+	}
+	if st.StopAt == "" {
+		return time.Time{}, nil
+	}
+	at, err := time.Parse(time.RFC3339, st.StopAt)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("the old daemon's stop time %q cannot be read: %w", st.StopAt, err)
+	}
+	return at, nil
+}
+
+// carrySleepTimer arms on a freshly restarted daemon the sleep timer its
+// predecessor had pending for stopAt (see pendingStop, whose error is
+// askErr), with the time that is left now. A timer already due is dropped:
+// the old daemon's stop and this restart came to the same thing, and the
+// command about to run starts playback knowingly. Should the restart have
+// fallen back to the old daemon, this replaces its timer with an equal one.
+func carrySleepTimer(nc *Client, stopAt time.Time, askErr error) {
+	if askErr != nil {
+		OnSleepTimerLost(askErr)
+		return
+	}
+	if stopAt.IsZero() {
+		return
+	}
+	remaining := time.Until(stopAt)
+	if remaining <= 0 {
+		return
+	}
+	if _, err := nc.StopIn(remaining); err != nil {
+		OnSleepTimerLost(fmt.Errorf("the new daemon did not take it over (it was to stop playback at %s): %w",
+			stopAt.Local().Format("15:04"), err))
+	}
 }
 
 // connectOrSpawn dials the endpoint, spawning a local server and retrying
@@ -343,7 +419,9 @@ func StopIncompatible(skew *ProtocolSkewError, ep Endpoint) error {
 // version with a fresh spawn of our binary, and returns a client to it. Like
 // Restart it is only for a command about to interrupt playback anyway: the
 // old daemon cannot say whether it is playing, so that is the only moment
-// ADR-0006 leaves for the replacement. The fresh daemon starts stopped.
+// ADR-0006 leaves for the replacement. The fresh daemon starts stopped. Nor
+// can the old daemon say whether a sleep timer is pending: unlike Restart,
+// this carries none over, and a caller that goes on to play says so.
 func RestartIncompatible(skew *ProtocolSkewError, ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
 	if err := StopIncompatible(skew, ep); err != nil {
 		return nil, protocol.HelloResult{}, err

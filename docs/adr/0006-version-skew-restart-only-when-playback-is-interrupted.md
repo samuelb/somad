@@ -48,6 +48,18 @@ be neither used nor stopped: even `soma daemon stop` failed, and
     only fail: the daemon on the other machine was gone and the TUI ended
     on its error screen. The model now knows a remote endpoint
     (`Model.Remote`) and never counts its daemon as skewed.
+- *Amendment 2026-11-10.* A restart carries a pending sleep timer over.
+  The timer (`soma stop --in`) lives in the daemon's memory only, so the
+  restart that a channel change triggers after an upgrade dropped it
+  without a word, and the music played on past the time the user had set.
+  `client.Restart` now asks the old daemon when its timer fires and arms
+  the new one with what is left, and the TUI, which restarts through its
+  reconnect instead, does the same from the snapshot it holds
+  (`carrySleepTimerCmd`). A restart for a stop or a pause carries none: a
+  stop ends the timer. When the timer cannot be carried the command still
+  runs and the user is told (`client.OnSleepTimerLost`, the TUI's status
+  line). A daemon that speaks another protocol version cannot be asked,
+  so `RestartIncompatible` carries nothing.
 - Skew is plain string inequality (`client.VersionSkewed`, one exported
   helper shared by `internal/client/spawn.go`, `cmd/soma/cli.go`, and
   `Model.skewed` in `internal/app/model.go`), with one exemption: `"dev"`

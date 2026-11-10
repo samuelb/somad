@@ -650,6 +650,61 @@ func TestUpdate_ARemoteSkewedServerIsNeverShutDown(t *testing.T) {
 	}
 }
 
+// The sleep timer lives in the server's memory, so the restart a channel
+// change triggers on an out-of-date server has to carry it: the music must
+// still stop when the user said it should.
+func TestUpdate_PlayKey_CarriesTheSleepTimerAcrossTheRestart(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "new"
+	m.ServerVersion = "old"
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1,
+		StopAt: time.Now().Add(45 * time.Minute).Format(time.RFC3339),
+	})
+	m.List.Select(1) // dronezone
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	runCmd(cmd)
+	require.Equal(t, 1, backend(m).shutdowns)
+
+	fresh := newFakeBackend()
+	_, cmd = m.Update(ServerReconnectedMsg{Backend: fresh, ServerVersion: "new"})
+	for _, c := range runCmd(cmd).(tea.BatchMsg) {
+		if msg := runCmd(c); msg != nil {
+			m.Update(msg)
+		}
+	}
+
+	assert.Equal(t, []string{"dronezone"}, fresh.playIDs)
+	require.Len(t, fresh.stopIns, 1, "the fresh server is armed with the timer")
+	assert.LessOrEqual(t, fresh.stopIns[0], 45*time.Minute)
+	assert.Greater(t, fresh.stopIns[0], 44*time.Minute, "what was left of it")
+	assert.NotEmpty(t, m.Snapshot.StopAt, "and the countdown shows again")
+}
+
+// A stop ends the sleep timer along with the music, so the restart a stop
+// triggers carries none over to the fresh, stopped server.
+func TestUpdate_StopKey_RestartDropsTheSleepTimer(t *testing.T) {
+	m := newTestModel(t)
+	m.About.Version = "new"
+	m.ServerVersion = "old"
+	m.applySnapshot(protocol.PlaybackState{
+		Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1,
+		StopAt: time.Now().Add(45 * time.Minute).Format(time.RFC3339),
+	})
+
+	_, cmd := sendKey(m, 's')
+	runCmd(cmd)
+	require.Equal(t, 1, backend(m).shutdowns)
+
+	fresh := newFakeBackend()
+	_, cmd = m.Update(ServerReconnectedMsg{Backend: fresh, ServerVersion: "new"})
+	for _, c := range runCmd(cmd).(tea.BatchMsg) {
+		runCmd(c)
+	}
+	assert.Empty(t, fresh.stopIns)
+}
+
 func TestUpdate_StopKey_RestartsSkewedServer(t *testing.T) {
 	m := newTestModel(t)
 	m.About.Version = "new"

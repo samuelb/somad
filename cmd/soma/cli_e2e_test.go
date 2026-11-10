@@ -51,7 +51,18 @@ type fakeDaemon struct {
 	onShutdown func()
 }
 
+// startFakeDaemon runs a fakeDaemon on a socket of its own and makes that
+// the endpoint the commands connect to.
 func startFakeDaemon(t *testing.T) *fakeDaemon {
+	t.Helper()
+	path := filepath.Join(shortTempDir(t), "d.sock")
+	d := startFakeDaemonAt(t, path)
+	setEndpoint(t, client.UnixEndpoint(path))
+	return d
+}
+
+// startFakeDaemonAt runs a fakeDaemon on the socket at path.
+func startFakeDaemonAt(t *testing.T, path string) *fakeDaemon {
 	t.Helper()
 	catalog := []channels.Channel{
 		{ID: "groovesalad", Title: "Groove Salad", Genre: "ambient"},
@@ -66,7 +77,6 @@ func startFakeDaemon(t *testing.T) *fakeDaemon {
 		},
 	}
 
-	path := filepath.Join(shortTempDir(t), "d.sock")
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ln.Close() })
@@ -80,8 +90,6 @@ func startFakeDaemon(t *testing.T) *fakeDaemon {
 			go d.serve(nc)
 		}
 	}()
-
-	setEndpoint(t, client.UnixEndpoint(path))
 	return d
 }
 
@@ -217,8 +225,10 @@ func (d *fakeDaemon) setPlayingLocked(id string) {
 			title = ch.Title
 		}
 	}
+	// A pending sleep timer outlives a channel change, as on the daemon.
 	d.status = protocol.PlaybackState{
 		Status: protocol.StatusPlaying, ChannelID: id, ChannelTitle: title, Volume: d.status.Volume,
+		StopAt: d.status.StopAt,
 	}
 }
 

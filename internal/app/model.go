@@ -43,7 +43,10 @@ type Model struct {
 	Remote bool
 	// pendingPlayID is a channel to play once the server has been restarted for
 	// a version upgrade and the reconnect has delivered a fresh backend.
+	// pendingStopAt is the sleep timer the restarted server had pending then
+	// (a snapshot's StopAt), to arm again on the fresh one.
 	pendingPlayID string
+	pendingStopAt string
 	// requestedID is a channel the user just asked to play, marked as tuning
 	// in the list from the key press on, before the server answers. It is
 	// not playback state: the next snapshot (or a failed request) clears it,

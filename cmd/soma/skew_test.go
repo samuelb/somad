@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"somad/internal/channels"
+	"somad/internal/client"
 	"somad/internal/protocol"
 
 	"github.com/stretchr/testify/assert"
@@ -33,6 +34,104 @@ func startSkewedDaemon(t *testing.T, status string) *fakeDaemon {
 func runSkewedSoma(t *testing.T, args ...string) (string, int) {
 	t.Helper()
 	return runSoma(t, shortTempDir(t), []string{mainVersionEnv + "=2.0.0", "SOMAD_SOCKET=" + endpoint.Address}, args...)
+}
+
+// asNewerSoma makes the commands called in this test process a newer soma
+// than startSkewedDaemon's daemon, for the rest of the test: the test binary
+// is "dev" otherwise, which never counts as skewed.
+func asNewerSoma(t *testing.T) {
+	t.Helper()
+	prev := version
+	version = "2.0.0"
+	t.Cleanup(func() { version = prev })
+}
+
+// replacement is the daemon a restart brings up in a test; see
+// spawnsReplacement.
+type replacement struct {
+	spawned []*fakeDaemon
+}
+
+// daemon returns the one daemon that must have been spawned.
+func (r *replacement) daemon(t *testing.T) *fakeDaemon {
+	t.Helper()
+	require.Len(t, r.spawned, 1, "the daemon must have been restarted, once")
+	return r.spawned[0]
+}
+
+// spawnsReplacement fakes the one step of a restart that cannot run in a
+// test, the launch of the new daemon's process (client.SetSpawnServer): a
+// fresh fakeDaemon of the client's own version takes over the socket
+// instead. Shutting the old one down, waiting for it to let go, connecting
+// and greeting are all the real thing.
+func spawnsReplacement(t *testing.T) *replacement {
+	t.Helper()
+	r := &replacement{}
+	path := endpoint.Address
+	t.Cleanup(client.SetSpawnServer(func() (<-chan error, error) {
+		r.spawned = append(r.spawned, startFakeDaemonAt(t, path))
+		return nil, nil
+	}))
+	return r
+}
+
+// stopInOf parses the one sleep timer d must have been armed with.
+func stopInOf(t *testing.T, d *fakeDaemon) time.Duration {
+	t.Helper()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	require.Len(t, d.stopIns, 1, "the daemon must have been armed with a sleep timer, once")
+	in, err := time.ParseDuration(d.stopIns[0])
+	require.NoError(t, err)
+	return in
+}
+
+// TestRunPlay_CarriesTheSleepTimerAcrossTheRestart covers `soma stop --in
+// 45m` followed, after an upgrade, by a channel change: the restart onto
+// the new version must not leave the music playing all night.
+func TestRunPlay_CarriesTheSleepTimerAcrossTheRestart(t *testing.T) {
+	asNewerSoma(t)
+	old := startSkewedDaemon(t, protocol.StatusPlaying)
+	old.mu.Lock()
+	old.status.StopAt = time.Now().Add(45 * time.Minute).Format(time.RFC3339)
+	old.mu.Unlock()
+	restart := spawnsReplacement(t)
+
+	out := captureStdout(t, func() { runPlay([]string{"groove"}) })
+
+	assert.Contains(t, out, "Playing: Groove Salad")
+	fresh := restart.daemon(t)
+	in := stopInOf(t, fresh)
+	assert.LessOrEqual(t, in, 45*time.Minute)
+	assert.Greater(t, in, 44*time.Minute, "what was left of the timer")
+	fresh.mu.Lock()
+	defer fresh.mu.Unlock()
+	assert.Equal(t, []string{"groovesalad"}, fresh.plays)
+	assert.NotEmpty(t, fresh.status.StopAt, "the new daemon's snapshot must show the timer")
+}
+
+// TestRunPause_DropsTheSleepTimerTheRestartCarried covers the other side: a
+// pause is a stop to the daemon, and a stop cancels the sleep timer. The
+// restart a pause triggers must not leave the carried timer armed on the
+// stopped daemon, to cut off whatever the user plays next.
+func TestRunPause_DropsTheSleepTimerTheRestartCarried(t *testing.T) {
+	asNewerSoma(t)
+	old := startSkewedDaemon(t, protocol.StatusPlaying)
+	old.mu.Lock()
+	old.status.StopAt = time.Now().Add(45 * time.Minute).Format(time.RFC3339)
+	old.mu.Unlock()
+	restart := spawnsReplacement(t)
+
+	out := captureStdout(t, func() { runPause(nil) })
+
+	assert.Contains(t, out, "Paused")
+	fresh := restart.daemon(t)
+	fresh.mu.Lock()
+	defer fresh.mu.Unlock()
+	assert.Equal(t, 1, fresh.stops, "the pause must reach the new daemon as a stop")
+	assert.Equal(t, protocol.StatusStopped, fresh.status.Status)
+	assert.Empty(t, fresh.status.StopAt, "no sleep timer may stay armed after a pause")
+	assert.Empty(t, fresh.plays)
 }
 
 // TestRunPlay_BadChannelLeavesASkewedDaemonPlaying covers soma play after an
