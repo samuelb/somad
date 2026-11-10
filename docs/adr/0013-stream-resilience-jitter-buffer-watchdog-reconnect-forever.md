@@ -1,6 +1,6 @@
 # ADR-0013: Stream resilience: jitter buffer, stall watchdog, clean EOF is an error, reconnect forever
 
-- **Status:** Accepted (amended 2026-11-09: every reconnect moves to the next mirror; the backoff starts over only after a stream that lasted)
+- **Status:** Accepted (amended 2026-11-09: every reconnect moves to the next mirror; the backoff starts over only after a stream that lasted; the mirrors last listed stand in for a playlist that cannot be fetched)
 - **Date:** 2026-07-05 (jitter buffer 2026-09-01; connect deadline to first decoded frame and mirror failover 2026-09-25)
 - **Sources:** eead2e1, d39497b, de8dd79, f062394, 1f9dec1; `internal/audio/player.go`, `buffer.go`; earlier ae9f67c, 4ee15a3, 4f3332d; rejection of watchdog re-arm on 2026-09-03
 
@@ -61,6 +61,17 @@ hiccup longer than the audio device's own small buffer was audible.
     plays, also when the attempt had to fall through to it, each
     scheduled reconnect moves it one on, and only a play the user asked
     for goes back to the playlist's first mirror.
+  - *Amendment 2026-11-09.* The mirrors only helped while the playlist
+    could be fetched: it comes from somafm.com for every attempt, and
+    with that host down or hanging a stream that dropped never came back,
+    although the mirrors it had just played from were fine. The daemon
+    now remembers, in memory, the mirrors each playlist listed the last
+    time its fetch worked, and uses them when the fetch fails
+    (`resolveMirrors`). The fetch still comes first, so a changed
+    playlist is picked up and the bound above holds: a hanging playlist
+    host costs each attempt its 15 s before the remembered mirrors are
+    tried. A playlist never fetched in this daemon's lifetime has nothing
+    to fall back on.
 - Each failure has exactly one reporting path, and the errors channel is
   lossy by design: it signals "currently unhealthy", it is not a log.
 

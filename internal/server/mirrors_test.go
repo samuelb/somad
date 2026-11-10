@@ -250,6 +250,42 @@ func TestReconnect_BackoffGrowsUntilAStreamStaysUp(t *testing.T) {
 	assert.Equal(t, 1, s.Snapshot().ReconnectAttempt)
 }
 
+// The playlists come from one host, the streams from others. When only the
+// first is down, a stream that drops must still come back.
+func TestReconnect_PlaylistHostDownUsesTheMirrorsLastListed(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	withMirrors(t, 3)
+	drop, reconnect := manualReconnects(t, s, "dronezone")
+	_, err := s.Play("dronezone")
+	require.NoError(t, err)
+
+	resolveStreamURLs = func(string, string) ([]string, error) {
+		return nil, errors.New("playlist host unreachable")
+	}
+	drop()
+	reconnect()
+
+	assert.Equal(t, protocol.StatusPlaying, s.Snapshot().Status)
+	assert.Equal(t, []string{
+		"http://somafm.com/dronezone.pls#m1",
+		"http://somafm.com/dronezone.pls#m2",
+	}, player.attemptedURLs(), "on the remembered mirrors, and not the one that dropped")
+
+	// A channel whose playlist was never fetched has nothing to fall back on.
+	_, err = s.Play("groovesalad")
+	require.ErrorContains(t, err, "playlist host unreachable")
+
+	// The playlist is still fetched first, so a changed one is picked up
+	// as soon as the host answers again.
+	resolveStreamURLs = func(playlistURL, _ string) ([]string, error) {
+		return []string{playlistURL + "#moved"}, nil
+	}
+	_, err = s.Play("dronezone")
+	require.NoError(t, err)
+	attempts := player.attemptedURLs()
+	assert.Equal(t, "http://somafm.com/dronezone.pls#moved", attempts[len(attempts)-1])
+}
+
 func TestPlay_MirrorFailoverOverHTTP(t *testing.T) {
 	securitytest.AllowTestHosts(t)
 	// Three mirrors behind a real playlist: one host refuses connections,

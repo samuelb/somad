@@ -179,6 +179,9 @@ type Server struct {
 	// none is; see reconnectStableAfter.
 	mirrorRotation int
 	playingSince   time.Time
+	// knownMirrors holds, per playlist URL, the stream mirrors its last
+	// successful fetch listed, for resolveMirrors to fall back on.
+	knownMirrors map[string][]string
 
 	// connectErr and connectTitle hold what the player reported for the
 	// current generation while the server still said connecting: a session

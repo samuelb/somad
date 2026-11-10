@@ -214,12 +214,12 @@ func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, erro
 		// back out instead of starting stale audio. This check is only an
 		// early exit: the player sees the same generation and refuses to
 		// commit a stale one itself, which closes the window between here
-		// and player.Play (resolveStreamURLs blocks on the network).
+		// and player.Play (resolveMirrors blocks on the network).
 		if s.superseded(a.gen) {
 			return s.Snapshot(), audio.ErrSuperseded
 		}
 
-		mirrors, err := resolveStreamURLs(cand.URL, s.userAgent)
+		mirrors, err := s.resolveMirrors(cand.URL)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to get stream URL: %w", err)
 			continue
@@ -248,6 +248,33 @@ func (s *Server) connectCandidates(a *playAttempt) (protocol.PlaybackState, erro
 		}
 	}
 	return s.failConnect(a.gen, lastErr, true)
+}
+
+// resolveMirrors resolves a playlist to its stream mirrors. The playlist is
+// fetched every time, so a changed one is picked up. When the fetch fails,
+// the mirrors it listed the last time it worked stand in: the playlists
+// come from another host than the streams, and with only that host down or
+// hanging a stream that dropped could not reconnect to mirrors the daemon
+// had played from a moment before. The list is kept in memory, an entry
+// per playlist played. It blocks on the network, so the caller must not
+// hold s.mu.
+func (s *Server) resolveMirrors(playlistURL string) ([]string, error) {
+	mirrors, err := resolveStreamURLs(playlistURL, s.userAgent)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		known := s.knownMirrors[playlistURL]
+		if len(known) == 0 {
+			return nil, err
+		}
+		log.Printf("could not fetch the playlist, using the stream servers it last listed: %v", err)
+		return known, nil
+	}
+	if s.knownMirrors == nil {
+		s.knownMirrors = make(map[string][]string)
+	}
+	s.knownMirrors[playlistURL] = mirrors
+	return mirrors, nil
 }
 
 // rotateMirrors returns the first maxStreamMirrors mirrors, each scheme
