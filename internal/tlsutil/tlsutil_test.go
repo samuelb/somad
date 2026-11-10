@@ -52,6 +52,105 @@ func TestEnsureServerCert_GeneratesAndReuses(t *testing.T) {
 	assert.Len(t, strings.TrimPrefix(fingerprint, "sha256:"), 64)
 }
 
+// Two daemons started at once get here before either holds the
+// single-instance lock, and on the first start with TLS both find no pair.
+// Each used to write its own key and certificate, which left the key of one
+// with the certificate of the other, or replaced the pair a daemon had
+// already loaded.
+func TestEnsureServerCert_ConcurrentCallsEndUpWithOnePair(t *testing.T) {
+	const callers = 8
+	type result struct {
+		created     bool
+		fingerprint string
+		err         error
+	}
+	for round := range 10 {
+		dir := t.TempDir()
+		certPath := filepath.Join(dir, "cert.pem")
+		keyPath := filepath.Join(dir, "key.pem")
+
+		start := make(chan struct{})
+		results := make(chan result, callers)
+		for range callers {
+			go func() {
+				<-start
+				var r result
+				if r.created, r.err = EnsureServerCert(certPath, keyPath, nil); r.err == nil {
+					_, r.fingerprint, r.err = ServerTLSConfig(certPath, keyPath)
+				}
+				results <- r
+			}()
+		}
+		close(start)
+
+		created := 0
+		fingerprints := make(map[string]bool)
+		for range callers {
+			r := <-results
+			require.NoError(t, r.err, "round %d: every caller must get a pair that loads", round)
+			if r.created {
+				created++
+			}
+			fingerprints[r.fingerprint] = true
+		}
+		assert.Equal(t, 1, created, "round %d: one caller generates, the others take what it wrote", round)
+		assert.Len(t, fingerprints, 1, "round %d: every caller must serve the same certificate", round)
+		_, left, err := ServerTLSConfig(certPath, keyPath)
+		require.NoError(t, err, "round %d: the pair left on disk must load", round)
+		assert.True(t, fingerprints[left], "round %d: and be the one the callers loaded", round)
+	}
+}
+
+// A key and a certificate that do not belong together cannot be served, so
+// no client can be paired with them, and left alone they keep the daemon
+// from starting at all until someone deletes them by hand.
+func TestEnsureServerCert_ReplacesAPairThatDoesNotLoad(t *testing.T) {
+	certPath, keyPath, _ := genPair(t)
+	_, otherKey, _ := genPair(t)
+	stray, err := os.ReadFile(otherKey) // #nosec G304 -- test path under t.TempDir
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(keyPath, stray, 0o600)) // #nosec G703 -- test path under t.TempDir
+	oldCert, err := os.ReadFile(certPath)                   // #nosec G304 -- test path under t.TempDir
+	require.NoError(t, err)
+	_, _, err = ServerTLSConfig(certPath, keyPath)
+	require.Error(t, err, "the mismatched pair must not load to begin with")
+
+	created, err := EnsureServerCert(certPath, keyPath, nil)
+	require.NoError(t, err)
+	assert.True(t, created)
+	_, _, err = ServerTLSConfig(certPath, keyPath)
+	require.NoError(t, err)
+
+	// Both halves are kept, as for any corrupt file the daemon wrote.
+	kept, err := os.ReadFile(certPath + ".corrupt") // #nosec G304 -- test path under t.TempDir
+	require.NoError(t, err)
+	assert.Equal(t, oldCert, kept)
+	info, err := os.Stat(keyPath + ".corrupt")
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the key moved aside stays private")
+}
+
+// A state directory the daemon cannot write to has no room for the lock
+// file. With a pair in place there is nothing to generate, and nothing to
+// lock for.
+func TestEnsureServerCert_ReadOnlyDirectoryWithAPairStillWorks(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes to a read-only directory")
+	}
+	certPath, keyPath, fingerprint := genPair(t)
+	dir := filepath.Dir(certPath)
+	require.NoError(t, os.Remove(certPath+".lock"))
+	require.NoError(t, os.Chmod(dir, 0o500))       // #nosec G302 -- a directory, for this test read-only
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) // #nosec G302 -- restores the temp dir so it can be removed
+
+	created, err := EnsureServerCert(certPath, keyPath, nil)
+	require.NoError(t, err)
+	assert.False(t, created)
+	_, again, err := ServerTLSConfig(certPath, keyPath)
+	require.NoError(t, err)
+	assert.Equal(t, fingerprint, again)
+}
+
 func TestEnsureServerCert_IncludesHosts(t *testing.T) {
 	certPath, _, _ := genPair(t, "music.example", "192.168.1.10")
 

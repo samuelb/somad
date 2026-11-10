@@ -392,7 +392,9 @@ overwrite an existing one, so there's no need to invent or type a key by
 hand. `--tls` encrypts the connection; when you don't provide a certificate
 (`--tls-cert`/`--tls-key`), a self-signed one is generated once in the state
 directory and reused. The daemon prints its SHA-256 fingerprint at startup,
-and `soma daemon --show-cert` reprints it any time. `--psk-file` points at
+and `soma daemon --show-cert` reprints it any time. Should the two files
+ever stop belonging together, the daemon sets them aside as `.corrupt` and
+generates a new pair, with a new fingerprint to pin. `--psk-file` points at
 that key, which TCP clients must know; it is verified with an HMAC
 challenge–response, so it never travels over the wire. Local Unix-socket
 clients are exempt from it. Both the daemon and any client reading a PSK
@@ -567,7 +569,8 @@ but others can read it, soma prints a warning (the daemon logs it).
 - **Config**: `~/.config/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS)
 - **State**: `~/.local/state/somad/` (Linux) or `~/Library/Application Support/somad/` (macOS) —
   also holds `server.log`, the log of the auto-spawned playback daemon, the
-  auto-generated TLS certificate (`tls-cert.pem`/`tls-key.pem`),
+  auto-generated TLS certificate (`tls-cert.pem`/`tls-key.pem`, and the
+  `tls-cert.pem.lock` that keeps two daemons from generating it at once),
   `lastfm.json`, the Last.fm session `soma lastfm login` saves (mode `0600`),
   and `tui.json`, the TUI's own preferences (the visualizer style)
 - **Cache**: `~/.cache/somad/` (Linux) or `~/Library/Caches/somad/` (macOS)

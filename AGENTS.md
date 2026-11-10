@@ -165,7 +165,8 @@ never an error.
 
 **Directories**: config `~/.config/somad/` (Linux) or
 `~/Library/Application Support/somad/` (macOS); state (favorites, last
-channel, volume, `server.log`, generated `tls-cert.pem`/`tls-key.pem`,
+channel, volume, `server.log`, generated `tls-cert.pem`/`tls-key.pem` with
+the `tls-cert.pem.lock` their generation is serialized by,
 `lastfm.json` holding the Last.fm session key from `soma lastfm login`, 0600,
 `tui.json` with the TUI's own preferences, written by the TUI: the
 visualizer style) `~/.local/state/somad/` or the same macOS dir; cache `~/.cache/somad/` or
@@ -323,8 +324,10 @@ changes must keep `nowPlayingIndex` and `cardContentX` in step.
   track.updateNowPlaying/scrobble): POST form requests, the `api_sig` MD5
   signature, JSON responses and error decoding
 - `internal/tlsutil` — self-signed cert generation (persisted in the state
-  dir) and client trust via CA file, pinned SHA-256 fingerprint, or system
-  roots; `ExplainHostnameMismatch` adds the certificate's names to a
+  dir; `EnsureServerCert` runs under a lock file, since the daemon calls it
+  before it holds the single-instance lock, and replaces a pair that does
+  not load, ADR-0009) and client trust via CA file, pinned SHA-256
+  fingerprint, or system roots; `ExplainHostnameMismatch` adds the certificate's names to a
   hostname-mismatch handshake error
 - `internal/platform` — MPRIS (`mpris_linux.go` / `mpris_other.go`), `tray/`,
   and `notify/` (desktop notification on track change, D-Bus on Linux,

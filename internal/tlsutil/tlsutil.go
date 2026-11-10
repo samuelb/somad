@@ -17,11 +17,14 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
+	"log"
 	"math/big"
 	"net"
 	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"somad/internal/atomicfile"
@@ -33,20 +36,59 @@ import (
 const certValidity = 10 * 365 * 24 * time.Hour
 
 // EnsureServerCert generates a self-signed ECDSA P-256 certificate at
-// certPath/keyPath when either file is missing, and reports whether it did.
-// hosts are extra DNS names or IPs to include; the machine's hostname,
-// "localhost", and the loopback addresses are always included.
+// certPath/keyPath when either file is missing, or when the two do not load
+// as a pair, and reports whether it did. hosts are extra DNS names or IPs to
+// include; the machine's hostname, "localhost", and the loopback addresses
+// are always included.
+//
+// The check and the generation run under a lock file next to the
+// certificate. The daemon calls this before it holds its single-instance
+// lock, so two started at once both got here, both found no pair on the
+// first start with TLS, and each wrote its own key and then its own
+// certificate. Interleaved, that left the key of one with the certificate
+// of the other, which never loads and, both files existing, was never
+// replaced; or the second pair replaced the first after its daemon had
+// loaded it, so that daemon served a certificate no file and no
+// --show-cert knew. Under the lock the second caller finds the pair the
+// first wrote.
 func EnsureServerCert(certPath, keyPath string, hosts []string) (created bool, err error) {
-	_, certErr := os.Stat(certPath)
-	_, keyErr := os.Stat(keyPath)
-	if certErr == nil && keyErr == nil {
-		return false, nil
+	unlock, lockErr := lockPair(certPath)
+	if lockErr == nil {
+		defer unlock()
 	}
-	if !os.IsNotExist(certErr) && certErr != nil {
+
+	oldCert, certErr := os.ReadFile(certPath) // #nosec G304 -- the daemon's own certificate path
+	oldKey, keyErr := os.ReadFile(keyPath)    // #nosec G304 -- the daemon's own key path
+	if certErr != nil && !errors.Is(certErr, fs.ErrNotExist) {
 		return false, fmt.Errorf("checking TLS certificate %s: %w", certPath, certErr)
 	}
-	if !os.IsNotExist(keyErr) && keyErr != nil {
+	if keyErr != nil && !errors.Is(keyErr, fs.ErrNotExist) {
 		return false, fmt.Errorf("checking TLS key %s: %w", keyPath, keyErr)
+	}
+	var pairErr error
+	if certErr == nil && keyErr == nil {
+		if _, pairErr = tls.X509KeyPair(oldCert, oldKey); pairErr == nil {
+			return false, nil
+		}
+	}
+	if lockErr != nil {
+		// A pair that is there and loads needs no lock (a state directory
+		// that is read-only has no room for the lock file); generating
+		// one does.
+		return false, lockErr
+	}
+	if pairErr != nil {
+		// Both files exist but are no pair: a leftover of the race above,
+		// or of a write that failed halfway. No daemon can serve it, so no
+		// client is paired with it that a new certificate could lock out
+		// (the reason a working one is never regenerated, ADR-0009), and
+		// leaving it would keep the daemon from starting until both files
+		// were deleted by hand. Moved aside like any corrupt file the
+		// daemon wrote (ADR-0012).
+		cause := fmt.Errorf("it does not load with its counterpart: %w", pairErr)
+		atomicfile.Quarantine(certPath, "TLS certificate", cause)
+		atomicfile.Quarantine(keyPath, "TLS key", cause)
+		log.Printf("warning: generating a new TLS certificate; a client that pinned the old fingerprint needs the new one (soma daemon --show-cert)")
 	}
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -102,8 +144,9 @@ func EnsureServerCert(certPath, keyPath string, hosts []string) (created bool, e
 
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-	// Key first: if the second write fails, a cert without its key is the
-	// harmless leftover (EnsureServerCert regenerates both next time).
+	// Key first: if the second write fails, what is left is a key without
+	// its certificate, or next to a stale one it does not load with. Either
+	// way the next call generates both anew.
 	if err := atomicfile.WriteFile(keyPath, keyPEM, 0o600); err != nil {
 		return false, fmt.Errorf("writing TLS key: %w", err)
 	}
@@ -111,6 +154,32 @@ func EnsureServerCert(certPath, keyPath string, hosts []string) (created bool, e
 		return false, fmt.Errorf("writing TLS certificate: %w", err)
 	}
 	return true, nil
+}
+
+// lockPair takes the exclusive lock that makes EnsureServerCert's check and
+// generation one step across processes, waiting for a holder to finish, and
+// returns the function that releases it. The lock file sits next to the
+// certificate and stays behind, like the daemon's own: unlinking it would
+// race with the next process locking the same path.
+func lockPair(certPath string) (unlock func(), err error) {
+	f, err := os.OpenFile(certPath+".lock", os.O_CREATE|os.O_RDWR, 0o600) // #nosec G304 -- next to the daemon's own certificate path
+	if err != nil {
+		return nil, fmt.Errorf("opening the TLS certificate lock: %w", err)
+	}
+	for {
+		// A signal can interrupt the wait for the holder.
+		if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX); !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("locking %s: %w", f.Name(), err)
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
 }
 
 // ServerTLSConfig loads the certificate pair and returns the server-side TLS

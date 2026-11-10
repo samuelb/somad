@@ -1,6 +1,6 @@
 # ADR-0004: One daemon instance via a lock file; clients spawn it detached
 
-- **Status:** Accepted (amended 2026-09-25: clients act on the spawned daemon's exit status)
+- **Status:** Accepted (amended 2026-09-25: clients act on the spawned daemon's exit status; amended 2026-11-09: what a daemon writes before it holds the lock)
 - **Date:** 2026-07-05
 - **Sources:** 95fb723; `internal/server/spawnlock.go`, `internal/client/spawn.go`, `internal/protocol/socket.go`
 
@@ -29,6 +29,14 @@ stale socket file from a crashed daemon must not block the next start.
 ## Consequences
 
 - Concurrent auto-spawns are harmless by construction; tests rely on it.
+  - *Amendment 2026-11-09.* One step was not. A daemon resolves its
+    options, and with TLS enabled generates its certificate, before it
+    takes the lock, and two started at once could leave a key and a
+    certificate that did not belong together. Generating the pair has a
+    lock of its own now (ADR-0009). Anything else a daemon writes before
+    `server.Listen` has to be safe to write twice at once in the same
+    way; the config template and a generated PSK already are, through
+    `atomicfile.CreateExclusive`.
 - The spawning client waits on the daemon's exit status (amended
   2026-09-25), so the daemon must keep it meaningful: "already running"
   exits 0, and the client spawns again a second later in case the lock
