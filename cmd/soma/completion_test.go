@@ -148,7 +148,9 @@ func TestCompletionScriptsCoverCLI(t *testing.T) {
 
 // completionSandbox is where the completion scripts run in the tests below:
 // a directory with nothing of the user's in it, and an environment whose
-// PATH leads with a stand-in `soma`. The scripts call soma for one thing,
+// PATH leads with a stand-in `soma`, ahead of the test's own PATH, which is
+// where the tools the scripts use (cut, cat) are: not under /usr/bin on
+// every system, and not in a Nix build. The scripts call soma for one thing,
 // `soma completion channels`, and the stand-in answers that, and only
 // that, with what the real helper prints for testCatalog. So completing in
 // these tests cannot reach a daemon or the user's cache; should a script
@@ -177,7 +179,7 @@ func newCompletionSandbox(t *testing.T) completionSandbox {
 		"exit 1\n"
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "soma"), []byte(stub), 0o700)) // #nosec G306 -- an executable stub
 	return completionSandbox{dir: dir, env: []string{
-		"PATH=" + bin + ":/usr/bin:/bin",
+		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"SOMA_TEST_CHANNELS=" + filepath.Join(dir, "channels"),
 		"HOME=" + dir, "ZDOTDIR=" + dir, "TERM=dumb",
 		"XDG_CONFIG_HOME=" + dir, "XDG_STATE_HOME=" + dir, "XDG_CACHE_HOME=" + dir,
@@ -185,10 +187,12 @@ func newCompletionSandbox(t *testing.T) completionSandbox {
 	}}
 }
 
-// bashShells returns every distinct bash on this machine: the one on PATH,
-// and the usual homes of a current one next to macOS's own 3.2, since the
-// script has to work on both.
-func bashShells() []string {
+// bashShells returns every distinct bash on this machine that can complete:
+// the one on PATH, and the usual homes of a current one next to macOS's own
+// 3.2, since the script has to work on both. A bash built without
+// programmable completion has no compgen and can load no completion script
+// at all; the one a Nix build runs its tests with is such a bash.
+func bashShells(ctx context.Context) []string {
 	candidates := []string{"/bin/bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash"}
 	if onPath, err := exec.LookPath("bash"); err == nil {
 		candidates = append(candidates, onPath)
@@ -201,6 +205,10 @@ func bashShells() []string {
 			continue
 		}
 		seen[resolved] = true
+		out, err := exec.CommandContext(ctx, c, "--noprofile", "--norc", "-c", "type -t compgen").Output() // #nosec G204 -- a bash found on this machine
+		if err != nil || strings.TrimSpace(string(out)) != "builtin" {
+			continue
+		}
 		shells = append(shells, c)
 	}
 	return shells
@@ -238,9 +246,9 @@ done
 // (COMP_WORDBREAKS), 3.2 only at blanks. The words are given here as either
 // would split them, so both splits are tested on whatever bash there is.
 func TestBashCompletion(t *testing.T) {
-	shells := bashShells()
+	shells := bashShells(t.Context())
 	if len(shells) == 0 {
-		t.Skip("no bash found")
+		t.Skip("no bash with programmable completion found")
 	}
 	sb := newCompletionSandbox(t)
 	script := filepath.Join(sb.dir, "soma.bash")
