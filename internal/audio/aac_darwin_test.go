@@ -5,6 +5,7 @@ package audio
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -33,6 +34,14 @@ import (
 //
 //	afconvert -f adts -d aach -b 64000 he-aac-stereo.wav he-aac-stereo.aac
 //	afconvert -f adts -d aacp -b 32000 he-aac-v2-left.wav he-aac-v2-left.aac
+//
+// and the same two signals 4 s long (the 440 Hz sine at 0.6 of full scale,
+// the 15 kHz one at 0.2), long enough to hold the SBR and parametric-stereo
+// headers the encoder repeats every 21 frames, about a second, for
+// TestAACDecodeJoinedMidStream:
+//
+//	afconvert -f adts -d aach -b 64000 he-aac-stereo-4s.wav he-aac-stereo-4s.aac
+//	afconvert -f adts -d aacp -b 32000 he-aac-v2-left-4s.wav he-aac-v2-left-4s.aac
 const (
 	fixtureRate    = 44100
 	fixtureSeconds = 0.5
@@ -123,25 +132,21 @@ func TestAACDecodeMonoDuplicatesChannels(t *testing.T) {
 }
 
 // highBandFraction returns the share of ch's power above lo Hz, from a
-// Hann-windowed DFT of one block past the encoder's priming samples.
+// Hann-windowed DFT (the visualizer's FFT) of one block past the encoder's
+// priming samples.
 func highBandFraction(ch []int16, rate int, lo float64) float64 {
 	const skip, n = 4096, 2048
 	if len(ch) < skip+n {
 		return 0
 	}
-	block := make([]float64, n)
+	block := make([]complex128, n)
 	for i := range block {
-		block[i] = float64(ch[skip+i]) * (0.5 - 0.5*math.Cos(2*math.Pi*float64(i)/n))
+		block[i] = complex(float64(ch[skip+i])*(0.5-0.5*math.Cos(2*math.Pi*float64(i)/n)), 0)
 	}
+	fft(block)
 	var total, high float64
 	for k := 1; k < n/2; k++ {
-		var re, im float64
-		for i, x := range block {
-			angle := 2 * math.Pi * float64(k*i) / n
-			re += x * math.Cos(angle)
-			im -= x * math.Sin(angle)
-		}
-		p := re*re + im*im
+		p := real(block[k])*real(block[k]) + imag(block[k])*imag(block[k])
 		total += p
 		if float64(k)*float64(rate)/n > lo {
 			high += p
@@ -203,6 +208,92 @@ func TestAACDecodeHEAACv2RestoresParametricStereo(t *testing.T) {
 	if r > l/10 {
 		t.Fatalf("right channel carries the left-only tone at %.1f dB below the left; want a stereo image",
 			10*math.Log10(l/r))
+	}
+}
+
+// adtsFrames splits an ADTS stream into its frames, headers included.
+func adtsFrames(t *testing.T, stream []byte) [][]byte {
+	t.Helper()
+	r := newADTSReader(bytes.NewReader(stream))
+	var frames [][]byte
+	for {
+		f, err := r.next()
+		if errors.Is(err, io.EOF) {
+			return frames
+		}
+		require.NoError(t, err)
+		frames = append(frames, f.raw)
+	}
+}
+
+func TestAACDecodeJoinedMidStream(t *testing.T) {
+	// A live stream is always joined somewhere in its middle, and the
+	// encoder repeats the SBR and parametric-stereo headers only now and
+	// then, so the first frames a listener gets usually carry neither. The
+	// probe must name the full format from such frames all the same: the
+	// converter is built once, and one built for the AAC-LC core alone
+	// plays band-limited, or in mono, for the rest of the session. The
+	// converter then has to lock on once the headers come round: until
+	// then it has only the core to play.
+	//
+	// joinSpan is more than the 21 frames from one header to the next, so
+	// the stream is joined at every distance from a header.
+	const joinSpan = 22
+	// The checks below look at the end of the output, some 60 frames after
+	// the last join: on macOS 27 the SBR band is back at the first header
+	// after the join and the stereo image by the second. The helpers skip
+	// 4096 samples for an encoder's priming and measure what follows.
+	const tail = 8192
+
+	sbrBand := func(t *testing.T, join int, left, right []int16) {
+		for name, ch := range map[string][]int16{"left": left, "right": right} {
+			if frac := highBandFraction(ch, fixtureRate, 11500); frac < 0.05 {
+				t.Fatalf("joined at frame %d, %s: %.2f%% of the power above 11.5 kHz at the end, want about 10%%; the SBR band never came back",
+					join, name, 100*frac)
+			}
+		}
+	}
+	stereoImage := func(t *testing.T, join int, left, right []int16) {
+		if f := dominantFreq(left, fixtureRate); f < fixtureFreq*0.9 || f > fixtureFreq*1.1 {
+			t.Fatalf("joined at frame %d, left: dominant frequency %.1f Hz at the end, want about %.0f", join, f, fixtureFreq)
+		}
+		l, r := tonePower(left, fixtureRate, fixtureFreq), tonePower(right, fixtureRate, fixtureFreq)
+		if r > l/10 {
+			t.Fatalf("joined at frame %d: the right channel carries the left-only tone at %.1f dB below the left at the end; the stereo image never came back",
+				join, 10*math.Log10(l/r))
+		}
+	}
+
+	for _, tc := range []struct {
+		fixture string
+		// lockedOn checks the end of the output; nil for the half-second
+		// fixtures, which end before another header comes.
+		lockedOn func(t *testing.T, join int, left, right []int16)
+	}{
+		{"he-aac-stereo.aac", nil},
+		{"he-aac-v2-left.aac", nil},
+		{"he-aac-stereo-4s.aac", sbrBand},
+		{"he-aac-v2-left-4s.aac", stereoImage},
+	} {
+		t.Run(tc.fixture, func(t *testing.T) {
+			frames := adtsFrames(t, readFixture(t, tc.fixture))
+			// Leave the probe as many frames as it may ask for.
+			last := min(joinSpan, len(frames)-aacProbeFrames)
+			require.Positive(t, last, "the fixture is too short to join mid-stream")
+			for join := 0; join <= last; join++ {
+				dec, err := newAACDecoder(bytes.NewReader(bytes.Join(frames[join:], nil)))
+				require.NoError(t, err, "joined at frame %d", join)
+				// The headers say 22.05 kHz, and mono for HE-AAC v2.
+				require.Equal(t, fixtureRate, dec.SampleRate(), "joined at frame %d", join)
+				pcm, err := io.ReadAll(dec)
+				require.NoError(t, err, "joined at frame %d", join)
+				left, right := stereoSamples(pcm)
+				require.Greater(t, len(left), tail, "joined at frame %d", join)
+				if tc.lockedOn != nil {
+					tc.lockedOn(t, join, left[len(left)-tail:], right[len(right)-tail:])
+				}
+			}
+		})
 	}
 }
 
