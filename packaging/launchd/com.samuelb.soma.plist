@@ -15,6 +15,13 @@
   started through /bin/sh, which appends its output to that file. (The
   state directory's server.log only collects daemons a client spawned.)
 
+  The supervised flag tells the daemon that launchd restarts it (KeepAlive
+  below: after any exit but a successful one). A soma client that needs a
+  fresh daemon (after an upgrade, or when the audio device was lost) then
+  asks it to exit with status 75 and waits for the restart, instead of
+  starting a daemon of its own outside this agent. Keep the flag when you
+  change the command.
+
   Uninstall:
     launchctl unload ~/Library/LaunchAgents/com.samuelb.soma.plist
     rm ~/Library/LaunchAgents/com.samuelb.soma.plist
@@ -27,7 +34,7 @@
 	<array>
 		<string>/bin/sh</string>
 		<string>-c</string>
-		<string>exec /usr/local/bin/soma daemon &gt;&gt;"$HOME/Library/Logs/soma.log" 2&gt;&amp;1</string>
+		<string>exec /usr/local/bin/soma daemon --supervised &gt;&gt;"$HOME/Library/Logs/soma.log" 2&gt;&amp;1</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

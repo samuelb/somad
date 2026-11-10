@@ -51,6 +51,14 @@ var spawnRetryInterval = time.Second
 // tests can shrink it.
 var restartWait = 5 * time.Second
 
+// supervisedRestartWait is how long a supervised server's service manager
+// gets to bring up the new instance after the old one exited for a restart,
+// before the client gives up on it and spawns a daemon of its own. systemd
+// restarts within a fraction of a second; launchd holds a job that ran for
+// less than ten seconds back until those have passed. A variable so tests
+// can shrink it.
+var supervisedRestartWait = 12 * time.Second
+
 // spawnServer is a variable so tests can fake the server launch.
 var spawnServer = SpawnServer
 
@@ -194,7 +202,8 @@ func DeviceLost(c *Client, ep Endpoint) bool {
 }
 
 // Restart shuts the connected server down and returns a client to a fresh spawn
-// of our own binary. It closes c on the way. Callers use it only when the
+// of our own binary, or, for a supervised server, to the instance its
+// service manager starts in its place. It closes c on the way. Callers use it only when the
 // running server is out of date and the operation about to follow interrupts
 // playback anyway; the persisted volume and last-played channel carry across on
 // their own, so the caller need only re-establish the stream it wants.
@@ -210,7 +219,8 @@ func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.He
 		return nil, protocol.HelloResult{}, fmt.Errorf("cannot restart the remote soma daemon at %s from here", ep)
 	}
 	stopAt, askErr := pendingStop(c)
-	_ = c.Shutdown()
+	supervised := c.ServerInfo().Supervised
+	_ = c.ShutdownForRestart()
 	_ = c.Close()
 	// When the old server is slow to exit (a loaded machine, a long fade-out),
 	// the user's command outranks the upgrade: fall through and talk to
@@ -218,13 +228,61 @@ func Restart(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.He
 	// listens (the handshake already guaranteed it speaks our protocol
 	// version) and spawns a fresh one once it is gone. A later interrupting
 	// command retries the upgrade.
-	_ = waitForServerExit(ep)
-	nc, hr, err := connectOrSpawn(ep, clientVersion)
-	if err != nil {
-		return nil, hr, err
+	exited := waitForServerExit(ep)
+	var nc *Client
+	var hr protocol.HelloResult
+	if supervised && exited {
+		// An error leaves nc nil: its service manager did not start it
+		// again (it may have been told not to).
+		nc, hr, _ = AwaitRestart(ep, clientVersion)
+	}
+	if nc == nil {
+		// Not supervised, or not started again: spawn one, so the command
+		// goes ahead. That daemon is then not under the service manager.
+		var err error
+		if nc, hr, err = connectOrSpawn(ep, clientVersion); err != nil {
+			return nil, hr, err
+		}
 	}
 	carrySleepTimer(nc, stopAt, askErr)
 	return nc, hr, nil
+}
+
+// AwaitRestart waits for a supervised local server that has just exited
+// for a restart (Client.ShutdownForRestart) to be started again by its
+// service manager, and returns a hello-verified client to the new
+// instance. It never spawns: a daemon started from here would take the
+// socket and the single-instance lock, the service manager's instance would
+// find a daemon running and exit for good, and the daemon would be out of
+// supervision, without the flags its unit starts it with (ADR-0038). It
+// gives up after supervisedRestartWait, and the caller then falls back to
+// spawning.
+func AwaitRestart(ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	deadline := time.Now().Add(supervisedRestartWait)
+	for {
+		c, err := DialEndpoint(ep)
+		if err == nil {
+			return handshook(c, ep, clientVersion)
+		}
+		if answered(err) {
+			return nil, protocol.HelloResult{}, err
+		}
+		if time.Now().After(deadline) {
+			return nil, protocol.HelloResult{}, fmt.Errorf(
+				"the supervised soma daemon was not started again within %s: %w", supervisedRestartWait, err)
+		}
+		time.Sleep(dialRetryInterval)
+	}
+}
+
+// handshook performs the hello on a freshly dialed connection and returns
+// the client with the server's answer, or the error with no client.
+func handshook(c *Client, ep Endpoint, clientVersion string) (*Client, protocol.HelloResult, error) {
+	hr, err := Handshake(c, ep, clientVersion)
+	if err != nil {
+		return nil, hr, err
+	}
+	return c, hr, nil
 }
 
 // OnSleepTimerLost is called when a restart could not carry the old
@@ -342,11 +400,7 @@ func connectOrSpawn(ep Endpoint, clientVersion string) (*Client, protocol.HelloR
 		}
 	}
 
-	hr, err := Handshake(c, ep, clientVersion)
-	if err != nil {
-		return nil, hr, err
-	}
-	return c, hr, nil
+	return handshook(c, ep, clientVersion)
 }
 
 // answered reports whether a DialEndpoint error came from a daemon that

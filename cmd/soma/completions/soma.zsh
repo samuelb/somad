@@ -111,6 +111,7 @@ _soma() {
                 '--psk-file=[file holding the pre-shared key TCP clients must authenticate with]:file:_files' \
                 '--gen-psk[generate a random pre-shared key at --psk-file, then exit]' \
                 '--insecure[serve a non-loopback --listen address even without TLS and a PSK]' \
+                '--supervised[a service manager runs this daemon and restarts it after a failure status]' \
                 '--show-cert[print the TLS certificate path and fingerprint, then exit]' \
                 '1:action:(stop)' && ret=0
             ;;

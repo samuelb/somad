@@ -39,6 +39,12 @@ type Config struct {
 	MPRIS       *platform.MPRIS // may be nil
 	Tray        *tray.Tray      // may be nil
 	IdleTimeout time.Duration   // 0 disables idle exit
+	// Supervised says a service manager runs this daemon and starts it
+	// again when it exits with a failure status (soma daemon --supervised,
+	// ADR-0038). The daemon tells its clients so in the hello, and takes a
+	// shutdown that asks for a restart as a request for that exit (see
+	// RestartRequested).
+	Supervised bool
 	// PSK, when non-empty, is the pre-shared key every non-local (TCP)
 	// connection must authenticate with before hello. Unix-socket
 	// connections are exempt: the socket directory's permissions already
@@ -187,6 +193,11 @@ type Server struct {
 	// works; it is never cleared. See noteDeviceLostLocked.
 	deviceLost string
 
+	// supervised is Config.Supervised; restartRequested is set when such a
+	// daemon is shut down for a restart (ShutdownForRestart).
+	supervised       bool
+	restartRequested bool
+
 	// connectErr and connectTitle hold what the player reported for the
 	// current generation while the server still said connecting: a session
 	// can fail, or deliver its first title, between player.Play returning
@@ -224,6 +235,7 @@ func New(cfg Config) *Server {
 		mpris:       cfg.MPRIS,
 		tray:        cfg.Tray,
 		idleTimeout: cfg.IdleTimeout,
+		supervised:  cfg.Supervised,
 		psk:         cfg.PSK,
 		quality:     cfg.Quality,
 		persist:     state.SaveState,
@@ -359,6 +371,30 @@ func (s *Server) acceptLoop(ln net.Listener) error {
 		case <-time.After(delay):
 		}
 	}
+}
+
+// ShutdownForRestart is Shutdown for a client that wants the daemon running
+// again as a new process (protocol.ShutdownParams.Restart). A supervised
+// daemon notes the wish, for whoever runs the process to act on once the
+// server is down (RestartRequested); for any other daemon it is a plain
+// shutdown, after which the client spawns.
+func (s *Server) ShutdownForRestart() {
+	s.mu.Lock()
+	if s.supervised && !s.closing {
+		s.restartRequested = true
+	}
+	s.mu.Unlock()
+	s.Shutdown()
+}
+
+// RestartRequested reports whether a supervised daemon was shut down by a
+// client that asked for a restart. The process then has to exit with a
+// failure status, which is what makes its service manager start it again;
+// an exit with status 0 would be taken for a daemon stopped on purpose.
+func (s *Server) RestartRequested() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.restartRequested
 }
 
 // Shutdown stops playback and tears the server down. Safe to call from any

@@ -21,6 +21,7 @@ type fakeBackend struct {
 	stops      int
 	stopIns    []time.Duration // every sleep timer armed
 	shutdowns  int
+	restarts   int // the shutdowns among them that asked for a restart
 	volumes    []float64
 	mutes      int
 	preMute    float64 // remembered pre-mute volume; 0 means "none stored"
@@ -183,6 +184,15 @@ func (b *fakeBackend) Shutdown() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.shutdowns++
+	return b.shutdownErr
+}
+
+// ShutdownForRestart counts as a shutdown too, and as a restart asked for.
+func (b *fakeBackend) ShutdownForRestart() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.shutdowns++
+	b.restarts++
 	return b.shutdownErr
 }
 

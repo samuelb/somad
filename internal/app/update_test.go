@@ -600,6 +600,7 @@ func TestUpdate_PlayKey_RestartsSkewedServerThenPlays(t *testing.T) {
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	runCmd(cmd)
 	assert.Equal(t, 1, backend(m).shutdowns, "a skewed server is restarted, not played on")
+	assert.Equal(t, 1, backend(m).restarts, "and told so, for a supervised one to come back by its service manager")
 	assert.Empty(t, backend(m).playIDs, "nothing is played on the stale server")
 	assert.Equal(t, "dronezone", m.pendingPlayID)
 

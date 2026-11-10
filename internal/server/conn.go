@@ -321,6 +321,7 @@ func (c *conn) handleHello(req protocol.Request) bool {
 		ProtocolVersion: protocol.Version,
 		PID:             os.Getpid(),
 		DeviceLost:      c.s.DeviceLost(),
+		Supervised:      c.s.supervised,
 	})
 	return true
 }
@@ -388,8 +389,19 @@ func (c *conn) handleRequest(req protocol.Request) {
 		}
 
 	case protocol.MethodShutdown:
+		var params protocol.ShutdownParams
+		if len(req.Params) > 0 { // a bare shutdown carries no params at all
+			var ok bool
+			if params, ok = decodeParams[protocol.ShutdownParams](c, req); !ok {
+				return
+			}
+		}
 		c.respond(req.ID, struct{}{})
-		c.s.Shutdown()
+		if params.Restart {
+			c.s.ShutdownForRestart()
+		} else {
+			c.s.Shutdown()
+		}
 
 	default:
 		c.respondError(req.ID, fmt.Errorf("unknown method: %q", req.Method))

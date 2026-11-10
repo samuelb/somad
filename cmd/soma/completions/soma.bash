@@ -135,7 +135,7 @@ _soma() {
         ;;
     daemon)
         COMPREPLY=($(compgen -W "stop --idle-timeout --no-tray --notify --quality --listen --tls
-            --tls-cert --tls-key --psk-file --gen-psk --insecure --show-cert" -- "$cur"))
+            --tls-cert --tls-key --psk-file --gen-psk --insecure --supervised --show-cert" -- "$cur"))
         ;;
     lastfm)
         # The action follows "lastfm" (at index i); only status takes a flag.

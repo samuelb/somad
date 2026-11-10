@@ -140,7 +140,7 @@ func runBridge(send func(tea.Msg), c *client.Client, done <-chan struct{}, shutd
 			return
 		default:
 		}
-		newClient, serverVersion, err := reconnect()
+		newClient, serverVersion, err := reconnect(c.ServerInfo().Supervised)
 		if err != nil {
 			send(app.ServerGoneMsg{Err: err})
 			return
@@ -170,8 +170,18 @@ var (
 )
 
 // reconnect tries a few times to get a fresh server connection, returning the
-// reconnected server's version alongside the client.
-func reconnect() (*client.Client, string, error) {
+// reconnected server's version alongside the client. A server that was
+// supervised is first given the time its service manager needs to start it
+// again: spawning one at once would take the socket from that instance,
+// which would then exit for good (ADR-0038). If it does not come back, it
+// was stopped on purpose or is not supervised any more, and the usual
+// reconnect, which spawns, takes over.
+func reconnect(supervised bool) (*client.Client, string, error) {
+	if supervised {
+		if c, hr, err := client.AwaitRestart(endpoint, version); err == nil {
+			return c, hr.ServerVersion, nil
+		}
+	}
 	var err error
 	for range reconnectAttempts {
 		var c *client.Client

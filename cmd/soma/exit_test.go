@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"somad/internal/channels"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,6 +38,10 @@ func TestMain(m *testing.M) {
 		if v, ok := os.LookupEnv(mainVersionEnv); ok {
 			version = v
 		}
+		// A daemon run this way must not reach for SomaFM: outbound requests
+		// to a host that is not on the allowlist fail before any network
+		// I/O, and the daemon runs on without a catalog.
+		channels.SomaFMChannelsURL = "http://catalog.invalid.test/channels.json"
 		os.Args = append([]string{"soma"}, strings.Split(args, "\x1f")...)
 		main()
 		os.Exit(0)

@@ -36,10 +36,15 @@ type Backend interface {
 	// SubscribeSpectrum asks for spectrum frames of bands bands for the
 	// visualizer, delivered as SpectrumMsg, or stops them with 0.
 	SubscribeSpectrum(bands int) error
-	// Shutdown stops the server so the reconnect loop respawns a fresh one; the
-	// TUI uses it to upgrade an out-of-date server when the user changes,
-	// pauses or stops the stream.
+	// Shutdown stops the server for good, when the TUI quits with
+	// ShutdownOnExit.
 	Shutdown() error
+	// ShutdownForRestart stops the server so the reconnect brings a fresh
+	// one up: the TUI uses it to upgrade an out-of-date server when the
+	// user changes, pauses or stops the stream, and to replace one that
+	// has lost its audio device. A supervised server is started again by
+	// its service manager, any other by the reconnect's spawn.
+	ShutdownForRestart() error
 }
 
 // ServerStateMsg carries a playback snapshot, either pushed by the server or
@@ -198,7 +203,7 @@ func (m *Model) restartCmd() tea.Cmd {
 		// outcome normally surfaces there — unless the shutdown request failed
 		// with the connection still up, which would otherwise strand the
 		// restart (and any pending channel change) silently.
-		if err := b.Shutdown(); err != nil && !errors.Is(err, client.ErrDisconnected) {
+		if err := b.ShutdownForRestart(); err != nil && !errors.Is(err, client.ErrDisconnected) {
 			return RestartFailedMsg{Err: err}
 		}
 		return nil

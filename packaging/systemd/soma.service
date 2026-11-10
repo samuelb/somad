@@ -14,12 +14,20 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/soma daemon
+# --supervised tells the daemon that this unit restarts it. A soma client
+# that needs a fresh daemon (after an upgrade, or when the audio device was
+# lost) then asks it to exit with status 75 and waits for the restart,
+# instead of starting a daemon of its own outside this unit. Keep the flag
+# when you change this line.
+ExecStart=/usr/bin/soma daemon --supervised
 # On a headless host (no display or GUI session) the tray is skipped
 # automatically, but add --no-tray below to disable it explicitly, e.g.
 # to avoid the tray host lookup entirely:
-#   ExecStart=/usr/bin/soma daemon --no-tray
+#   ExecStart=/usr/bin/soma daemon --supervised --no-tray
 Restart=on-failure
+# The exit a client asks for is no failure, but it is a restart:
+SuccessExitStatus=75
+RestartForceExitStatus=75
 
 [Install]
 WantedBy=default.target

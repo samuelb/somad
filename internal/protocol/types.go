@@ -78,6 +78,22 @@ type HelloResult struct {
 	// command that is about to ask for playback knows without another round
 	// trip that this daemon has to be replaced first.
 	DeviceLost bool `json:"deviceLost,omitempty"`
+	// Supervised reports that a service manager runs the daemon and starts
+	// it again when it exits with a failure status (soma daemon
+	// --supervised, ADR-0038). A client that restarts such a daemon asks
+	// for that exit (ShutdownParams.Restart) and waits for the service
+	// manager's new instance instead of spawning one of its own.
+	Supervised bool `json:"supervised,omitempty"`
+}
+
+// ShutdownParams is the optional payload of a shutdown request. Restart
+// says the client wants the daemon running again, as a new process (a
+// restart onto another version, ADR-0006, or for a lost audio device,
+// ADR-0037): a supervised daemon then exits with the status that makes its
+// service manager start it again. Any other daemon, and one that predates
+// the field, shuts down as for a bare shutdown, and the client spawns.
+type ShutdownParams struct {
+	Restart bool `json:"restart,omitempty"`
 }
 
 // PlayParams selects the channel to play.

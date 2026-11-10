@@ -51,3 +51,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0035](0035-website-looks-like-the-tui-with-self-hosted-fonts.md) | The website looks like the TUI, with self-hosted fonts and decoration-only script | Accepted |
 | [0036](0036-tui-mouse-hit-tests-the-rendered-layout.md) | The TUI's mouse acts on the list, the volume gauge, and the help bar, hit-tested against View's own layout | Accepted |
 | [0037](0037-a-lost-audio-device-ends-the-daemon-process-clients-replace-it.md) | A daemon whose audio device is lost stops and says so; a local client puts a new daemon in its place | Accepted |
+| [0038](0038-a-supervised-daemon-is-restarted-by-its-service-manager.md) | A daemon run by a service manager is restarted through it, not replaced by a spawn | Accepted |

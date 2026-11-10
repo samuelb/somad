@@ -50,6 +50,7 @@ type daemonOptions struct {
 
 	// Fields for daemonActionRun.
 	idleTimeout time.Duration
+	supervised  bool
 	noTray      bool
 	notify      bool
 	quality     string
@@ -84,6 +85,7 @@ type daemonFlags struct {
 	tlsKey      string
 	pskFile     string
 	insecure    bool
+	supervised  bool
 	showCert    bool
 	genPSK      bool
 }
@@ -124,6 +126,12 @@ func newDaemonFlagSet(cfg *config.Config, f *daemonFlags) *flag.FlagSet {
 		"file holding the pre-shared key TCP clients must authenticate with")
 	fs.BoolVar(&f.insecure, "insecure", boolVal(cfg.Server.Insecure),
 		"serve a non-loopback --listen address even without TLS and a PSK")
+	// No config key: whether a service manager runs the daemon belongs to
+	// how this process was started, not to the user's settings, which an
+	// auto-spawned daemon reads too.
+	fs.BoolVar(&f.supervised, "supervised", false,
+		"a service manager runs this daemon and restarts it when it exits with a failure status "+
+			"(the shipped systemd unit and launchd plist pass this)")
 	fs.BoolVar(&f.showCert, "show-cert", false,
 		"print the TLS certificate path and fingerprint, then exit")
 	fs.BoolVar(&f.genPSK, "gen-psk", false,
@@ -230,6 +238,7 @@ func resolveDaemonOptions(cfg *config.Config, args []string) (daemonOptions, err
 		warnings:    warnings,
 		action:      daemonActionRun,
 		idleTimeout: f.idleTimeout,
+		supervised:  f.supervised,
 		noTray:      f.noTray,
 		notify:      f.notify,
 		quality:     f.quality,
@@ -294,7 +303,10 @@ func runServer(args []string) {
 	listeners, cleanup, err := openListeners(opts)
 	if errors.Is(err, server.ErrAlreadyRunning) {
 		// A concurrent auto-spawn lost the race; the winner serves everyone.
-		log.Print("soma daemon already running, exiting")
+		// Started by hand or by a service manager, it is the user who needs
+		// to know why this one does not run with its flags.
+		log.Print("a soma daemon is already running, so this one exits; " +
+			"to run one with other flags, stop it first: soma daemon stop")
 		return
 	}
 	if err != nil {
@@ -316,7 +328,20 @@ func runServer(args []string) {
 	// Shutdown's player.Stop fades out asynchronously; give it a moment so
 	// the audio doesn't cut off hard.
 	time.Sleep(400 * time.Millisecond)
+	if srv.RestartRequested() {
+		// A client asked for a restart, onto a new version or for a lost
+		// audio device. The service manager that runs this daemon starts it
+		// again only after a failure status; after 0 it would take the
+		// daemon for stopped on purpose (ADR-0038).
+		log.Printf("exiting with status %d for the service manager to start a fresh daemon", restartExitStatus)
+		os.Exit(restartExitStatus)
+	}
 }
+
+// restartExitStatus is what a supervised daemon exits with when a client
+// has asked it to restart: EX_TEMPFAIL, "try again", which the shipped
+// systemd unit and launchd plist answer by starting it again.
+const restartExitStatus = 75
 
 // openListeners binds the Unix socket and, when configured, the TCP
 // listener. The socket is bound before the (potentially slow) audio init in
@@ -381,6 +406,7 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 		MPRIS:               mpris,
 		Tray:                tr,
 		IdleTimeout:         opts.idleTimeout,
+		Supervised:          opts.supervised,
 		PSK:                 opts.psk,
 		Quality:             opts.quality,
 		Notify:              opts.notify,

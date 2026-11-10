@@ -564,3 +564,12 @@ func (c *Client) SubscribeSpectrum(bands int) error {
 func (c *Client) Shutdown() error {
 	return c.call(protocol.MethodShutdown, nil, nil)
 }
+
+// ShutdownForRestart is Shutdown for a caller that wants the server running
+// again as a new process (Restart, the TUI's restart of an out-of-date
+// server). A supervised server then exits so that its service manager
+// starts it again (ADR-0038), and the caller waits for that one
+// (AwaitRestart); any other server just shuts down, and the caller spawns.
+func (c *Client) ShutdownForRestart() error {
+	return c.call(protocol.MethodShutdown, protocol.ShutdownParams{Restart: true}, nil)
+}

@@ -236,7 +236,7 @@ background if one isn't running yet.
 | `soma lastfm login`        | Authorize soma with your Last.fm account and save the session (see [Last.fm](#lastfm)) |
 | `soma lastfm logout`       | Remove the saved Last.fm session                          |
 | `soma lastfm status [--json]` | Show whether Last.fm scrobbling is configured and logged in |
-| `soma daemon [flags]`      | Run the playback daemon in the foreground (`--idle-timeout <duration>` exits after that long idle; `--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--quality` prefers a stream quality, lower ones on macOS only; `--listen`, `--tls`, `--tls-cert`/`--tls-key`, `--psk-file` serve [remote frontends](#remote-control-over-tcp), `--insecure` without TLS and a PSK; `--gen-psk` generates a pre-shared key; `--show-cert` prints the certificate fingerprint; `soma daemon --help` describes every flag) |
+| `soma daemon [flags]`      | Run the playback daemon in the foreground (`--idle-timeout <duration>` exits after that long idle; `--no-tray` hides the tray icon; `--notify` shows a desktop notification on track change; `--quality` prefers a stream quality, lower ones on macOS only; `--listen`, `--tls`, `--tls-cert`/`--tls-key`, `--psk-file` serve [remote frontends](#remote-control-over-tcp), `--insecure` without TLS and a PSK; `--gen-psk` generates a pre-shared key; `--show-cert` prints the certificate fingerprint; `--supervised` is for a daemon run by systemd or launchd; `soma daemon --help` describes every flag) |
 | `soma daemon stop`         | Shut down the playback daemon                            |
 | `soma completion <bash\|zsh>` | Print a completion script for the given shell           |
 | `soma --version`           | Print version information                                |
@@ -313,6 +313,17 @@ install (Homebrew or wherever you copied the binary from the DMG), and run
 `launchctl load ~/Library/LaunchAgents/com.samuelb.soma.plist`; its log
 goes to `~/Library/Logs/soma.log`. nfpm only builds Linux packages, so the
 plist isn't installed by any package and has to be copied in by hand.
+
+Both start the daemon as `soma daemon --supervised`. The flag tells the
+daemon that a service manager restarts it, and the daemon tells its clients.
+When a `soma` command or the TUI needs a fresh daemon (after an upgrade, or
+because the audio device was lost), it then asks the daemon to exit with
+status 75 and waits for systemd or launchd to start it again, instead of
+starting a daemon of its own, which would run outside the service and
+without the flags its unit passes. Keep `--supervised` if you write your own
+unit, with a restart policy that covers that status (`Restart=on-failure`;
+`KeepAlive` with `SuccessfulExit` false). `soma daemon stop` still stops it
+for good: the daemon exits with status 0, which neither restarts.
 
 While the server runs it shows a tray / menu-bar icon (macOS and Linux, where a
 tray host is available) with the current track, a "Channels" submenu for

@@ -233,8 +233,9 @@ func printUsage(w io.Writer) {
                                   --gen-psk generates one, --insecure serves
                                   a non-loopback address without them;
                                   --show-cert prints the TLS certificate
-                                  fingerprint; soma daemon --help describes
-                                  every flag)
+                                  fingerprint; --supervised is for a daemon
+                                  run by systemd or launchd;
+                                  soma daemon --help describes every flag)
   soma daemon stop            shut down the playback server
   soma completion <bash|zsh>  print a completion script for the given shell
   soma --version              print version information

@@ -89,7 +89,7 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   a decision future work must respect, or reverses one, add a record from
   `docs/adr/0000-template.md` or mark the old one superseded in the same
   commit. Rejected ideas get a record too. Which records cover what:
-  - daemon lifecycle and spawning: 0001, 0004, 0005, 0006
+  - daemon lifecycle and spawning: 0001, 0004, 0005, 0006, 0038 (a daemon run by a service manager)
   - wire protocol: 0002, 0018
   - TUI: 0003, 0020, 0026, 0033, 0034 (spectrum visualizer, also audio and wire), 0036 (mouse)
   - security (socket, TCP, TLS, PSK, outbound HTTP): 0007–0010
@@ -128,7 +128,7 @@ playback server in the foreground (`daemon stop` shuts it down); `play`,
 `--tls`, `--tls-ca`, `--tls-fingerprint`, `--psk-file`) go before the
 command; daemon flags (`--idle-timeout`, `--no-tray`, `--notify`,
 `--quality`, `--listen`, `--tls`, `--tls-cert`, `--tls-key`, `--psk-file`,
-`--gen-psk`, `--insecure`, `--show-cert`) go after it. `play`, `list`,
+`--gen-psk`, `--insecure`, `--supervised`, `--show-cert`) go after it. `play`, `list`,
 `favorite`, `next`, `prev`, `pause`, `stop`, `status`, `volume`, `history`,
 `lastfm status` all take `--json`. A command's own flags may come before
 or after its arguments (`parseFlags`); a command line soma cannot parse
@@ -277,7 +277,11 @@ playback (channel change, pause, stop), never mid-song; `soma play` picks
 its channel first (`client.Connect` never restarts), so an argument that
 matches nothing leaves the daemon playing. A restart carries a pending
 sleep timer over to the new daemon (`client.Restart`; the TUI's
-`carrySleepTimerCmd`). A local daemon that reports its audio device lost
+`carrySleepTimerCmd`). A daemon started with `--supervised` says so in its
+hello, and is restarted through its service manager: the client's shutdown
+asks for a restart (`ShutdownParams.Restart`), the daemon exits with status
+75 (`restartExitStatus` in `cmd/soma/daemon.go`), and the client waits for
+the new instance instead of spawning (`client.AwaitRestart`; ADR-0038). A local daemon that reports its audio device lost
 (`client.DeviceLost`, from the hello kept in `Client.ServerInfo`) is
 replaced the same way before a command that asks for playback, and by the
 TUI before the next play (`Model.deviceLost`, ADR-0037). One that speaks
