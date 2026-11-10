@@ -1,6 +1,6 @@
 # ADR-0021: Shell completion is cache-only and side-effect free; scripting uses `--json`
 
-- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed; amended 2026-10-13: one set of field names, flags in any order, exit status 2 for usage errors; amended 2026-11-09: a wrongly paired remote daemon is a failed handshake)
+- **Status:** Accepted (amended 2026-09-25: status --json fails on a failed handshake; the --json gap is closed; amended 2026-10-13: one set of field names, flags in any order, exit status 2 for usage errors; amended 2026-11-09: a wrongly paired remote daemon is a failed handshake; the completion scripts are run by the tests)
 - **Date:** 2026-07-05 (completion 2026-07-11)
 - **Sources:** cc3a8f2, 224efb2, 79f4ba1, 0c2224a, 0dadcbd; `cmd/soma/completion.go`, `internal/channels` `PeekChannelsFromCache`
 
@@ -20,6 +20,20 @@ Tab press, so it must be instant and must never change anything.
   install them directly, and a drift-guard test keeps them in sync with
   the CLI surface. `completion` and `--version`/`--help` dispatch before
   the config is loaded so a broken config cannot break them.
+  - *Amendment 2026-11-09.* The tests run the scripts as well. Reading
+    them could not show that bash 4 and later break the line at `:` and
+    `=` (`COMP_WORDBREAKS`), so that everything after `--server
+    host:5454` or `--tls-fingerprint sha256:...` completed nothing, or
+    that zsh refused `--server=host:5454`. `TestBashCompletion` sources
+    the script in every bash it finds and calls `_soma` with the words
+    split both ways (the script must keep working on macOS's bash 3.2
+    and without the bash-completion package); `TestZshCompletion`
+    presses Tab in a zsh on a pty of its own
+    (`cmd/soma/testdata/zsh-complete.zsh`). Both skip where the shell is
+    missing, and both run in a sandbox whose `soma` is a stand-in that
+    answers `completion channels` with the real helper's output and
+    nothing else, so completing in the tests cannot reach a daemon or
+    the user's cache.
 - Machine-readable output is a convention: `status`, `list` and `favorite`
   take `--json`, and `status --json` never exits non-zero for a daemon
   that is not running or cannot be reached, so polling status bars keep

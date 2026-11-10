@@ -22,11 +22,11 @@ _soma() {
     typeset -A opt_args
 
     _arguments -C \
-        '--server[connect to the soma daemon at this host:port instead of the local one]:host\:port:' \
+        '--server=[connect to the soma daemon at this host:port instead of the local one]:host\:port:' \
         '--tls[use TLS for the --server connection]' \
-        '--tls-ca[PEM certificate/CA file to trust (implies --tls)]:file:_files' \
-        '--tls-fingerprint[pin the server certificate by SHA-256 fingerprint (implies --tls)]:fingerprint:' \
-        '--psk-file[file holding the server'\''s pre-shared key]:file:_files' \
+        '--tls-ca=[PEM certificate/CA file to trust (implies --tls)]:file:_files' \
+        '--tls-fingerprint=[pin the server certificate by SHA-256 fingerprint (implies --tls)]:fingerprint:' \
+        '--psk-file=[file holding the server'\''s pre-shared key]:file:_files' \
         '--shutdown-on-exit[stop playback and shut down the server when the TUI exits]' \
         '(- *)--version[print version information]' \
         '(- *)--help[show help]' \
@@ -69,13 +69,13 @@ _soma() {
         list | status)
             _arguments '--json[print machine-readable JSON]' && ret=0
             ;;
-        next | prev | pause)
+        next | prev | previous | pause)
             _arguments '--json[print machine-readable JSON]' && ret=0
             ;;
         stop)
             _arguments \
                 '--json[print machine-readable JSON]' \
-                '--in[stop after this long instead of immediately, e.g. 45m]:duration:' \
+                '--in=[stop after this long instead of immediately, e.g. 45m]:duration:' \
                 '--cancel[cancel a pending sleep timer without stopping now]' && ret=0
             ;;
         volume)
@@ -86,7 +86,7 @@ _soma() {
         history)
             _arguments \
                 '--json[print machine-readable JSON]' \
-                '-n[maximum number of entries to show]:count:' \
+                '-n=[maximum number of entries to show]:count:' \
                 '1:channel:_soma_channels' && ret=0
             ;;
         lastfm)
@@ -100,15 +100,15 @@ _soma() {
             ;;
         daemon)
             _arguments \
-                '--idle-timeout[exit after this long with no clients and stopped playback (0 disables)]:duration:' \
+                '--idle-timeout=[exit after this long with no clients and stopped playback (0 disables)]:duration:' \
                 '--no-tray[do not show the system tray / menu-bar icon]' \
                 '--notify[show a desktop notification when the playing track changes]' \
-                '--quality[preferred stream quality]:quality:(highest high low)' \
-                '--listen[also listen for frontends on this TCP host:port]:host\:port:' \
+                '--quality=[preferred stream quality]:quality:(highest high low)' \
+                '--listen=[also listen for frontends on this TCP host:port]:host\:port:' \
                 '--tls[serve the TCP listener over TLS]' \
-                '--tls-cert[PEM certificate for the TCP listener (implies --tls)]:file:_files' \
-                '--tls-key[PEM private key belonging to --tls-cert]:file:_files' \
-                '--psk-file[file holding the pre-shared key TCP clients must authenticate with]:file:_files' \
+                '--tls-cert=[PEM certificate for the TCP listener (implies --tls)]:file:_files' \
+                '--tls-key=[PEM private key belonging to --tls-cert]:file:_files' \
+                '--psk-file=[file holding the pre-shared key TCP clients must authenticate with]:file:_files' \
                 '--gen-psk[generate a random pre-shared key at --psk-file, then exit]' \
                 '--insecure[serve a non-loopback --listen address even without TLS and a PSK]' \
                 '--show-cert[print the TLS certificate path and fingerprint, then exit]' \

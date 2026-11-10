@@ -185,7 +185,13 @@ wire change.
 `newMockPlayer`, `connect` (a raw wire client with `call`, `hello`,
 `waitState`, `waitChannels`). `internal/app/helpers_test.go` has
 `newTestModel`, `fakeBackend`, `runCmd`. `cmd/soma/cli_e2e_test.go` has
-`fakeDaemon` for CLI-over-the-wire tests. `internal/audio/player_test.go`
+`fakeDaemon` for CLI-over-the-wire tests; `cmd/soma/exit_test.go` has
+`runSoma`, which runs the test binary as `soma` in a sandbox for a
+command's output and exit status (the binary refuses to be spawned as a
+daemon). `cmd/soma/completion_test.go` runs the completion scripts in the
+real shells, skipping the ones not installed: every bash it finds with
+`COMP_WORDS` split both the bash 3.2 and the bash 4+ way, zsh through
+`testdata/zsh-complete.zsh` on a pty. `internal/audio/player_test.go`
 has `fakeAudioContext`. `internal/client` tests shrink `restartWait`;
 their fake daemons run in the test process, so a test that makes the
 client signal a protocol-skewed daemon diverts SIGTERM with `catchSIGTERM`

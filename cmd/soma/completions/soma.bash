@@ -8,6 +8,10 @@
 # Channel arguments complete from the locally cached catalog only (via
 # `soma completion channels`), so completing never starts the daemon or
 # touches the network.
+#
+# It has to run on bash 3.2 (macOS) and without the bash-completion package,
+# hence COMPREPLY=($(compgen ...)) where shellcheck would rather see mapfile.
+# shellcheck shell=bash disable=SC2207
 
 _soma() {
     local cur prev
@@ -44,19 +48,36 @@ _soma() {
         ;;
     esac
 
-    # Find the subcommand: the first non-flag word, skipping values of
-    # value-taking global flags (given as the next word, after a split-out
-    # "=", or inline in the same word).
-    local i w cmd=""
-    for ((i = 1; i < COMP_CWORD; i++)); do
+    # bash 4 and later break the line at ":" as well as "=", so
+    # "--server=host:5454" arrives as "--server" "=" "host" ":" "5454", and
+    # the address would pass for the subcommand. Put such runs back
+    # together: words holds the line up to the cursor as it was typed, and
+    # cword is the index of its last word. bash 3.2 does not break words
+    # there, and its words pass through as they are.
+    local -a words
+    local cword=-1 glue=0 i w
+    for ((i = 0; i <= COMP_CWORD; i++)); do
         w="${COMP_WORDS[i]}"
+        if ((cword > 0)) && [[ -n "$w" && "$w" != *[!=:]* ]]; then
+            words[cword]+="$w"
+            glue=1
+        elif ((glue)); then
+            words[cword]+="$w"
+            glue=0
+        else
+            cword=$((cword + 1))
+            words[cword]="$w"
+        fi
+    done
+
+    # Find the subcommand: the first non-flag word, skipping the value of a
+    # value-taking global flag given as the next word ("--flag=value" is a
+    # single word here).
+    local cmd=""
+    for ((i = 1; i < cword; i++)); do
+        w="${words[i]}"
         case "$w" in
-        --server=* | --tls-ca=* | --tls-fingerprint=* | --psk-file=*) ;;
-        --server | --tls-ca | --tls-fingerprint | --psk-file)
-            ((i++))
-            [[ "${COMP_WORDS[i]}" == "=" ]] && ((i++))
-            ;;
-        =) ;;
+        --server | --tls-ca | --tls-fingerprint | --psk-file) ((i++)) ;;
         -*) ;;
         *)
             cmd="$w"
@@ -64,6 +85,13 @@ _soma() {
             ;;
         esac
     done
+
+    # The cursor is inside such a value ("--server host:54"): nothing here
+    # can complete it.
+    if ((i > cword)); then
+        COMPREPLY=()
+        return
+    fi
 
     if [[ -z "$cmd" ]]; then
         if [[ "$cur" == -* ]]; then
@@ -99,7 +127,7 @@ _soma() {
             COMPREPLY=($(compgen -W "$(soma completion channels 2>/dev/null | cut -f1)" -- "$cur"))
         fi
         ;;
-    list | status | next | prev | pause)
+    list | status | next | prev | previous | pause)
         COMPREPLY=($(compgen -W "--json" -- "$cur"))
         ;;
     stop)
@@ -111,8 +139,8 @@ _soma() {
         ;;
     lastfm)
         # The action follows "lastfm" (at index i); only status takes a flag.
-        if ((i + 1 < COMP_CWORD)); then
-            if [[ "${COMP_WORDS[i + 1]}" == status ]]; then
+        if ((i + 1 < cword)); then
+            if [[ "${words[i + 1]}" == status ]]; then
                 COMPREPLY=($(compgen -W "--json" -- "$cur"))
             fi
         else
