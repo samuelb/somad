@@ -6,6 +6,7 @@ on:
     paths:
       - "site/**"
       - "demo.gif"
+      - "demo.mp4"
       - ".github/workflows/website.yml"
   workflow_dispatch:
 

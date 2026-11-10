@@ -280,7 +280,7 @@ kbd {
 .version code { margin-left: .35rem; color: var(--teal); border-color: color-mix(in srgb, var(--teal) 40%, transparent); background: none; }
 
 .screen { margin: 0; padding: .55rem; border-color: var(--line-strong); box-shadow: var(--shadow); }
-.screen img { display: block; width: 100%; height: auto; border-radius: 7px; }
+.screen video { display: block; width: 100%; height: auto; border-radius: 7px; }
 
 
 /* Sections ----------------------------------------------------------- */

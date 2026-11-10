@@ -1,4 +1,4 @@
-# VHS script for demo.gif (https://github.com/charmbracelet/vhs).
+# VHS script for the demo recording (https://github.com/charmbracelet/vhs).
 # Record with `make demo`: it builds ./soma, points every soma directory at
 # dist/demo so the recording never touches real favorites or a running
 # daemon, and plays real audio for about half a minute.
@@ -7,7 +7,10 @@
 # it, mark it a favorite, peek at its history, clear the filter, then end
 # on the spectrum visualizer behind the full list.
 
+# The GIF is for the README, which can embed nothing else from the
+# repository; the website shows the H.264 copy, a fraction of its size.
 Output demo.gif
+Output demo.mp4
 
 Set Shell "bash"
 Set FontSize 14
@@ -56,9 +59,11 @@ Sleep 700ms
 Escape
 Sleep 1500ms
 
-# The spectrum of the music, behind the list.
+# The spectrum of the music, behind the list. Every frame of it redraws
+# half the screen, so a second of this scene costs the GIF about 350 KB,
+# against 30 KB for a second of the rest: keep it short.
 Type "v"
-Sleep 7s
+Sleep 4s
 
 Type "q"
 Sleep 1s

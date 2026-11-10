@@ -29,12 +29,6 @@ for ADR-0029, publishing to the AUR) live in the ADRs and the README.
 
 ## P3 — polish
 
-- **Shrink the demo recording** **[S]**. `demo.gif` is 3.3 MB: 97 % of the
-  website's page weight, and every re-record adds as much to the
-  repository, about 12 of whose 18 MB are old recordings. An H.264 copy of
-  the same recording is 0.5 MB, which VHS can write next to the GIF for
-  the site to show; or record fewer frames.
-
 ## Not planned
 
 Scope cuts are recorded as Architecture Decision Records in `docs/adr/`

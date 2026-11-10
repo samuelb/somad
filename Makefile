@@ -170,8 +170,9 @@ package-nix:
 	@echo "Building Nix package..."
 	nix build .#
 
-# Build the website (a Zola project in site/; demo.gif is symlinked into
-# site/static) into dist/site. Needs Zola 0.23 or newer: brew install zola
+# Build the website (a Zola project in site/; the demo recording is
+# symlinked into site/static) into dist/site. Needs Zola 0.23 or newer:
+# brew install zola
 .PHONY: site
 site:
 	@command -v zola >/dev/null 2>&1 || { echo "zola not installed: brew install zola"; exit 1; }
@@ -184,8 +185,9 @@ site-serve:
 	@command -v zola >/dev/null 2>&1 || { echo "zola not installed: brew install zola"; exit 1; }
 	zola --root site serve
 
-# Re-record demo.gif with VHS (brew install vhs). Uses an isolated soma
-# home under dist/demo and a private socket; plays audio while recording.
+# Re-record demo.gif and demo.mp4 with VHS (brew install vhs). Uses an
+# isolated soma home under dist/demo and a private socket; plays audio
+# while recording.
 DEMO_HOME=$(CURDIR)/dist/demo
 .PHONY: demo
 demo: build
@@ -290,7 +292,7 @@ help:
 	@echo "  package-nix       Build the Nix flake package"
 	@echo "  site              Build the website with Zola into dist/site"
 	@echo "  site-serve        Serve the website with live reload on http://127.0.0.1:1111"
-	@echo "  demo              Re-record demo.gif with VHS (plays audio)"
+	@echo "  demo              Re-record demo.gif and demo.mp4 with VHS (plays audio)"
 	@echo "  fmt               Format Go code"
 	@echo "  vet               Run go vet"
 	@echo "  check             Run lint, test, and vet"

@@ -22,7 +22,7 @@ make fuzz               # fuzz every Fuzz* target for FUZZTIME (default 30s) eac
 make fmt                # gofmt -s (+ goimports if installed)
 make site               # build the website (Zola project in site/) into dist/site; brew install zola
 make site-serve         # serve it with live reload on http://127.0.0.1:1111
-make demo               # re-record demo.gif from demo.tape with VHS (brew install vhs; plays audio)
+make demo               # re-record demo.gif and demo.mp4 from demo.tape with VHS (brew install vhs; plays audio)
 ```
 
 - Tests need no network, audio device, or display: HTTP goes to `httptest`
@@ -68,21 +68,23 @@ make demo               # re-record demo.gif from demo.tape with VHS (brew insta
   `site/static/` (`style.css`, `favicon.svg`, `site.js` for key
   shortcuts, the tmux-style status line and its theme switch, and the
   quick start's typing and copy button, self-hosted `fonts/`, and
-  `demo.gif` as a symlink to the repo-root copy). The look borrows the
+  `demo.mp4` and `demo.gif` as symlinks to the repo-root copies; the page
+  plays the video, and the GIF is only its link preview). The look borrows the
   TUI's palette and cards (ADR 0035); load nothing from third-party hosts
   and keep the page working without JavaScript. Needs Zola 0.23 or newer: it uses components,
   which replaced shortcodes in 0.23. `make site` builds into `dist/site`;
   the Website workflow (`.github/workflows/website.yml`) does the same with
   a version- and checksum-pinned Zola and deploys to GitHub Pages on every
-  push to `main` that touches `site/` or `demo.gif`. The page fetches the
+  push to `main` that touches `site/` or the demo recording. The page fetches the
   latest release tag from the GitHub API at view time.
   **Keep it current:** any change to features, installation steps,
   commands, flags, keybindings, config keys, or file locations updates
   `site/content/_index.md` in the same commit as the README. The page must
-  never describe behaviour the binary no longer has. `demo.gif` (embedded in the
-  README and the website) is recorded from `demo.tape` by `make demo`;
+  never describe behaviour the binary no longer has. The demo recording
+  (`demo.gif` in the README, `demo.mp4` on the website, the same recording
+  as H.264) is recorded from `demo.tape` by `make demo`;
   re-record it after visible TUI changes and adjust the tape if the keys
-  it presses change.
+  it presses change. Commit both files together.
 - **Decisions** live in `docs/adr/` (index: `docs/adr/README.md`). Read the
   relevant records before changing the architecture, wire protocol,
   security model, audio pipeline, or release process. When a change makes

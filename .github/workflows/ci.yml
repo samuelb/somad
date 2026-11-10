@@ -9,6 +9,7 @@ on:
       - "docs/**"
       - "**.md"
       - "demo.gif"
+      - "demo.mp4"
       - "demo.tape"
       - ".github/workflows/website.yml"
   pull_request:
@@ -19,6 +20,7 @@ on:
       - "docs/**"
       - "**.md"
       - "demo.gif"
+      - "demo.mp4"
       - "demo.tape"
       - ".github/workflows/website.yml"
   # Weekly as well: a vulnerability published against the pinned toolchain

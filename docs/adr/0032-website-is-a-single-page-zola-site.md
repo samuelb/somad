@@ -1,6 +1,6 @@
 # ADR-0032: The website is a single-page Zola site: copy in Markdown and front matter, layout in Tera templates, pinned Zola in CI
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-11-10: the page plays the demo as a video)
 - **Date:** 2026-09-07
 - **Sources:** `site/`, the `site` and `site-serve` Makefile targets,
   `.github/workflows/website.yml`
@@ -32,6 +32,21 @@ simpler at the time. The page must stay a single product-facing page.
   `<span class="c">` / `<span class="p">`; plain blocks are fenced.
 - `demo.gif` stays at the repository root (the README embeds it) and is
   symlinked from `site/static/demo.gif`; Zola copies the target.
+  - *Amendment 2026-11-10.* The GIF was 3.3 MB of a page that is 0.1 MB
+    without it. The page now plays `demo.mp4`, the same recording as
+    H.264 at well under a megabyte, which VHS writes next to the GIF
+    (`Output demo.mp4` in `demo.tape`) and which is symlinked the same
+    way. It is a muted, looping `<video>` that needs no JavaScript, with
+    the browser's controls, so it can be paused, which the GIF could
+    not, and started by hand where a browser does not autoplay; the
+    price is the control bar a browser shows over it for the first
+    seconds. The README keeps the GIF: GitHub renders no video from a
+    path in the repository. The page still ships the GIF, as its
+    `og:image` and as the link inside the `<video>` for a browser that
+    plays none, but loads it for no visitor. Not done: a WebM beside the
+    MP4 (the major browsers all play H.264), and encoding the video in
+    the Website workflow instead of committing it (ffmpeg on the runner
+    and for `make site`, to save half a megabyte a recording).
 - CI downloads a pinned Zola release and verifies it against a SHA-256
   recorded in the workflow, following ADR 0027, then runs `make site`.
 

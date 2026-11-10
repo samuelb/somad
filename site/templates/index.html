@@ -17,7 +17,13 @@
         </div>
         <figure class="panel screen">
           <figcaption class="panel-label">soma</figcaption>
-          <img src="{{ get_url(path="demo.gif") }}" alt="Animated demo of the Somad terminal UI: browsing SomaFM channels, playing one, and showing the current track." width="880" height="618">
+          {# The recording as H.264, a fraction of the GIF's size (ADR 0032).
+             No <img> fallback in here: a browser fetches one even when it
+             plays the video. #}
+          <video autoplay loop muted playsinline controls width="880" height="618" aria-label="Demo of the Somad terminal UI: browsing SomaFM channels, playing one, and showing the current track.">
+            <source src="{{ get_url(path="demo.mp4") }}" type="video/mp4">
+            <a href="{{ get_url(path="demo.gif") }}">Watch the demo</a>
+          </video>
         </figure>
       </div>
     </section>
