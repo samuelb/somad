@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,7 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"somad/internal/audio"
+	"somad/internal/channels"
 	"somad/internal/protocol"
+	"somad/internal/state"
 )
 
 // lostDeviceError stands in for the player's error once the audio device
@@ -68,38 +72,154 @@ func TestPlay_ALostAudioDeviceStopsInsteadOfReconnecting(t *testing.T) {
 	s.mu.Unlock()
 }
 
-func TestPlay_IsRefusedAtOnceOnceTheAudioDeviceIsLost(t *testing.T) {
-	s, player := newTestServer(t, Config{})
+// loseDevice makes a play fail for a lost audio device, which is how the
+// server learns of it, and leaves the player able to play again: the device
+// does not come back in this process even so.
+func loseDevice(t *testing.T, s *Server, player *mockPlayer) {
+	t.Helper()
 	player.setPlayErr(errDeviceLost)
 	_, err := s.Play("dronezone")
 	require.Error(t, err)
-
-	// Even a player that would play again is not asked: the device does
-	// not come back in this process.
 	player.setPlayErr(nil)
-	resolves := countResolves(t)
-	attempts := len(player.attemptedURLs())
+}
 
-	for _, play := range []func() (protocol.PlaybackState, error){
-		func() (protocol.PlaybackState, error) { return s.Play("groovesalad") },
-		s.PlayCurrent,
-		s.PlayPause,
-		func() (protocol.PlaybackState, error) { return s.PlayRelative(1) },
-	} {
-		st, err := play()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "has to be restarted")
-		assertDeviceLost(t, st)
+// awaitShutdown waits for a server that is shutting itself down.
+func awaitShutdown(t *testing.T, s *Server) {
+	t.Helper()
+	select {
+	case <-s.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server did not shut down")
 	}
-	assert.Zero(t, resolves.Load(), "no playlist is fetched for a stream that cannot play")
-	assert.Len(t, player.attemptedURLs(), attempts)
+}
 
-	// A stop clears a stream's error, but not the reason nothing plays.
-	assertDeviceLost(t, s.Stop())
+func TestPlay_OnceTheAudioDeviceIsLostRestartsTheDaemonToPlay(t *testing.T) {
+	for name, tc := range map[string]struct {
+		play func(s *Server) (protocol.PlaybackState, error)
+		want string
+	}{
+		"a channel":        {func(s *Server) (protocol.PlaybackState, error) { return s.Play("groovesalad") }, "groovesalad"},
+		"the last channel": {(*Server).PlayCurrent, "dronezone"},
+		"unpausing":        {(*Server).PlayPause, "dronezone"},
+		"the next channel": {func(s *Server) (protocol.PlaybackState, error) { return s.PlayRelative(1) }, "bothformats"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, player := newTestServer(t, Config{})
+			loseDevice(t, s, player)
+			resolves := countResolves(t)
+			attempts := len(player.attemptedURLs())
 
-	// A client connecting now learns it from the hello.
+			st, err := tc.play(s)
+
+			// This process cannot play it, so it makes way for one that
+			// can, and says so instead of the old error.
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "restarting to play")
+			assertDeviceLost(t, st)
+			assert.Zero(t, resolves.Load(), "no playlist is fetched for a stream that cannot play")
+			assert.Len(t, player.attemptedURLs(), attempts)
+			awaitShutdown(t, s)
+			resume, ok := s.Resume()
+			require.True(t, ok)
+			assert.Equal(t, tc.want, resume.ChannelID)
+			assert.True(t, resume.StopAt.IsZero(), "no sleep timer was pending")
+		})
+	}
+}
+
+func TestPlay_TheRestartForALostDeviceAnswersTheRequestFirst(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	loseDevice(t, s, player)
 	c := connect(t, s)
-	assert.True(t, c.hello().DeviceLost)
+	assert.True(t, c.hello().DeviceLost, "a client connecting now learns it from the hello")
+
+	// As a remote client does, which cannot replace the daemon itself.
+	resp := c.call(protocol.MethodPlay, protocol.PlayParams{ChannelID: "groovesalad"})
+
+	assert.Contains(t, resp.Error, "restarting to play Groove Salad")
+	awaitShutdown(t, s)
+}
+
+func TestPlay_TheRestartForALostDeviceCarriesTheSleepTimer(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	s.StopIn(time.Hour)
+	loseDevice(t, s, player)
+
+	_, err := s.Play("groovesalad")
+	require.Error(t, err)
+
+	resume, ok := s.Resume()
+	require.True(t, ok)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), resume.StopAt, time.Minute)
+}
+
+func TestPlay_WhatCannotPlayDoesNotRestartADaemonWithoutADevice(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	loseDevice(t, s, player)
+
+	// A channel that does not exist would not play after a restart either.
+	st, err := s.Play("nosuchchannel")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has to be restarted")
+	assertDeviceLost(t, st)
+
+	// Nor does anything but a request to play: a stop clears a stream's
+	// error, but not the reason nothing plays.
+	assertDeviceLost(t, s.Stop())
+	_, ok := s.Resume()
+	assert.False(t, ok)
+	s.mu.Lock()
+	assert.False(t, s.closing)
+	s.mu.Unlock()
+}
+
+func TestResumePlayback_PlaysWhatTheDaemonBeforeWasAskedFor(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+	stopAt := time.Now().Add(time.Hour).Truncate(time.Second)
+
+	s.resumePlayback(state.Resume{ChannelID: "groovesalad", StopAt: stopAt})
+
+	st := s.Snapshot()
+	assert.Equal(t, protocol.StatusPlaying, st.Status)
+	assert.Equal(t, "groovesalad", st.ChannelID)
+	assert.Len(t, player.attemptedURLs(), 1)
+	// Its sleep timer lived in the old process only.
+	assert.Equal(t, stopAt.Format(time.RFC3339), st.StopAt)
+}
+
+func TestResumePlayback_StaysSilentOnceTheSleepTimerHasRunOut(t *testing.T) {
+	s, player := newTestServer(t, Config{})
+
+	s.resumePlayback(state.Resume{ChannelID: "groovesalad", StopAt: time.Now().Add(-time.Second)})
+
+	st := s.Snapshot()
+	assert.Equal(t, protocol.StatusStopped, st.Status)
+	assert.Empty(t, st.StopAt)
+	assert.Empty(t, player.attemptedURLs())
+}
+
+func TestRun_ResumesTheChannelItWasStartedFor(t *testing.T) {
+	isolateServer(t)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	require.NoError(t, channels.WriteChannelsToCache(&channels.Channels{Channels: testChannels()}))
+	prevURL := channels.SomaFMChannelsURL
+	channels.SomaFMChannelsURL = "http://catalog.invalid.test/channels.json"
+	t.Cleanup(func() { channels.SomaFMChannelsURL = prevURL })
+	player := newMockPlayer()
+	s := New(Config{Player: player, State: &state.State{}, Version: "test", Resume: state.Resume{ChannelID: "dronezone"}})
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	runDone := make(chan error, 1)
+	go func() { runDone <- s.Run(ln) }()
+	t.Cleanup(func() {
+		s.Shutdown()
+		assert.NoError(t, <-runDone)
+	})
+
+	require.Eventually(t, func() bool {
+		st := s.Snapshot()
+		return st.Status == protocol.StatusPlaying && st.ChannelID == "dronezone"
+	}, 5*time.Second, 5*time.Millisecond)
 }
 
 func TestStreamError_ALostAudioDeviceStopsPlayback(t *testing.T) {

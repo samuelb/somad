@@ -12,6 +12,7 @@ import (
 	"somad/internal/channels"
 	"somad/internal/protocol"
 	"somad/internal/security"
+	"somad/internal/state"
 	"somad/pkg/playlist"
 )
 
@@ -132,9 +133,13 @@ func (s *Server) beginPlay(channelID string, userInitiated bool, reconnectGen ui
 		return nil, s.stopLocked(), nil
 	}
 	if s.deviceLost != "" {
-		// Said before the playlist is fetched and a stream is opened: the
-		// player would refuse it at the end of all that (ADR-0037).
-		return nil, s.snapshotLocked(), errors.New(s.deviceLost)
+		// Decided before the playlist is fetched and a stream is opened:
+		// the player would refuse it at the end of all that (ADR-0037).
+		ch, ok := s.findChannelLocked(channelID)
+		if !userInitiated || !ok {
+			return nil, s.snapshotLocked(), errors.New(s.deviceLost)
+		}
+		return nil, s.snapshotLocked(), s.restartToPlayLocked(ch)
 	}
 	ch, ok := s.findChannelLocked(channelID)
 	if !ok {
@@ -393,16 +398,61 @@ func (s *Server) failStreamLocked(gen uint64, err error, retry bool) protocol.Pl
 // (audio.ErrAudioDeviceLost). The player cannot bring it back: oto allows
 // one device context per process and never clears its fatal error. So from
 // here on this daemon plays nothing: it stops instead of reconnecting,
-// which could only fail the same way for as long as it ran, refuses every
-// play (beginPlay), and says so in its snapshots and its hello, which is
-// what lets a client that may restart it put a new daemon in its place
-// before asking for playback (ADR-0037). Caller holds s.mu.
+// which could only fail the same way for as long as it ran, and says so in
+// its snapshots and its hello, which is what lets a client that may
+// restart it put a new daemon in its place before asking for playback. A
+// play that reaches it all the same makes it restart itself
+// (restartToPlayLocked, ADR-0037). Caller holds s.mu.
 func (s *Server) noteDeviceLostLocked(err error) {
 	if s.deviceLost != "" {
 		return
 	}
 	s.deviceLost = security.SanitizeText(err.Error()) + " (the soma daemon has to be restarted to play again)"
 	log.Printf("the audio device is lost, and this daemon cannot play again until it is restarted: %v", err)
+}
+
+// restartReplyGrace is how long a daemon that restarts itself waits before
+// it shuts down, so that the request which made it do so is answered first:
+// the shutdown closes every connection, and the client would be left with a
+// lost connection where it could have read why.
+var restartReplyGrace = 100 * time.Millisecond
+
+// restartToPlayLocked answers a request to play ch on a daemon whose audio
+// device is lost: this process cannot, so it makes way for one that can.
+// It notes what was asked for (Resume) and shuts the server down; whoever
+// runs the server then starts the process again, and that one plays ch
+// (resumePlayback). So the tray, MPRIS and a remote client, none of which
+// can replace the daemon the way a local client does, get their music back
+// by asking for it (ADR-0037). Every such restart answers a request, so a
+// device that stays lost cannot make the daemon restart in a loop. The
+// error is the request's answer. Caller holds s.mu.
+func (s *Server) restartToPlayLocked(ch channels.Channel) error {
+	s.resume = &state.Resume{ChannelID: ch.ID, StopAt: s.stopAt}
+	log.Printf("asked to play %s after the audio device was lost: restarting to play it", ch.ID)
+	time.AfterFunc(restartReplyGrace, s.Shutdown)
+	return fmt.Errorf("the audio device was lost; the soma daemon is restarting to play %s", ch.Title)
+}
+
+// resumePlayback plays what the daemon this one was started in place of
+// was asked for (restartToPlayLocked), with its sleep timer armed again. A
+// timer whose time has passed in between means the music was to be off by
+// now, so nothing plays.
+func (s *Server) resumePlayback(r state.Resume) {
+	if !r.StopAt.IsZero() {
+		if !time.Now().Before(r.StopAt) {
+			log.Printf("not resuming %s: its sleep timer ran out during the restart", r.ChannelID)
+			return
+		}
+		s.mu.Lock()
+		s.cancelStopTimerLocked()
+		s.stopAt = r.StopAt
+		s.armStopTimerLocked()
+		s.broadcastStateLocked()
+		s.mu.Unlock()
+	}
+	if _, err := s.Play(r.ChannelID); err != nil {
+		log.Printf("could not resume %s after the restart: %v", r.ChannelID, err)
+	}
 }
 
 // DeviceLost reports whether the audio device has failed for good; see

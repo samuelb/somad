@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"somad/internal/audio"
 	"somad/internal/channels"
+	"somad/internal/security"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,6 +44,12 @@ func TestMain(m *testing.M) {
 		// to a host that is not on the allowlist fail before any network
 		// I/O, and the daemon runs on without a catalog.
 		channels.SomaFMChannelsURL = "http://catalog.invalid.test/channels.json"
+		if marker := os.Getenv(lostDeviceEnv); marker != "" {
+			newPlayer = func(string) audio.Player { return &lostOncePlayer{marker: marker} }
+			// The playlist of the one channel in its catalog is served by
+			// the test that started it.
+			security.AddAllowedHost("127.0.0.1")
+		}
 		os.Args = append([]string{"soma"}, strings.Split(args, "\x1f")...)
 		main()
 		os.Exit(0)

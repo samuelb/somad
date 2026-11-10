@@ -277,7 +277,7 @@ The daemon keeps running until `soma daemon stop` (which returns once the daemon
 
 After an upgrade, the running daemon is restarted onto the new version the next time you change channel, pause or stop, never mid-song. If the upgrade changed the wire protocol, the old daemon cannot serve the new client at all: until then the other commands and the TUI fail with an error saying so (the music keeps playing), and `soma daemon stop` stops the old daemon right away. A sleep timer that is pending carries over to the restarted daemon.
 
-If the daemon loses its audio device for good (the sound server it was connected to was restarted, say), it stops and says so in `soma status` and the TUI: only a new process gets a working device. The next `soma play`, `soma pause`, or channel you pick in the TUI replaces the daemon with a fresh one and plays. A remote daemon has to be restarted where it runs.
+If the daemon loses its audio device for good (the sound server it was connected to was restarted, say), it stops and says so in `soma status` and the TUI: only a new process gets a working device. The next `soma play`, `soma pause`, or channel you pick in the TUI replaces the daemon with a fresh one and plays. Asked to play in any other way (from the tray, with a media key, by a remote client), the daemon restarts itself and then plays.
 
 `soma stop --in 45m` arms a sleep timer instead of stopping right away; the daemon owns it, so it fires even if you close the TUI or the terminal, and a new `--in` replaces it. It goes by the clock: suspending the machine in between does not push the stop back. `soma stop --cancel` drops a pending timer without stopping. `soma status` and the TUI's now-playing card show “sleep in Nm” while one is pending.
 

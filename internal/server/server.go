@@ -45,6 +45,11 @@ type Config struct {
 	// shutdown that asks for a restart as a request for that exit (see
 	// RestartRequested).
 	Supervised bool
+	// Resume is the note the daemon this one was started in place of left
+	// when it restarted itself (state.TakeResume, ADR-0037): the channel
+	// to play once the catalog is loaded, and its pending sleep timer. The
+	// zero value means there was none.
+	Resume state.Resume
 	// PSK, when non-empty, is the pre-shared key every non-local (TCP)
 	// connection must authenticate with before hello. Unix-socket
 	// connections are exempt: the socket directory's permissions already
@@ -192,6 +197,11 @@ type Server struct {
 	// deviceLost is why the audio device is gone for good, empty while it
 	// works; it is never cleared. See noteDeviceLostLocked.
 	deviceLost string
+	// startWith is Config.Resume, what the daemon before this one asked it
+	// to play; resume is the same wish of this daemon for the next, set
+	// when it shuts down to be started again (restartToPlayLocked).
+	startWith state.Resume
+	resume    *state.Resume
 
 	// supervised is Config.Supervised; restartRequested is set when such a
 	// daemon is shut down for a restart (ShutdownForRestart).
@@ -236,6 +246,7 @@ func New(cfg Config) *Server {
 		tray:        cfg.Tray,
 		idleTimeout: cfg.IdleTimeout,
 		supervised:  cfg.Supervised,
+		startWith:   cfg.Resume,
 		psk:         cfg.PSK,
 		quality:     cfg.Quality,
 		persist:     state.SaveState,
@@ -300,6 +311,9 @@ func (s *Server) Run(lns ...net.Listener) error {
 	go s.watchTrackUpdates()
 	go s.refreshLoop()
 	s.loadCatalog()
+	if s.startWith.ChannelID != "" {
+		go s.resumePlayback(s.startWith)
+	}
 
 	errCh := make(chan error, len(lns))
 	for _, ln := range lns {
@@ -395,6 +409,20 @@ func (s *Server) RestartRequested() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.restartRequested
+}
+
+// Resume reports whether the daemon shut itself down to be started again,
+// and what the process started in its place is to play: it was asked to
+// play after its audio device was lost, which only a new process can
+// (restartToPlayLocked). Whoever runs the server then has to leave the
+// note for that process (state.SaveResume) and see to it that one starts.
+func (s *Server) Resume() (state.Resume, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resume == nil {
+		return state.Resume{}, false
+	}
+	return *s.resume, true
 }
 
 // Shutdown stops playback and tears the server down. Safe to call from any

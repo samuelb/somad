@@ -21,7 +21,8 @@ import (
 
 // daemonProcess is a real `soma daemon`, run from the test binary (see
 // TestMain) with its config, state, cache and socket in a directory of its
-// own, and no tray. It never plays, so it opens no audio device.
+// own, and no tray. It opens no audio device: it never plays, or plays
+// through a lostOncePlayer.
 type daemonProcess struct {
 	ep   client.Endpoint
 	cmd  *exec.Cmd
@@ -51,7 +52,14 @@ func (b *lockedBuffer) String() string {
 // answers.
 func startDaemonProcess(t *testing.T, dir string, args ...string) *daemonProcess {
 	t.Helper()
-	d := spawnDaemonProcess(t, dir, args...)
+	return startDaemonProcessEnv(t, dir, nil, args...)
+}
+
+// startDaemonProcessEnv is startDaemonProcess with env added to the
+// daemon's environment.
+func startDaemonProcessEnv(t *testing.T, dir string, env []string, args ...string) *daemonProcess {
+	t.Helper()
+	d := spawnDaemonProcessEnv(t, dir, env, args...)
 	deadline := time.Now().Add(15 * time.Second)
 	for {
 		c, err := client.DialEndpoint(d.ep)
@@ -72,6 +80,13 @@ func startDaemonProcess(t *testing.T, dir string, args ...string) *daemonProcess
 // spawnDaemonProcess starts the daemon with args without waiting for it.
 func spawnDaemonProcess(t *testing.T, dir string, args ...string) *daemonProcess {
 	t.Helper()
+	return spawnDaemonProcessEnv(t, dir, nil, args...)
+}
+
+// spawnDaemonProcessEnv is spawnDaemonProcess with env added to the
+// daemon's environment.
+func spawnDaemonProcessEnv(t *testing.T, dir string, env []string, args ...string) *daemonProcess {
+	t.Helper()
 	d := &daemonProcess{
 		ep:   client.UnixEndpoint(dir + "/s.sock"),
 		out:  &lockedBuffer{},
@@ -83,6 +98,7 @@ func spawnDaemonProcess(t *testing.T, dir string, args ...string) *daemonProcess
 		"XDG_CONFIG_HOME="+dir, "XDG_STATE_HOME="+dir, "XDG_CACHE_HOME="+dir,
 		"SOMAD_SOCKET="+d.ep.Address, "SOMAD_SERVER=",
 	)
+	d.cmd.Env = append(d.cmd.Env, env...)
 	d.cmd.Stdout, d.cmd.Stderr = d.out, d.out
 	require.NoError(t, d.cmd.Start())
 	go func() {

@@ -200,7 +200,10 @@ wire change.
 `fakeDaemon` for CLI-over-the-wire tests; `cmd/soma/exit_test.go` has
 `runSoma`, which runs the test binary as `soma` in a sandbox for a
 command's output and exit status (the binary refuses to be spawned as a
-daemon). `cmd/soma/completion_test.go` runs the completion scripts in the
+daemon). `cmd/soma/daemon_e2e_test.go` has `startDaemonProcess`, which runs
+the real daemon from the test binary; with `lostDeviceSandbox`
+(`daemon_restart_e2e_test.go`) it plays through a `lostOncePlayer`, whose
+device is lost at the first play. `cmd/soma/completion_test.go` runs the completion scripts in the
 real shells, skipping the ones not installed: every bash it finds with
 `COMP_WORDS` split both the bash 3.2 and the bash 4+ way, zsh through
 `testdata/zsh-complete.zsh` on a pty. `internal/audio/player_test.go`
@@ -242,8 +245,15 @@ ends a connection at its first line that is not a JSON request, so an HTTP
 request from a browser cannot carry requests in (ADR-0007).
 Once the player reports `audio.ErrAudioDeviceLost` the daemon plays nothing
 more (`noteDeviceLostLocked` in `playback.go`, ADR-0037): it stops without
-a reconnect, refuses every play in `beginPlay`, and sets `deviceLost` in
-its snapshots and its hello, so a local client can replace it.
+a reconnect and sets `deviceLost` in its snapshots and its hello, so a
+local client can replace it. A play that reaches it all the same (the tray,
+MPRIS, a remote client) makes it restart itself (`restartToPlayLocked`):
+the server shuts down with the channel and the sleep timer in
+`Server.Resume`, and `restartSelf` in `cmd/soma/daemon.go` leaves them in
+the state directory's `resume.json` and exits with status 75 when
+supervised, or else re-executes the daemon in place (`reexec`). The daemon
+starting takes the note (`state.TakeResume`, within a minute of its
+writing) and plays the channel (`Config.Resume`, `resumePlayback`).
 `history.go` keeps an in-memory ring (default 50) of now-playing titles
 across the daemon's lifetime, appended on every ICY title change
 (`handleTrackUpdate` in `playback.go`), except a title that is already the
@@ -349,7 +359,9 @@ changes must keep `nowPlayingIndex` and `cardContentX` in step.
   its own `lastfm.json` so `soma lastfm login` never touches config.yaml;
   `tui.go` keeps the TUI's preferences (the visualizer style) in
   `tui.json`, written by the TUI through `cmd/soma/prefs.go`'s
-  latest-wins saver
+  latest-wins saver; `resume.go` is the note a daemon that restarts itself
+  leaves for the next (`resume.json`, there for the moment of the restart
+  only)
 - `internal/config` — strict YAML config file, supplies flag defaults
 - `internal/security` — all outbound HTTP goes through
   `security.NewRequest`/`NewFormRequest` / `ValidateURL`, which allowlist

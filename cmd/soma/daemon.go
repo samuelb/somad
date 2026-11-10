@@ -325,6 +325,9 @@ func runServer(args []string) {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
+	if resume, ok := srv.Resume(); ok {
+		restartSelf(resume, opts.supervised) // nothing was playing: no fade-out to wait for
+	}
 	// Shutdown's player.Stop fades out asynchronously; give it a moment so
 	// the audio doesn't cut off hard.
 	time.Sleep(400 * time.Millisecond)
@@ -342,6 +345,52 @@ func runServer(args []string) {
 // has asked it to restart: EX_TEMPFAIL, "try again", which the shipped
 // systemd unit and launchd plist answer by starting it again.
 const restartExitStatus = 75
+
+// resumeMaxAge is how old the note of a daemon that restarted itself may be
+// for the daemon starting now to act on it (state.TakeResume). Re-executing
+// takes well under a second, systemd waits 100 ms by default before it
+// starts a unit again, and launchd up to ten seconds.
+const resumeMaxAge = time.Minute
+
+// restartSelf starts the daemon again once its server has shut itself down
+// to be replaced: it was asked to play after its audio device was lost,
+// which only a new process can (ADR-0037). It leaves resume for that
+// process and does not return. A supervised daemon exits for its service
+// manager to start it again (ADR-0038). Any other re-executes itself, so
+// it stays the same process to whatever started it: a terminal, a service
+// manager it was not told about, the client whose child it once was.
+func restartSelf(resume state.Resume, supervised bool) {
+	if err := state.SaveResume(resume); err != nil {
+		// The new daemon then starts silent, but with a device that works:
+		// asking it to play once more does it.
+		log.Printf("warning: could not leave a note to resume %s after the restart: %v", resume.ChannelID, err)
+	}
+	if supervised {
+		log.Printf("exiting with status %d for the service manager to start a daemon with a working audio device", restartExitStatus)
+		os.Exit(restartExitStatus)
+	}
+	log.Print("starting again in place for a working audio device")
+	err := reexec()
+	log.Fatalf("could not start the soma daemon again: %v; the next soma command starts one", err)
+}
+
+// startArgs is the command line the process was started with, for reexec.
+var startArgs = slices.Clone(os.Args)
+
+// reexec replaces the process with a fresh run of its own executable and
+// arguments, and returns only when that failed. A variable so tests can
+// stand in for it.
+var reexec = func() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return syscall.Exec(exe, startArgs, os.Environ()) // #nosec G204 G702 -- our own executable and arguments
+}
+
+// newPlayer builds the audio player. A variable so the tests that run the
+// real daemon can give it one that needs no audio device.
+var newPlayer = func(userAgent string) audio.Player { return audio.NewPlayer(userAgent) }
 
 // openListeners binds the Unix socket and, when configured, the TCP
 // listener. The socket is bound before the (potentially slow) audio init in
@@ -378,7 +427,7 @@ func openListeners(opts daemonOptions) ([]net.Listener, func(), error) {
 // tray is nil when disabled, unsupported, or when no GUI is present (a
 // headless host), so the server still runs anywhere.
 func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.Tray, error) {
-	player := audio.NewPlayer(userAgent())
+	player := newPlayer(userAgent())
 	if opts.quality != "" && opts.quality != "highest" && !slices.Contains(audio.PreferredFormats(), audio.FormatAACP) {
 		log.Printf("note: stream quality %q has no effect in this build: SomaFM offers its lower qualities "+
 			"only as HE-AAC, which only the macOS build decodes, so every channel plays at the highest quality", opts.quality)
@@ -397,6 +446,12 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 		tr = tray.New()
 	}
 	scrobbler, reloadLastfmSession, loadScrobbler := setUpLastfm(cfg)
+	// Taken only here, by the one daemon that holds the single-instance
+	// lock: one that lost the race for it has exited before this.
+	resume, resuming := state.TakeResume(resumeMaxAge)
+	if resuming {
+		log.Printf("started in place of a daemon that lost its audio device: playing %s", resume.ChannelID)
+	}
 
 	srv := server.New(server.Config{
 		Version:             version,
@@ -407,6 +462,7 @@ func buildServer(cfg *config.Config, opts daemonOptions) (*server.Server, *tray.
 		Tray:                tr,
 		IdleTimeout:         opts.idleTimeout,
 		Supervised:          opts.supervised,
+		Resume:              resume,
 		PSK:                 opts.psk,
 		Quality:             opts.quality,
 		Notify:              opts.notify,

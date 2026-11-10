@@ -299,7 +299,8 @@ If the daemon loses its audio device for good (the sound server it was
 connected to was restarted, say), it stops and says so in `soma status` and
 the TUI: only a new process gets a working device. The next `soma play`,
 `soma pause`, or channel you pick in the TUI replaces the daemon with a
-fresh one and plays. A remote daemon has to be restarted where it runs.
+fresh one and plays. Asked to play in any other way (from the tray, with a
+media key, by a remote client), the daemon restarts itself and then plays.
 
 To run the daemon as a persistent background service instead of starting it
 by hand, this repo ships a systemd `--user` unit and a macOS LaunchAgent

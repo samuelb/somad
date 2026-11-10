@@ -22,10 +22,6 @@ for ADR-0029, publishing to the AUR) live in the ADRs and the README.
   only. The daemon would register with `MPRemoteCommandCenter` and
   `MPNowPlayingInfoCenter` next to the tray (the macOS build needs cgo
   already). Not decided: needs an ADR beside 0019.
-- **Recover from a lost audio device without a client** **[M]**. The
-  daemon stops and a `soma` command or the TUI replaces it (ADR-0037), so
-  a session that only uses the tray or media keys stays silent until one
-  runs. ADR-0037 lists what a daemon that replaces itself would take.
 
 ## P3 — polish
 
