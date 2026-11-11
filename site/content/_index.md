@@ -139,12 +139,14 @@ nix profile install github:samuelb/somad
 ```
 {% </card> %}
 
-{% <card title="Arch Linux"> %}
-Every release ships a pinned `PKGBUILD` plus the matching source tarball as release assets. Download the PKGBUILD and run:
-
+{% <card title="Arch Linux" sub="AUR"> %}
 ```sh
-makepkg -si
+paru -S somad
+# or
+yay -S somad
 ```
+
+The [`somad`](https://aur.archlinux.org/packages/somad) package builds the latest release from source. Without an AUR helper, download the `PKGBUILD` from the release and run `makepkg -si`.
 {% </card> %}
 
 {% <card title="Pre-built binaries"> %}
