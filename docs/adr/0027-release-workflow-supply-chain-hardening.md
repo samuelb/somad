@@ -63,6 +63,13 @@ it. No release artifact carried build provenance.
     lives in the build jobs because their token is read-only: the `release`
     job can mint an OIDC token, so nothing built from vendored code runs
     there.
+  - *Amendment 2026-11-11.* The build jobs run `actions/setup-go` with
+    `cache: false`. Its cache is shared with every workflow run on `main`,
+    so the release binaries were built over a Go build cache that another
+    workflow had written; they are now built from nothing. CodeQL had
+    flagged the jobs (`actions/cache-poisoning/poisonable-step`), though
+    the commit they check out is the release commit `prepare` pushed, not
+    untrusted code.
 
 ## Consequences
 

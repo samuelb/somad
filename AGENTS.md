@@ -44,6 +44,11 @@ make demo               # re-record demo.gif and demo.mp4 from demo.tape with VH
   It skips pushes that touch only `site/`, `docs/`, Markdown, the demo
   recording, or the Website workflow (`paths-ignore`), so docs-only commits
   do not run the Go gates; keep that list in step with what feeds the build.
+- CodeQL runs as its own workflow (`.github/workflows/codeql.yml`, advanced
+  setup) on pushes, pull requests and weekly; GitHub's default setup must
+  stay off. Dependabot is configured in `.github/dependabot.yml`. Whatever a
+  file can configure goes in the file, not the repository settings or
+  `@dependabot` comment commands (ADR 0041).
 - Platform-conditional code uses build-tagged `_linux.go` / `_darwin.go` /
   `_other.go` pairs. Keep every side in sync when changing such interfaces.
 
@@ -101,7 +106,7 @@ make demo               # re-record demo.gif and demo.mp4 from demo.tape with VH
   - audio pipeline and formats: 0013–0017, 0028, 0037 (a lost audio device, also daemon and client)
   - MPRIS, tray, and desktop notifications: 0019, 0030, 0039 (macOS Now Playing)
   - CLI scripting and completion: 0021
-  - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029, 0040 (the AUR package)
+  - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029, 0040 (the AUR package), 0041 (CodeQL and Dependabot)
   - Last.fm scrobbling: 0031
   - website: 0032, 0035
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its

@@ -1,11 +1,28 @@
+# Configure Dependabot here, not in the repository settings or with
+# `@dependabot` comment commands, whenever this file can express it: to
+# ignore a dependency, add an `ignore` entry (ADR-0041).
+#
 # Minor/patch bumps are grouped into a single weekly PR per ecosystem to keep
 # the noise down; majors stay separate since they need a closer look.
+# Security updates are not grouped: each fix arrives as its own PR.
+#
+# Version updates wait a week after a release (`cooldown`), since a
+# compromised release is usually caught and pulled within days. Security
+# updates ignore the cooldown.
+#
+# Commit messages are pinned rather than inferred from recent history, so
+# git-cliff files them under Miscellaneous, not "Other" (ADR-0022).
 version: 2
 updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "build"
+      include: "scope"
     assignees:
       - "samuelb"
     groups:
@@ -16,6 +33,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+      include: "scope"
     assignees:
       - "samuelb"
     groups:

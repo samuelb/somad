@@ -1,0 +1,58 @@
+name: CodeQL
+
+# Advanced setup rather than GitHub's default setup, so the configuration
+# lives in the repository (ADR-0041). Default setup must stay off: GitHub
+# refuses these results while it is on.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Weekly as well, so queries added to CodeQL reach code that has not
+  # changed.
+  schedule:
+    - cron: "29 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Uploads the results to code scanning.
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          # Built for Linux, so the _darwin.go files are not analyzed.
+          - language: go
+            build-mode: autobuild
+          # site/static/site.js
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # Default setup's category, so the alerts it raised carry over.
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.language }}

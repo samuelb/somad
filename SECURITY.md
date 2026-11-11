@@ -64,7 +64,15 @@ Every change is checked by:
   `.golangci.yml`) on every commit and in CI.
 - **[govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)**,
   run in CI (`.github/workflows/ci.yml`) against the module's dependency
-  graph.
+  graph, and every week even without a push.
+- **[CodeQL](https://codeql.github.com/)** code scanning
+  (`.github/workflows/codeql.yml`) over the Go code, the GitHub Actions
+  workflows and the website's script, on every push and every week.
 
-Neither gate is a substitute for a report — please still tell us about
+Dependabot raises an alert and opens a pull request for any dependency with
+a published advisory, and proposes version updates weekly
+(`.github/dependabot.yml`). GitHub secret scanning looks for credentials in
+what is pushed.
+
+None of these is a substitute for a report — please still tell us about
 anything they miss.

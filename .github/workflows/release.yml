@@ -176,6 +176,9 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+          # Release binaries are built from nothing, not over a cache that
+          # another workflow on main wrote (ADR-0027).
+          cache: false
 
       - name: Build
         # The tag points at the bump commit prepare pushed, not at the
@@ -230,6 +233,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+          # No cache, as in the Linux job (ADR-0027).
+          cache: false
 
       - name: Build universal binary
         # CGO is required on macOS for the menu-bar tray (Cocoa). The runner is

@@ -54,3 +54,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0038](0038-a-supervised-daemon-is-restarted-by-its-service-manager.md) | A daemon run by a service manager is restarted through it, not replaced by a spawn | Accepted |
 | [0039](0039-macos-now-playing-plays-the-part-of-mpris.md) | On macOS the daemon registers with Now Playing, which does there what MPRIS does on Linux | Accepted |
 | [0040](0040-the-release-workflow-publishes-the-aur-package.md) | The release workflow publishes the `somad` AUR package | Accepted |
+| [0041](0041-security-scanning-is-configured-in-the-repository.md) | Security scanning is configured in the repository: CodeQL as a workflow, Dependabot in `dependabot.yml` | Accepted |
