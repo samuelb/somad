@@ -497,7 +497,7 @@ jobs:
     if: inputs.dry_run == false
     permissions:
       contents: read
-    uses: samuelb/homebrew-tap/.github/workflows/publish.yml@853fd0dde720c3fdd6ffe0f1088a0c03e89ea423 # main
+    uses: samuelb/homebrew-tap/.github/workflows/publish.yml@76ad34d5eca7f190c956085a5aeb52508a7fb77a # main
     with:
       artifact_name: homebrew-tap-files
       commit_message: "somad ${{ needs.prepare.outputs.tag }}"

@@ -48,7 +48,10 @@ make demo               # re-record demo.gif and demo.mp4 from demo.tape with VH
   setup) on pushes, pull requests and weekly; GitHub's default setup must
   stay off. Dependabot is configured in `.github/dependabot.yml`. Whatever a
   file can configure goes in the file, not the repository settings or
-  `@dependabot` comment commands (ADR 0041).
+  `@dependabot` comment commands (ADR 0041). The settings require every
+  `uses:` to be pinned to a full commit SHA, the workflow the release calls
+  in `samuelb/homebrew-tap` included; `v*` tags and published releases
+  cannot change, and `main` takes no force pushes.
 - Platform-conditional code uses build-tagged `_linux.go` / `_darwin.go` /
   `_other.go` pairs. Keep every side in sync when changing such interfaces.
 

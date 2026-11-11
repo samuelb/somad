@@ -41,6 +41,11 @@ given `chore(deps):` and bare `Bump …` titles as well as `build(deps):`.
 - Dependabot's commit messages are pinned to `build(deps):` for Go modules
   and `ci(deps):` for actions, so git-cliff files them under Miscellaneous
   rather than "Other" (ADR-0022).
+- The settings, in turn, have on: Dependabot alerts and security updates,
+  secret scanning with push protection, private vulnerability reporting,
+  immutable releases, and the Actions policy that every action be pinned
+  to a full commit SHA. Two rulesets, with no bypass: `v*` tags cannot be
+  updated or deleted, and `main` cannot be force-pushed or deleted.
 
 ## Consequences
 
@@ -52,6 +57,19 @@ given `chore(deps):` and bare `Bump …` titles as well as `build(deps):`.
 - CodeQL builds the Go code for Linux, so it does not analyze the
   `_darwin.go` files.
 - A version update arrives a week after its release at the earliest.
+- A `uses:` that is not pinned to a full commit SHA fails its workflow,
+  and so does one inside a workflow it calls: `samuelb/homebrew-tap`'s
+  `publish.yml`, which the release calls, pins its own actions, and its
+  own `dependabot.yml` keeps them current. This repository's pin of that
+  workflow is still moved by hand (ADR-0027).
+- A release is never fixed by moving or re-creating its tag, nor by
+  replacing its files once published; it takes a new version. The release
+  action uploads to a draft and publishes last, as immutable releases
+  require, so a step added after it must not change the published release.
+  To move a tag anyway, the ruleset has to be switched off.
+- The `main` ruleset has no required checks or pull requests: those would
+  stop the direct pushes of ADR-0022 and the release workflow's
+  version-bump push.
 - To ignore a dependency, add an `ignore` entry to `dependabot.yml`. That
   replaces any ignore conditions that comment commands stored for the
   ecosystem; none had been set when this was decided.
