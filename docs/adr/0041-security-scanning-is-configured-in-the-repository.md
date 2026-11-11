@@ -79,3 +79,13 @@ given `chore(deps):` and bare `Bump …` titles as well as `build(deps):`.
 - **CodeQL default setup** (turned on 2026-11-11, replaced the same day).
   It needs no file and picks up new languages by itself, but its
   configuration is visible only in the settings.
+- **Moving `HOMEBREW_TAP_TOKEN` into an environment limited to `main`**,
+  as `AUR_SSH_PRIVATE_KEY` is (2026-11-11). A job that calls a reusable
+  workflow cannot name an environment, so the environment would have to
+  be declared in `samuelb/homebrew-tap`'s `publish.yml`, which
+  `samuelb/whirr`'s release shares; the token would have to be
+  regenerated, since a secret's value cannot be read back; and only a
+  real release would test it. The gain is small: the token is a
+  fine-grained one, limited to the tap, and the only workflows outside
+  `main` that could read a repository secret are ones the maintainer
+  pushes, since neither Dependabot nor pull requests from forks get them.
