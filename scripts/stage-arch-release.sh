@@ -2,7 +2,8 @@
 # Stage the Arch release artifacts: a source tarball (git archive of HEAD)
 # and a pinned PKGBUILD rendered from the generic VCS one committed at
 # packaging/arch/PKGBUILD (fixed pkgver, release-tarball source, real
-# checksum, no pkgver() function). Both are attached to the GitHub release.
+# checksum, no pkgver() function). Both are attached to the GitHub release,
+# and the release workflow publishes the PKGBUILD to the AUR (ADR-0040).
 # Mirrors whirr's scripts/stage-arch-release.sh.
 # Usage: stage-arch-release.sh <version> [out_dir]
 #   version   release version without a leading "v" (e.g. 1.2.3)
@@ -25,6 +26,10 @@ else
 fi
 
 awk -v ver="$version" -v sum="$checksum" -v q="'" '
+  # Of the header comment keep the Maintainer line only: the rest describes
+  # the committed VCS build, and this copy is what the AUR publishes.
+  !body && /^#/ { if ($0 ~ /^# Maintainer:/) print; next }
+  { body = 1 }
   # Drop the pkgver() function: the release tarball carries no git metadata
   # to derive a version from, and pkgver is pinned below.
   /^pkgver\(\) \{/ { skip = 1; next }

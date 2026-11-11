@@ -118,10 +118,13 @@ Every [release](https://github.com/samuelb/somad/releases) ships a pinned
 `PKGBUILD` (plus the matching source tarball) as release assets — download it
 and run `makepkg -si`. Alternatively, `packaging/arch/PKGBUILD` in this repo
 builds the latest git state directly. Once published to the AUR, install it
-with an AUR helper such as:
+with an AUR helper such as [paru](https://github.com/Morganamilo/paru) or
+[yay](https://github.com/Jguer/yay):
 
 ```sh
 paru -S somad
+# or
+yay -S somad
 ```
 
 ### Pre-built Binaries
@@ -667,9 +670,14 @@ The next version is derived from the conventional commits since the last release
 To test the full release pipeline without publishing anything, tick `dry_run`
 (it is off by default). The dry run builds all release binaries, `.deb`/`.rpm`
 packages and the pinned `PKGBUILD`, generates checksums, renders the Homebrew
-formula, and uploads the generated release assets as workflow artifacts. It does
-not push a version bump, create a Git tag or GitHub Release, or update the
-Homebrew tap.
+formula and the AUR package's `.SRCINFO`, and uploads the generated release
+assets as workflow artifacts. It does not push a version bump, create a Git tag
+or GitHub Release, or update the Homebrew tap or the AUR.
+
+A real run publishes the pinned `PKGBUILD` to the AUR as `somad`. It pushes with
+the `AUR_SSH_PRIVATE_KEY` secret of the repository's `aur` environment, a key
+registered with the maintainer's AUR account; without it, the job warns and
+skips the AUR.
 
 ## License
 

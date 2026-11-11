@@ -3,8 +3,8 @@
 # The committed copy of this file is a generic VCS build: latest git state,
 # version derived from `git describe`, checksum SKIP. The release pipeline
 # (scripts/stage-arch-release.sh) renders a pinned copy -- fixed pkgver,
-# release-tarball source, real checksum -- and attaches it to each GitHub
-# release.
+# release-tarball source, real checksum, none of this comment -- attaches it
+# to each GitHub release, and publishes it to the AUR as `somad` (ADR-0040).
 pkgname=somad
 _binname=soma
 pkgver=0.14.1
@@ -13,7 +13,10 @@ pkgdesc='A client for streaming SomaFM radio channels'
 arch=('x86_64' 'aarch64')
 url='https://github.com/samuelb/somad'
 license=('MIT')
-depends=('alsa-lib' 'ca-certificates')
+# alsa-lib is loaded at run time, as the fallback when there is no
+# PulseAudio or PipeWire, so namcap does not see it in the binary; Go reads
+# the CA bundle that ca-certificates installs.
+depends=('glibc' 'alsa-lib' 'ca-certificates')
 makedepends=('go' 'git')
 source=("${pkgname}::git+${url}.git")
 sha256sums=('SKIP')
@@ -23,21 +26,30 @@ pkgver() {
   git describe --long --tags | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
 }
 
+# As the Arch Go package guidelines ask: a PIE that takes makepkg's C and
+# linker flags (full RELRO), and no -s -w, so makepkg strips the binary
+# itself and splits its symbols off into the debug package.
+_goenv() {
+  export CGO_ENABLED=1
+  export CGO_CPPFLAGS="${CPPFLAGS}"
+  export CGO_CFLAGS="${CFLAGS}"
+  export CGO_CXXFLAGS="${CXXFLAGS}"
+  export CGO_LDFLAGS="${LDFLAGS}"
+  export GOFLAGS="-buildmode=pie -trimpath -mod=vendor -modcacherw -buildvcs=false"
+}
+
 build() {
   cd "${pkgname}"
-  export CGO_ENABLED=1
-  export GOFLAGS="-buildvcs=false -mod=vendor"
+  _goenv
   go build \
-    -trimpath \
-    -ldflags "-s -w -X main.version=v${pkgver} -X main.commit=arch -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    -ldflags "-linkmode=external -X main.version=v${pkgver} -X main.commit=arch -X main.date=$(date -u -d "@${SOURCE_DATE_EPOCH}" +%Y-%m-%dT%H:%M:%SZ)" \
     -o "${_binname}" \
     ./cmd/soma
 }
 
 check() {
   cd "${pkgname}"
-  export CGO_ENABLED=1
-  export GOFLAGS="-buildvcs=false -mod=vendor"
+  _goenv
   go test ./...
 }
 
@@ -48,4 +60,5 @@ package() {
   install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   install -Dm644 cmd/soma/completions/soma.bash "${pkgdir}/usr/share/bash-completion/completions/${_binname}"
   install -Dm644 cmd/soma/completions/soma.zsh "${pkgdir}/usr/share/zsh/site-functions/_${_binname}"
+  install -Dm644 packaging/systemd/soma.service "${pkgdir}/usr/lib/systemd/user/soma.service"
 }

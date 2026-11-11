@@ -411,6 +411,12 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aur-pkgbuild
+          path: dist/PKGBUILD
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: inputs.dry_run == true
         with:
           name: release-artifacts
@@ -492,3 +498,117 @@ jobs:
       commit_message: "somad ${{ needs.prepare.outputs.tag }}"
     secrets:
       tap_token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  # ---------------------------------------------------------------- AUR
+  # The AUR takes a .SRCINFO beside the PKGBUILD, and only makepkg writes one
+  # that is sure to match, so an Arch container renders it. That container is
+  # third-party code, so it runs here, with a read-only token and no secrets;
+  # the job that holds the AUR key runs nothing but git and ssh (ADR-0040).
+  aur:
+    name: Render AUR package
+    needs: [prepare, release]
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      # archlinux:latest as of 2026-11-11. makepkg --printsrcinfo and
+      # --verifysource need nothing newer, so the pin moves only by hand.
+      ARCH_IMAGE: archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899
+    steps:
+      - name: Download PKGBUILD
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: aur-pkgbuild
+          path: aur
+
+      - name: Render .SRCINFO
+        # makepkg refuses to run as root, so a user is made for it. On a real
+        # run the release is published by now, and makepkg also downloads the
+        # source tarball from it and checks it against sha256sums: the AUR
+        # gets only a PKGBUILD that builds from what was released.
+        env:
+          VERIFY: ${{ !inputs.dry_run }}
+        run: |
+          docker run --rm -e VERIFY -v "$PWD/aur:/pkg:ro" "$ARCH_IMAGE" sh -euc '
+            useradd -m builder
+            install -o builder -m 0644 /pkg/PKGBUILD /home/builder/PKGBUILD
+            cd /home/builder
+            su builder -c "makepkg --printsrcinfo"
+            if [ "$VERIFY" = true ]; then su builder -c "makepkg --verifysource" >&2; fi
+          ' > aur/.SRCINFO.new
+          mv aur/.SRCINFO.new aur/.SRCINFO
+          cat aur/.SRCINFO
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: aur-package
+          path: |
+            aur/PKGBUILD
+            aur/.SRCINFO
+          include-hidden-files: true
+          if-no-files-found: error
+
+  publish-aur:
+    name: Publish AUR package
+    needs: [prepare, aur]
+    if: inputs.dry_run == false
+    permissions:
+      contents: read
+    # The key pushes what every user of the AUR package builds, so it is a
+    # secret of this environment, which only this job names.
+    environment: aur
+    runs-on: ubuntu-latest
+    env:
+      HAS_AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY != '' }}
+    steps:
+      - name: Skip without the AUR key
+        if: env.HAS_AUR_KEY != 'true'
+        run: echo "::warning::AUR_SSH_PRIVATE_KEY is not set in the aur environment, so the AUR package was not updated (ADR-0040)."
+
+      - name: Download the AUR package
+        if: env.HAS_AUR_KEY == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: aur-package
+          path: aur
+
+      - name: Push to the AUR
+        if: env.HAS_AUR_KEY == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_REPO: ssh://aur@aur.archlinux.org/somad.git
+          VERSION: ${{ needs.prepare.outputs.tag }}
+        run: |
+          key="$RUNNER_TEMP/aur_key"
+          known_hosts="$RUNNER_TEMP/aur_known_hosts"
+          (umask 077 && printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$key")
+          # Pinned, not trusted on first use: the Ed25519 host key whose
+          # fingerprint aur.archlinux.org publishes on its home page,
+          # SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4.
+          echo 'aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN' > "$known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o UserKnownHostsFile=$known_hosts -o StrictHostKeyChecking=yes"
+          # A package the AUR does not have yet clones as an empty
+          # repository, and the first push creates it.
+          git clone "$AUR_REPO" aur-repo
+          cd aur-repo
+          # The AUR takes master only, so work on it whatever the remote's
+          # HEAD names; on an empty repository it is born with the commit.
+          if git rev-parse -q --verify refs/remotes/origin/master >/dev/null; then
+            git checkout -q -B master origin/master
+          else
+            git symbolic-ref HEAD refs/heads/master
+          fi
+          cp ../aur/PKGBUILD ../aur/.SRCINFO .
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "The AUR already has ${VERSION#v}; nothing to push."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="github-actions[bot]@users.noreply.github.com" \
+            commit -m "Update to ${VERSION#v}"
+          git push origin master
+
+      - name: Remove the AUR key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/aur_key"

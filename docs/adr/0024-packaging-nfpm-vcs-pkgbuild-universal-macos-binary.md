@@ -21,6 +21,9 @@ specific binaries.
   copy with a real checksum and attaches it to the GitHub release. The AUR
   auto-publish and its SSH secret were removed; publishing to the AUR is
   planned but manual.
+  - *Superseded 2026-11-11 by ADR-0040.* The release workflow publishes
+    the pinned PKGBUILD to the AUR as `somad` again, with a `.SRCINFO`
+    that makepkg renders and a pinned host key.
 - The Homebrew formula is rendered from a checked-in template. The tap repo
   is `homebrew-tap`.
 - `flake.nix` is bumped by `scripts/bump-version.sh` in the prepare job so

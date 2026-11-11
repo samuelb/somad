@@ -56,7 +56,9 @@ make demo               # re-record demo.gif and demo.mp4 from demo.tape with VH
   (breaking → major, `feat:` → minor, else patch), so prefixes decide
   version numbers. Unprefixed commits land under a generic "Other" heading.
 - **Releases** are the manually dispatched Release workflow
-  (`.github/workflows/release.yml`, inputs `bump` and `dry_run`).
+  (`.github/workflows/release.yml`, inputs `bump` and `dry_run`). A real
+  run also updates the Homebrew tap and the `somad` AUR package (the
+  latter with the `AUR_SSH_PRIVATE_KEY` secret of the `aur` environment).
 - **Website** (https://samuelb.github.io/somad/) is a single-page
   [Zola](https://www.getzola.org/) site in `site/` (ADR 0032) that presents
   the software, installation, and usage only. All copy is in
@@ -99,7 +101,7 @@ make demo               # re-record demo.gif and demo.mp4 from demo.tape with VH
   - audio pipeline and formats: 0013–0017, 0028, 0037 (a lost audio device, also daemon and client)
   - MPRIS, tray, and desktop notifications: 0019, 0030, 0039 (macOS Now Playing)
   - CLI scripting and completion: 0021
-  - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029
+  - process, vendoring, packaging, quality gates: 0022–0025, 0027, 0029, 0040 (the AUR package)
   - Last.fm scrobbling: 0031
   - website: 0032, 0035
 - **Open work** is in `TODO.md`, grouped P1/P2/P3 with effort tags; its

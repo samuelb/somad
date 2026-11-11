@@ -37,7 +37,7 @@ add a record or mark the old one superseded in the same commit. Use
 | [0021](0021-side-effect-free-completion-and-json-output.md) | Shell completion is cache-only and side-effect free; scripting uses `--json` | Accepted (amended) |
 | [0022](0022-trunk-based-development-conventional-commits-git-cliff.md) | Trunk-based development, Conventional Commits, and git-cliff-driven releases | Accepted |
 | [0023](0023-vendored-dependencies.md) | Dependencies are vendored | Accepted |
-| [0024](0024-packaging-nfpm-vcs-pkgbuild-universal-macos-binary.md) | Package with nfpm, keep the PKGBUILD as a VCS build, ship a universal macOS binary in a plain DMG | Accepted |
+| [0024](0024-packaging-nfpm-vcs-pkgbuild-universal-macos-binary.md) | Package with nfpm, keep the PKGBUILD as a VCS build, ship a universal macOS binary in a plain DMG | Accepted (AUR publishing superseded by 0040) |
 | [0025](0025-quality-gates-lint-race-vulncheck-coverage-floor.md) | Quality gates: golangci-lint with gosec, race tests everywhere, govulncheck, a 60 % coverage floor | Accepted |
 | [0026](0026-keep-the-channel-list-flat.md) | Keep the channel list flat: no detail pane, no sort options, no render-path micro-optimizations | Rejected (the features); the list stays as it is |
 | [0027](0027-release-workflow-supply-chain-hardening.md) | Release workflow supply-chain hardening: SHA-pinned actions, pinned tool versions, checksummed nfpm download, minimal permissions, build provenance | Accepted |
@@ -53,3 +53,4 @@ add a record or mark the old one superseded in the same commit. Use
 | [0037](0037-a-lost-audio-device-ends-the-daemon-process-clients-replace-it.md) | A daemon whose audio device is lost stops and says so; a local client puts a new daemon in its place | Accepted (amended) |
 | [0038](0038-a-supervised-daemon-is-restarted-by-its-service-manager.md) | A daemon run by a service manager is restarted through it, not replaced by a spawn | Accepted |
 | [0039](0039-macos-now-playing-plays-the-part-of-mpris.md) | On macOS the daemon registers with Now Playing, which does there what MPRIS does on Linux | Accepted |
+| [0040](0040-the-release-workflow-publishes-the-aur-package.md) | The release workflow publishes the `somad` AUR package | Accepted |

@@ -11,7 +11,7 @@ P2 features, and the P3 polish) was worked off on 2026-09-03/04; see the
 git log from 79ae532 onwards. The 2026-11 review was worked off on
 2026-11-09/10, from d1ce301 onwards; what it left open is below.
 Follow-ups that were not worth a line here (the Apple Developer ID secrets
-for ADR-0029, publishing to the AUR) live in the ADRs and the README.
+for ADR-0029) live in the ADRs and the README.
 
 ## P1 — correctness and security
 
