@@ -14,12 +14,11 @@ extra:
     background daemon, so closing the terminal never stops the music, and a
     headless CLI controls it from anywhere.
   quickstart_text: >-
-    One tap, one install, one command. Homebrew works on both macOS and Linux;
+    One install, one command. Homebrew works on both macOS and Linux;
     packages for Debian, Fedora, Arch and Nix, plus plain binaries, are
     [below](#install).
   quickstart:
-    - brew tap samuelb/tap
-    - brew install somad
+    - brew install samuelb/tap/somad
     - soma
   how_note: >-
     Frontends and daemon talk over a local socket, or over TCP with TLS and a
@@ -109,8 +108,7 @@ Somad runs on Linux and macOS. Every method installs a single binary called `som
 {% <cards> %}
 {% <card title="Homebrew" sub="macOS and Linux"> %}
 ```sh
-brew tap samuelb/tap
-brew install somad
+brew install samuelb/tap/somad
 ```
 
 No compiler required. Upgrade later with `brew upgrade somad`. If Homebrew reports an "untrusted tap", run `brew trust samuelb/tap` and try again.

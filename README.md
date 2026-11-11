@@ -69,11 +69,10 @@ Linux and macOS — other platforms are not supported and may not work.
 ### Homebrew (macOS and Linux)
 
 ```sh
-brew tap samuelb/tap
-brew install somad
+brew install samuelb/tap/somad
 ```
 
-This installs a pre-built binary from the [latest release](https://github.com/samuelb/somad/releases),
+This taps `samuelb/tap` on the way and installs a pre-built binary from the [latest release](https://github.com/samuelb/somad/releases),
 so no compiler is required. Upgrade later with `brew upgrade somad`.
 
 Recent versions of Homebrew ask you to explicitly trust a third-party tap before
