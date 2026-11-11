@@ -23,7 +23,7 @@
         {
           default = pkgs.buildGoModule {
             pname = "somad";
-            version = "0.19.0";
+            version = "0.19.1";
             src = self;
 
             vendorHash = null;
@@ -43,7 +43,7 @@
             ldflags = [
               "-s"
               "-w"
-              "-X main.version=v0.19.0"
+              "-X main.version=v0.19.1"
               "-X main.commit=${self.shortRev or "dirty"}"
               "-X main.date=unknown"
             ];
