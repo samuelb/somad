@@ -774,8 +774,10 @@ func stopTimer(t **time.Timer) {
 }
 
 // broadcastStateLocked pushes the current playback snapshot to all clients
-// and returns it, so mutators can reply with the same snapshot they sent.
+// and the tray, and returns it, so mutators can reply with the same
+// snapshot they sent.
 func (s *Server) broadcastStateLocked() protocol.PlaybackState {
+	s.updateTrayLocked()
 	snap := s.snapshotLocked()
 	s.broadcastLocked(protocol.EventState, snap)
 	return snap

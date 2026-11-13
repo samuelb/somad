@@ -42,6 +42,9 @@ func (t *Tray) Quit() {}
 // SetPlaying is a no-op.
 func (t *Tray) SetPlaying(channelID, station, track string) {}
 
+// SetConnecting is a no-op.
+func (t *Tray) SetConnecting(channelID, station string, reconnecting bool) {}
+
 // SetStopped is a no-op.
 func (t *Tray) SetStopped() {}
 

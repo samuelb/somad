@@ -847,7 +847,8 @@ func (s *Server) cancelReconnectLocked() {
 }
 
 // updateMPRISLocked mirrors the playback state to the desktop integrations
-// (MPRIS and the tray). Both are optional and skipped when absent.
+// (MPRIS and the tray). Both are optional and skipped when absent. MPRIS
+// knows only playing and stopped, and a stream connecting counts as stopped.
 func (s *Server) updateMPRISLocked() {
 	playing := s.status == protocol.StatusPlaying
 	if s.mpris != nil {
@@ -865,11 +866,23 @@ func (s *Server) updateMPRISLocked() {
 			s.mpris.SetStopped()
 		}
 	}
-	if s.tray != nil {
-		if playing {
-			s.tray.SetPlaying(s.channelID, s.channelTitle, s.trackTitle)
-		} else {
-			s.tray.SetStopped()
-		}
+	s.updateTrayLocked()
+}
+
+// updateTrayLocked mirrors the playback state to the tray, if there is one:
+// unlike MPRIS, it shows a stream connecting or reconnecting too, so
+// broadcastStateLocked calls it at every state change. A call that changes
+// nothing touches nothing on screen. Caller holds s.mu.
+func (s *Server) updateTrayLocked() {
+	if s.tray == nil {
+		return
+	}
+	switch s.status {
+	case protocol.StatusPlaying:
+		s.tray.SetPlaying(s.channelID, s.channelTitle, s.trackTitle)
+	case protocol.StatusConnecting, protocol.StatusReconnecting:
+		s.tray.SetConnecting(s.channelID, s.channelTitle, s.status == protocol.StatusReconnecting)
+	default:
+		s.tray.SetStopped()
 	}
 }

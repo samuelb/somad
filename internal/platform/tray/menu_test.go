@@ -5,6 +5,7 @@ package tray
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -22,11 +23,14 @@ func (f *fakeMenu) take() []string {
 	return calls
 }
 
-// attach attaches the fake menu to tr as build attaches the real one.
+// attach attaches the fake menu to tr as build attaches the real one. The
+// tuning animation steps only when a test calls nextFrame.
 func (f *fakeMenu) attach(tr *Tray) {
+	tr.frameInterval = time.Hour
 	tr.attach(newItem(f.item("title"), "Stopped"), newItem(f.item("play/stop"), "Play"), newItem(f.item("favorite"), "★ Favorite"),
 		func(slot int) menuItem { return f.item(fmt.Sprintf("channel %d", slot)) },
-		func(tooltip string) { f.calls = append(f.calls, "tooltip: "+tooltip) }, "Soma")
+		func(tooltip string) { f.calls = append(f.calls, "tooltip: "+tooltip) }, "Soma",
+		func(ic icon) { f.calls = append(f.calls, "icon: "+ic.String()) }, iconStopped)
 }
 
 type fakeItem struct {
@@ -107,6 +111,7 @@ func TestTray_StoppingPutsBackWhatPlayingSet(t *testing.T) {
 		"play/stop: title Play",
 		"tooltip: Soma",
 		"favorite: disable",
+		"icon: stopped",
 		"channel 2: title Channel 2",
 	}, menu.take())
 
@@ -148,6 +153,7 @@ func TestTray_StateSetBeforeTheMenuExistsShowsWhenItDoes(t *testing.T) {
 		"play/stop: title Stop",
 		"tooltip: Soma — A — Track",
 		"favorite: check",
+		"icon: playing",
 		"channel 0: title ▸ ★ A",
 		"channel 1: title B",
 	}, menu.take())
@@ -159,4 +165,74 @@ func TestTray_AttachedWithNothingPlayingDisablesTheFavoriteItem(t *testing.T) {
 	menu.attach(tr)
 
 	assert.Equal(t, []string{"favorite: disable"}, menu.take())
+}
+
+func TestTray_TuningInAnimatesTheIconUntilItPlays(t *testing.T) {
+	tr, menu := New(), &fakeMenu{}
+	tr.SetChannels(trayChannels(3))
+	menu.attach(tr)
+	menu.take()
+
+	tr.SetConnecting("c1", "Channel 1", false)
+	assert.Equal(t, []string{
+		"title: title Tuning in to Channel 1…",
+		"play/stop: title Stop",
+		"tooltip: Soma — Tuning in to Channel 1…",
+		"favorite: enable",
+		"icon: tuning",
+		"channel 1: title ▸ Channel 1",
+	}, menu.take())
+
+	// The arcs light up outwards, and round again.
+	stop := tr.animStop
+	for _, want := range []string{"playing", "stopped", "tuning"} {
+		tr.nextFrame(stop)
+		assert.Equal(t, []string{"icon: " + want}, menu.take())
+	}
+
+	tr.SetPlaying("c1", "Channel 1", "Track")
+	assert.Equal(t, []string{
+		"title: title ♪ Channel 1 — Track",
+		"tooltip: Soma — Channel 1 — Track",
+		"icon: playing",
+	}, menu.take())
+	assert.Nil(t, tr.animStop, "the animation ends")
+	tr.nextFrame(stop)
+	assert.Empty(t, menu.take(), "and a frame it still had due shows nothing")
+}
+
+func TestTray_AReconnectAnimatesTheIconUntilItStops(t *testing.T) {
+	tr, menu := playingTray()
+
+	tr.SetConnecting("c2", "Channel 2", true)
+	assert.Equal(t, []string{
+		"title: title Reconnecting to Channel 2…",
+		"tooltip: Soma — Reconnecting to Channel 2…",
+		"icon: tuning",
+	}, menu.take())
+
+	// Another attempt goes on with the animation running.
+	tr.nextFrame(tr.animStop)
+	menu.take()
+	tr.SetConnecting("c2", "Channel 2", true)
+	assert.Empty(t, menu.take())
+
+	tr.SetStopped()
+	assert.Contains(t, menu.take(), "icon: stopped")
+	assert.Nil(t, tr.animStop)
+}
+
+func TestTray_QuitEndsTheAnimationForGood(t *testing.T) {
+	tr, menu := playingTray()
+	tr.SetConnecting("c2", "Channel 2", false)
+	menu.take()
+
+	tr.mu.Lock()
+	tr.quitting = true
+	tr.stopAnimationLocked()
+	tr.mu.Unlock()
+	tr.SetConnecting("c3", "Channel 3", false)
+
+	assert.Nil(t, tr.animStop)
+	assert.NotContains(t, menu.take(), "icon: tuning")
 }

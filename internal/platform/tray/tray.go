@@ -10,6 +10,7 @@ import (
 	"log"
 	"runtime"
 	"sync"
+	"time"
 
 	"fyne.io/systray"
 
@@ -20,17 +21,77 @@ import (
 const Supported = true
 
 // The icons are rendered from the SVGs beside them, the website favicon's
-// broadcast mark: icon_template at 32 px, the 16 pt systray draws on macOS
-// at 2x, icon at 64 px for HiDPI Linux panels:
+// broadcast mark: the icon_template ones at 32 px, the 16 pt systray draws
+// on macOS at 2x, the others at 64 px for HiDPI Linux panels:
 //
 //	rsvg-convert -w 32 -h 32 icon_template.svg -o icon_template.png
 //	rsvg-convert -w 64 -h 64 icon.svg -o icon.png
 //
-//go:embed icon.png
-var iconPNG []byte
+// and the same for the _stopped and _tuning variants. The full mark is
+// playing; _stopped dims both pairs of arcs, _tuning the outer pair only.
+// On macOS they are template images, which the menu bar recolours for its
+// light or dark appearance, so the states differ by opacity, not colour.
+var (
+	//go:embed icon.png
+	iconPNG []byte
+	//go:embed icon_stopped.png
+	iconStoppedPNG []byte
+	//go:embed icon_tuning.png
+	iconTuningPNG []byte
+	//go:embed icon_template.png
+	iconTemplatePNG []byte
+	//go:embed icon_template_stopped.png
+	iconTemplateStoppedPNG []byte
+	//go:embed icon_template_tuning.png
+	iconTemplateTuningPNG []byte
+)
 
-//go:embed icon_template.png
-var iconTemplatePNG []byte
+// icon is one of the tray's icons.
+type icon int
+
+const (
+	iconStopped icon = iota // the arcs dimmed
+	iconTuning              // the inner arcs lit
+	iconPlaying             // the full mark
+)
+
+func (i icon) String() string {
+	return [...]string{"stopped", "tuning", "playing"}[i]
+}
+
+// tuningFrames is the animation the icon plays while a stream connects or
+// reconnects: the arcs light up from the dot outwards. It starts at
+// tuningStartFrame, so the icon changes at once from either still icon.
+var tuningFrames = [...]icon{iconStopped, iconTuning, iconPlaying}
+
+const tuningStartFrame = 1
+
+// tuningFrameInterval is how long each frame of tuningFrames shows: about a
+// second for the cycle. On Linux each frame is a D-Bus property change and
+// a signal to the panel, so it stays slow, and runs only while tuning.
+const tuningFrameInterval = 350 * time.Millisecond
+
+// setTrayIcon shows i as the tray's icon.
+func setTrayIcon(i icon) {
+	colour := [...][]byte{iconStoppedPNG, iconTuningPNG, iconPNG}[i]
+	if runtime.GOOS == "darwin" {
+		// A template icon adapts to the light/dark menu bar automatically.
+		template := [...][]byte{iconTemplateStoppedPNG, iconTemplateTuningPNG, iconTemplatePNG}[i]
+		systray.SetTemplateIcon(template, colour)
+	} else {
+		systray.SetIcon(colour)
+	}
+}
+
+// mode is the playback state the tray shows.
+type mode int
+
+const (
+	modeStopped mode = iota
+	modeConnecting
+	modeReconnecting
+	modePlaying
+)
 
 // Channel is a catalog entry the tray offers for playback. Favorites-first
 // ordering is the caller's responsibility; Favorite only drives the ★ marker
@@ -50,8 +111,9 @@ type Tray struct {
 	onQuit func()
 
 	ready     bool
-	playing   bool
-	playingID string
+	quitting  bool
+	mode      mode
+	playingID string // the channel playing or tuning in
 	station   string
 	track     string
 	channels  []Channel
@@ -65,6 +127,14 @@ type Tray struct {
 	addChannel func(slot int) menuItem
 	setTooltip func(string)
 	tooltip    string
+	// setIcon shows an icon, which is icon now. While the mode is connecting
+	// or reconnecting, animStop is open and a goroutine steps frame through
+	// tuningFrames every frameInterval; leaving the mode closes it.
+	setIcon       func(icon)
+	icon          icon
+	frame         int
+	animStop      chan struct{}
+	frameInterval time.Duration
 	// channelItems is a grow-only pool of submenu items reused across catalog
 	// updates: systray cannot cleanly remove items, so surplus slots are
 	// hidden rather than removed. channelSlotID[i] is the channel each visible
@@ -150,7 +220,7 @@ func (i *item) setChecked(checked bool) {
 }
 
 // New creates a Tray. It does not start the run loop; call Run for that.
-func New() *Tray { return &Tray{} }
+func New() *Tray { return &Tray{frameInterval: tuningFrameInterval} }
 
 // SetSender wires the command sink that menu clicks are routed to. It reuses
 // the same interface and message types as MPRIS, so the server's existing
@@ -193,23 +263,44 @@ func (t *Tray) Run(onReady func()) {
 
 // Quit tears the tray down and unblocks Run. Safe to call before Run has
 // reached readiness.
-func (t *Tray) Quit() { systray.Quit() }
+func (t *Tray) Quit() {
+	t.mu.Lock()
+	t.quitting = true
+	t.stopAnimationLocked()
+	t.mu.Unlock()
+	systray.Quit()
+}
 
 // SetPlaying mirrors an active stream into the menu. channelID marks the
 // matching entry in the channel list.
 func (t *Tray) SetPlaying(channelID, station, track string) {
 	t.update(func() {
-		t.playing = true
+		t.mode = modePlaying
 		t.playingID = channelID
 		t.station = platform.SanitizeUTF8(station)
 		t.track = platform.SanitizeUTF8(track)
 	})
 }
 
+// SetConnecting mirrors a stream being tuned in, or reconnected after it
+// dropped, into the menu, and animates the icon until the state changes.
+// channelID marks the matching entry in the channel list.
+func (t *Tray) SetConnecting(channelID, station string, reconnecting bool) {
+	t.update(func() {
+		t.mode = modeConnecting
+		if reconnecting {
+			t.mode = modeReconnecting
+		}
+		t.playingID = channelID
+		t.station = platform.SanitizeUTF8(station)
+		t.track = ""
+	})
+}
+
 // SetStopped mirrors stopped playback into the menu.
 func (t *Tray) SetStopped() {
 	t.update(func() {
-		t.playing = false
+		t.mode = modeStopped
 		t.playingID = ""
 		t.station = ""
 		t.track = ""
@@ -244,12 +335,7 @@ func (t *Tray) SetChannels(channels []Channel) {
 // build populates the menu and starts the click-dispatch goroutine. Runs on
 // the GUI thread via Run's onReady.
 func (t *Tray) build() {
-	if runtime.GOOS == "darwin" {
-		// A template icon adapts to the light/dark menu bar automatically.
-		systray.SetTemplateIcon(iconTemplatePNG, iconTemplatePNG)
-	} else {
-		systray.SetIcon(iconPNG)
-	}
+	setTrayIcon(iconStopped)
 	systray.SetTitle("")
 	systray.SetTooltip("Soma")
 
@@ -272,7 +358,7 @@ func (t *Tray) build() {
 			added := channelsTop.AddSubMenuItem("", "")
 			go t.watchChannelClick(slot, added)
 			return added
-		}, systray.SetTooltip, "Soma")
+		}, systray.SetTooltip, "Soma", setTrayIcon, iconStopped)
 
 	go func() {
 		for {
@@ -299,13 +385,15 @@ func (t *Tray) build() {
 
 // attach hands the tray its menu, as build made it: the title, play/stop
 // and favorite items, how to add an item to the channel picker (slot is
-// its index, for its click watcher), and how to set the icon's tooltip,
-// which is tooltip now. It then shows the state set so far.
-func (t *Tray) attach(title, playStop, fav *item, addChannel func(slot int) menuItem, setTooltip func(string), tooltip string) {
+// its index, for its click watcher), how to set the icon's tooltip, which
+// is tooltip now, and how to set the icon, which is ic now. It then shows
+// the state set so far.
+func (t *Tray) attach(title, playStop, fav *item, addChannel func(slot int) menuItem, setTooltip func(string), tooltip string, setIcon func(icon), ic icon) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.titleItem, t.playStop, t.favItem = title, playStop, fav
 	t.addChannel, t.setTooltip, t.tooltip = addChannel, setTooltip, tooltip
+	t.setIcon, t.icon = setIcon, ic
 	t.ready = true
 	t.applyLocked()
 	t.renderChannelsLocked()
@@ -319,9 +407,13 @@ func (t *Tray) applyLocked() {
 		return
 	}
 	title, playStop, tooltip := "Stopped", "Play", "Soma"
-	if t.playing {
+	switch t.mode {
+	case modePlaying:
 		label := playbackLabel(t.station, t.track)
 		title, playStop, tooltip = "♪ "+label, "Stop", "Soma — "+label
+	case modeConnecting, modeReconnecting:
+		label := tuningLabel(t.station, t.mode == modeReconnecting)
+		title, playStop, tooltip = label, "Stop", "Soma — "+label
 	}
 	t.titleItem.setTitle(title)
 	t.playStop.setTitle(playStop)
@@ -329,8 +421,71 @@ func (t *Tray) applyLocked() {
 		t.tooltip = tooltip
 		t.setTooltip(tooltip)
 	}
-	t.favItem.setEnabled(t.playing)
-	t.favItem.setChecked(t.playing && t.favoriteLocked(t.playingID))
+	active := t.mode != modeStopped
+	t.favItem.setEnabled(active)
+	t.favItem.setChecked(active && t.favoriteLocked(t.playingID))
+
+	tuning := t.mode == modeConnecting || t.mode == modeReconnecting
+	if tuning && t.animStop == nil && !t.quitting {
+		t.frame = tuningStartFrame
+		stop := make(chan struct{})
+		t.animStop = stop
+		go t.animate(stop)
+	} else if !tuning {
+		t.stopAnimationLocked()
+	}
+	t.showIconLocked()
+}
+
+// showIconLocked sets the icon the mode calls for, and the animation's
+// frame while tuning, unless it is the one showing. The caller holds t.mu.
+func (t *Tray) showIconLocked() {
+	want := iconStopped
+	switch {
+	case t.animStop != nil:
+		want = tuningFrames[t.frame]
+	case t.mode == modePlaying:
+		want = iconPlaying
+	}
+	if want != t.icon {
+		t.icon = want
+		t.setIcon(want)
+	}
+}
+
+// stopAnimationLocked ends the tuning animation, if it runs. The caller
+// holds t.mu.
+func (t *Tray) stopAnimationLocked() {
+	if t.animStop != nil {
+		close(t.animStop)
+		t.animStop = nil
+	}
+}
+
+// animate steps the tuning animation until stop is closed.
+func (t *Tray) animate(stop chan struct{}) {
+	ticker := time.NewTicker(t.frameInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			t.nextFrame(stop)
+		}
+	}
+}
+
+// nextFrame shows the tuning animation's next frame, unless the animation
+// that stop belongs to has ended meanwhile.
+func (t *Tray) nextFrame(stop chan struct{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.animStop != stop {
+		return
+	}
+	t.frame = (t.frame + 1) % len(tuningFrames)
+	t.showIconLocked()
 }
 
 // favoriteLocked reports whether the given channel is a favorite in the last
@@ -418,6 +573,21 @@ func playbackLabel(station, track string) string {
 		return track
 	default:
 		return "Playing"
+	}
+}
+
+// tuningLabel renders the menu's title while a stream connects, or
+// reconnects after it dropped.
+func tuningLabel(station string, reconnecting bool) string {
+	switch {
+	case reconnecting && station != "":
+		return "Reconnecting to " + station + "…"
+	case reconnecting:
+		return "Reconnecting…"
+	case station != "":
+		return "Tuning in to " + station + "…"
+	default:
+		return "Tuning in…"
 	}
 }
 

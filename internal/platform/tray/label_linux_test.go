@@ -38,7 +38,7 @@ func TestTray_NamesWithUnderscoresReachTheMenuDoubled(t *testing.T) {
 		"title: title ♪ Under__ground 80s — The__Artist - sub__mariner",
 		"play/stop: title Stop",
 		"tooltip: Soma — Under_ground 80s — The_Artist - sub_mariner",
-		"favorite: enable",
+		"favorite: enable", "icon: playing",
 		"channel 0: title ▸ Under__ground 80s",
 	}, menu.take(), "the tooltip is no menu label and stays as written")
 

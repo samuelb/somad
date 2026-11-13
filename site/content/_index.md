@@ -67,7 +67,8 @@ extra:
         your laptop over TCP, with TLS and a pre-shared key.
     - title: Tray icon and media keys
       text: >-
-        A menu-bar or tray icon with channel picker and playback controls, and
+        A menu-bar or tray icon that shows playing, stopped or tuning in, with
+        channel picker and playback controls, and
         MPRIS on Linux and Now Playing on macOS, so media keys keep working
         with the TUI closed.
     - title: Resilient streaming
@@ -274,7 +275,7 @@ a click on an item of the help bar at the bottom presses its key.
 
 Audio is streamed and decoded by a separate `soma daemon` process that the TUI and the CLI talk to over a Unix socket. It starts automatically when first needed; run `soma daemon` yourself to watch its logs or run it under a service manager — see <a href="#install">Install</a> for the systemd unit and launchd plist this repo ships.
 
-The daemon keeps running until `soma daemon stop` (which returns once the daemon has let go, so `soma daemon stop && soma daemon` starts a fresh one) or the tray's *Quit* item. Set `--idle-timeout` (or `server.idle_timeout`) to make it exit on its own once playback is stopped and no client is connected. While it runs it shows a tray / menu-bar icon with the current track, a channel picker and playback controls; `--no-tray` or `server.tray: false` turns that off, and headless hosts skip it automatically.
+The daemon keeps running until `soma daemon stop` (which returns once the daemon has let go, so `soma daemon stop && soma daemon` starts a fresh one) or the tray's *Quit* item. Set `--idle-timeout` (or `server.idle_timeout`) to make it exit on its own once playback is stopped and no client is connected. While it runs it shows a tray / menu-bar icon with the current track, a channel picker and playback controls; the icon is the full mark while playing, dimmed while stopped, and animates while a channel tunes in or reconnects; `--no-tray` or `server.tray: false` turns that off, and headless hosts skip it automatically.
 
 After an upgrade, the running daemon is restarted onto the new version the next time you change channel, pause or stop, never mid-song. If the upgrade changed the wire protocol, the old daemon cannot serve the new client at all: until then the other commands and the TUI fail with an error saying so (the music keeps playing), and `soma daemon stop` stops the old daemon right away. A sleep timer that is pending carries over to the restarted daemon.
 

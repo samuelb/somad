@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-02-05 (moved into the daemon 2026-07-05, tray 2026-07-07,
-  volume writes queued 2026-09-25, Linux tray check 2026-11-09)
+  volume writes queued 2026-09-25, Linux tray check 2026-11-09, tray
+  state icons 2026-11-13)
 - **Sources:** d0a22e0, 95fb723, d1d33df, be4000e, a6f0d6f; `internal/platform`, `internal/server/mpris.go`
 
 ## Context
@@ -49,6 +50,17 @@ closed, which after ADR-0001 means they must belong to the daemon.
   ends on its last position. The worker mirrors the value it applies back
   to the property, so a client volume change landing between the write and
   the worker cannot leave MPRIS showing a volume the player is not at.
+- The tray icon shows the playback state (2026-11-13): the full mark while
+  playing, its arcs dimmed while stopped, and, while a stream connects or
+  reconnects, a three-frame animation lighting the arcs outwards about
+  three times a second. On macOS the icons are template images, so the
+  states differ by opacity rather than colour and keep the menu bar's
+  light/dark adaptation. The animation runs on its own ticker only in
+  those states, because on Linux every frame is a D-Bus property change
+  and a signal to the panel. Unlike MPRIS, which knows only playing and
+  stopped, the tray is told every status: the server mirrors it from each
+  state broadcast (`updateTrayLocked`), which the tray's per-item dedupe
+  makes free when nothing it shows changed.
 - Redundant tray Pause/Stop items were removed: `PlayPause` already tears
   down the stream when playing.
 

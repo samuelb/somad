@@ -5,6 +5,8 @@ package tray
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"somad/internal/platform"
 )
 
@@ -33,6 +35,13 @@ func TestPlaybackLabel(t *testing.T) {
 type recordingSender struct{ msgs []any }
 
 func (r *recordingSender) Send(msg any) { r.msgs = append(r.msgs, msg) }
+
+func TestTuningLabel(t *testing.T) {
+	assert.Equal(t, "Tuning in to Groove Salad…", tuningLabel("Groove Salad", false))
+	assert.Equal(t, "Tuning in…", tuningLabel("", false))
+	assert.Equal(t, "Reconnecting to Groove Salad…", tuningLabel("Groove Salad", true))
+	assert.Equal(t, "Reconnecting…", tuningLabel("", true))
+}
 
 func TestSendRoutesToSender(t *testing.T) {
 	tr := New()
@@ -120,11 +129,11 @@ func TestFavoriteLocked(t *testing.T) {
 func TestStateUpdatesBeforeReady(t *testing.T) {
 	tr := New()
 	tr.SetPlaying("groovesalad", "Groove Salad", "A Track")
-	if !tr.playing || tr.playingID != "groovesalad" || tr.station != "Groove Salad" || tr.track != "A Track" {
+	if tr.mode != modePlaying || tr.playingID != "groovesalad" || tr.station != "Groove Salad" || tr.track != "A Track" {
 		t.Errorf("SetPlaying did not record state: %+v", tr)
 	}
 	tr.SetStopped()
-	if tr.playing || tr.playingID != "" || tr.station != "" || tr.track != "" {
+	if tr.mode != modeStopped || tr.playingID != "" || tr.station != "" || tr.track != "" {
 		t.Errorf("SetStopped did not clear state: %+v", tr)
 	}
 }

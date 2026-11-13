@@ -28,7 +28,7 @@ func TestTray_NamesWithUnderscoresReachTheMenuAsWritten(t *testing.T) {
 		"title: title ♪ Under_ground 80s — The_Artist - sub_mariner",
 		"play/stop: title Stop",
 		"tooltip: Soma — Under_ground 80s — The_Artist - sub_mariner",
-		"favorite: enable",
+		"favorite: enable", "icon: playing",
 		"channel 0: title ▸ Under_ground 80s",
 	}, menu.take())
 }

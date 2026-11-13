@@ -61,8 +61,9 @@ Linux and macOS — other platforms are not supported and may not work.
   it has played something, and the play key brings the last channel back
 - System tray / menu-bar icon (macOS and Linux) — shows the current track,
   lets you pick any channel from a menu, and gives you play/stop, next, and
-  previous while the server runs, even with the TUI closed. Disable
-  it with `soma daemon --no-tray`.
+  previous while the server runs, even with the TUI closed. The icon shows
+  whether playback is on, off, or still tuning in. Disable it with
+  `soma daemon --no-tray`.
 
 ## Installation
 
@@ -339,7 +340,9 @@ tray host is available) with the current track, a "Channels" submenu for
 switching stations (favorites first, marked ★, the playing one marked ▸),
 play/pause, next, previous, and stop controls, and a "★ Favorite" checkbox that
 marks or unmarks the playing channel, plus a "Quit" item that shuts the server
-down. Pass `soma daemon --no-tray` (or set `server.tray: false` in
+down. The icon itself shows the state: the full mark while playing, its arcs
+dimmed while stopped, and the arcs lighting up from the centre outwards while a
+channel tunes in or a dropped stream reconnects. Pass `soma daemon --no-tray` (or set `server.tray: false` in
 the [configuration file](#configuration)) to run without it. On a headless
 host (no D-Bus session bus on Linux, no GUI session on macOS) the tray is
 skipped automatically and the server, CLI, and TUI all keep working.
