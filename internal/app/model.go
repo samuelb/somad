@@ -33,6 +33,17 @@ type Model struct {
 	PlayingID string
 	// ServerLost is true while the server connection is being re-established.
 	ServerLost bool
+	// restarting is set from the moment the TUI shuts the server down for
+	// a restart of its own (restartCmd) until the reconnect delivers the
+	// fresh one: the connection it drops on the way is expected, so the
+	// card shows the restart, never an error.
+	restarting bool
+	// lostAlarm is set once a connection lost unasked has stayed lost for
+	// serverLostGrace (lostAlarmMsg of chain lostGen). Until then the card
+	// shows a calm reconnect: a daemon another client restarts for an
+	// upgrade is back within it.
+	lostAlarm bool
+	lostGen   int
 	// ServerVersion is the version the connected server reports. When it differs
 	// from About.Version the server is out of date and the next channel change,
 	// pause or stop restarts it onto ours (see skewed).

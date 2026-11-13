@@ -197,6 +197,7 @@ func (m *Model) playPauseCmd() tea.Cmd {
 // arrives. Playback is interrupted regardless, which is why the model only
 // restarts on a channel change, pause or stop the user asked for.
 func (m *Model) restartCmd() tea.Cmd {
+	m.restarting = true
 	b := m.Backend
 	return func() tea.Msg {
 		// The bridge drives the reconnect off the closed connection, so the
@@ -442,6 +443,24 @@ func (m *Model) syncSpectrum() tea.Cmd {
 	return func() tea.Msg {
 		return spectrumSubscribedMsg{backend: b, bands: want, err: b.SubscribeSpectrum(want)}
 	}
+}
+
+// serverLostGrace is how long a lost server connection may take to come
+// back before the card reports it as an error. A daemon restarted for an
+// upgrade by another client, or by itself, is back well within it.
+const serverLostGrace = 3 * time.Second
+
+// lostAlarmMsg ends the grace period of lost-connection chain gen; see
+// ServerLostMsg in Update.
+type lostAlarmMsg struct {
+	gen int
+}
+
+// lostAlarmCmd starts the grace period of the connection loss just noted.
+func (m *Model) lostAlarmCmd() tea.Cmd {
+	m.lostGen++
+	gen := m.lostGen
+	return tea.Tick(serverLostGrace, func(time.Time) tea.Msg { return lostAlarmMsg{gen: gen} })
 }
 
 // vizNoticeMsg ends the visualizer notice of chain gen; see cycleVisualizer.

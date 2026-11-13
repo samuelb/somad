@@ -24,6 +24,13 @@ the list only marked a channel once it was playing.
   rounded boxes with their title set into the top border (`ui.Card`); the
   now-playing border takes the state's color (teal playing, gold
   connecting, gray stopped, red disconnected).
+  - *Amendment 2026-11-13.* A lost daemon connection is red only once it
+    is not routine. A restart the TUI itself asked for (a version upgrade
+    or a lost audio device, `restartCmd`) shows gold "Updating" until the
+    fresh daemon is there; any other drop shows gold "Reconnecting" and
+    turns red "Disconnected" only after `serverLostGrace` (3 s), since a
+    daemon another client or the daemon itself restarts is back well
+    within it.
   - *Amendment 2026-11-09.* The history card follows what plays while it
     is open (`followHistory`): a new track fetches it again, and a new
     channel takes over its title and entries. It is not modal (see the

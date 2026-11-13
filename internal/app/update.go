@@ -128,6 +128,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		// No reconnect will follow, so a queued channel change would never
 		// play; drop it and tell the user instead of failing silently.
 		m.pendingPlayID, m.pendingStopAt, m.pendingResume = "", "", false
+		m.restarting = false
 		m.RequestErr = fmt.Sprintf("server restart failed: %v", msg.Err)
 		return nil
 
@@ -147,15 +148,21 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.applySpectrumSubscribed(msg)
 
 	case ServerLostMsg:
-		m.ServerLost = true
+		m.ServerLost, m.lostAlarm = true, false
 		m.viz.Reset() // no frames come until the reconnect
-		return m.syncAnim()
+		return tea.Batch(m.syncAnim(), m.lostAlarmCmd())
+
+	case lostAlarmMsg:
+		if msg.gen == m.lostGen && m.ServerLost {
+			m.lostAlarm = true
+		}
+		return nil
 
 	case ServerReconnectedMsg:
 		return m.applyReconnect(msg)
 
 	case ServerGoneMsg:
-		m.ServerLost = false
+		m.ServerLost, m.lostAlarm, m.restarting = false, false, false
 		m.Loading = false
 		m.Err, m.errKind = msg.Err, errDaemonGone
 		return nil
@@ -378,7 +385,7 @@ func (m *Model) fetchHistory() tea.Cmd {
 // applyReconnect swaps in the fresh backend after a reconnect and returns
 // the commands that resynchronize the model with it.
 func (m *Model) applyReconnect(msg ServerReconnectedMsg) tea.Cmd {
-	m.ServerLost = false
+	m.ServerLost, m.lostAlarm, m.restarting = false, false, false
 	m.Backend = msg.Backend
 	m.ServerVersion = msg.ServerVersion
 	// It may be a new daemon process, whose revisions start over: measured

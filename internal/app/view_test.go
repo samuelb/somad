@@ -257,11 +257,41 @@ func TestRenderNowPlaying_NoSleepTimerByDefault(t *testing.T) {
 
 func TestRenderNowPlaying_ServerLost(t *testing.T) {
 	m := newTestModel(t)
+	m.ServerLost, m.lostAlarm = true, true
+
+	result := m.RenderNowPlaying()
+
+	assert.Contains(t, result, "Disconnected")
+	assert.Contains(t, result, "server connection lost")
+}
+
+// A drop shorter than serverLostGrace reads as a reconnect, not an error:
+// another client may be restarting the daemon for an upgrade.
+func TestRenderNowPlaying_ServerLostWithinGrace(t *testing.T) {
+	m := newTestModel(t)
 	m.ServerLost = true
 
 	result := m.RenderNowPlaying()
 
-	assert.Contains(t, result, "server connection lost")
+	assert.Contains(t, result, "Reconnecting")
+	assert.NotContains(t, result, "Disconnected")
+	assert.NotContains(t, result, "server connection lost")
+}
+
+// A restart the TUI asked for is never shown as an error, however long the
+// fresh daemon takes.
+func TestRenderNowPlaying_Restarting(t *testing.T) {
+	m := newTestModel(t)
+	m.applySnapshot(protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelTitle: "Groove Salad", TrackTitle: "Old Song", Volume: 1})
+	m.ServerLost, m.lostAlarm, m.restarting = true, true, true
+
+	result := m.RenderNowPlaying()
+
+	assert.Contains(t, result, "Updating")
+	assert.Contains(t, result, "Restarting the daemon on the new version")
+	assert.NotContains(t, result, "Disconnected")
+	assert.NotContains(t, result, "server connection lost")
+	assert.NotContains(t, result, "Old Song")
 }
 
 func TestRenderHeader_ContainsTitles(t *testing.T) {

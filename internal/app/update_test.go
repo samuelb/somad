@@ -1311,6 +1311,46 @@ func TestUpdate_ServerLostAndReconnected(t *testing.T) {
 	assert.NotNil(t, cmd, "reconnect refetches channels and status")
 }
 
+func TestUpdate_ServerLostAlarm(t *testing.T) {
+	m := newTestModel(t)
+
+	m.Update(ServerLostMsg{})
+	stale := m.lostGen
+	m.Update(ServerReconnectedMsg{Backend: newFakeBackend()})
+	m.Update(ServerLostMsg{})
+
+	m.Update(lostAlarmMsg{gen: stale})
+	assert.False(t, m.lostAlarm, "an earlier loss's alarm is ignored")
+
+	m.Update(lostAlarmMsg{gen: m.lostGen})
+	assert.True(t, m.lostAlarm)
+
+	m.Update(ServerReconnectedMsg{Backend: newFakeBackend()})
+	assert.False(t, m.lostAlarm)
+}
+
+func TestUpdate_RestartIsClearedByReconnect(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(ServerStateMsg{State: protocol.PlaybackState{Status: protocol.StatusPlaying, ChannelID: "groovesalad", Volume: 1}})
+	m.About.Version, m.ServerVersion = "new", "old"
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	require.True(t, m.restarting, "stopping an out-of-date server restarts it")
+
+	m.Update(ServerLostMsg{})
+	m.Update(ServerReconnectedMsg{Backend: newFakeBackend()})
+	assert.False(t, m.restarting)
+}
+
+func TestUpdate_RestartFailedClearsRestarting(t *testing.T) {
+	m := newTestModel(t)
+	m.restarting = true
+
+	m.Update(RestartFailedMsg{Err: errors.New("boom")})
+
+	assert.False(t, m.restarting)
+}
+
 func TestUpdate_ServerGoneMsg_ShowsError(t *testing.T) {
 	m := newTestModel(t)
 	m.ServerLost = true

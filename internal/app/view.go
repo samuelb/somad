@@ -114,8 +114,19 @@ func (m *Model) RenderNowPlaying() string {
 		title = ui.StatusStoppedStyle.Render("■ Stopped")
 		hint = "Pick a station and press enter to tune in"
 	}
-	if m.ServerLost {
-		// The snapshot is stale until the reconnect delivers a fresh one.
+	// The snapshot is stale until the reconnect delivers a fresh one. A
+	// restart the TUI asked for, or a drop that has not yet outlasted
+	// serverLostGrace, is routine: only a drop that lasts reads as an error.
+	switch {
+	case m.ServerLost && m.restarting:
+		border = ui.PrimaryColor
+		title = ui.StatusConnectingStyle.Render(spinner + " Updating")
+		hint = "Restarting the daemon on the new version…"
+	case m.ServerLost && !m.lostAlarm:
+		border = ui.PrimaryColor
+		title = ui.StatusConnectingStyle.Render(spinner + " Reconnecting")
+		hint = "Reconnecting to the daemon…"
+	case m.ServerLost:
 		border = ui.ErrorColor
 		title = ui.StatusErrorStyle.Render(spinner + " Disconnected")
 	}
@@ -128,7 +139,7 @@ func (m *Model) RenderNowPlaying() string {
 	lines := []string{ui.SpaceBetween(width, channel, gauge)}
 
 	second := ui.SubtleStyle.Render(hint)
-	if st.TrackTitle != "" {
+	if st.TrackTitle != "" && (!m.ServerLost || !m.restarting) {
 		eq := ui.EqualizerRest
 		if m.eqPlays() {
 			eq = ui.Equalizer(m.frame)
@@ -147,7 +158,7 @@ func (m *Model) RenderNowPlaying() string {
 	if m.RequestErr != "" {
 		lines = append(lines, wrapErr.Render("✕ "+m.RequestErr))
 	}
-	if m.ServerLost {
+	if m.ServerLost && m.lostAlarm && !m.restarting {
 		lines = append(lines, wrapErr.Render("✕ server connection lost — reconnecting…"))
 	}
 
